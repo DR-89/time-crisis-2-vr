@@ -1,3 +1,5 @@
+> Historical Time Crisis (TC1) reference. This document is inherited from the first port and does not describe Time Crisis II validation. See the [TCII README](../README.md) for current status.
+
 # Camera alignment and Quest 2 refresh handling
 
 Implemented in v0.8.3. The tester confirmed the corresponding test build worked

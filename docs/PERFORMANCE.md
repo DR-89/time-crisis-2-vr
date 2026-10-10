@@ -1,3 +1,5 @@
+> Historical Time Crisis (TC1) reference. This document is inherited from the first port and does not describe Time Crisis II validation. See the [TCII README](../README.md) for current status.
+
 # Performance evidence
 
 ## Quest 3, v0.6.0, 2026-10-04

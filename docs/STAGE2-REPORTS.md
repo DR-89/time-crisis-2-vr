@@ -1,3 +1,5 @@
+> Historical Time Crisis (TC1) reference. This document is inherited from the first port and does not describe Time Crisis II validation. See the [TCII README](../README.md) for current status.
+
 # Stage 2 crash reports
 
 ## Status: awaiting a recorded failing session

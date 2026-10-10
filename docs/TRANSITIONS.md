@@ -59,6 +59,8 @@ renders the actual GLES renderer on ANGLE with a translated eye. `--x`, `--y` an
   without GL errors; dialogue and other text remain visible.
 - Both platform builds and APK verification pass. The packaged Windows build
   also completes a 1,501-frame desktop startup smoke test.
-- Test build 4 is installed on the Quest. The user deferred the in-headset
-  transition check; Quest gameplay confirmation and PCVR headset testing remain
-  pending and are not implied by the offline checks.
+- The same game code is released as v0.2.0. Quest footage was captured with test
+  build 4. A subsequent PCVR playtest through Virtual Desktop on Quest 3 confirmed
+  VR and controls; the runtime reported 90 Hz at 1980 x 2160 per eye on an RTX 3050
+  Laptop GPU. This short playtest does not establish full-game compatibility or
+  uninterrupted frame delivery in every scene.

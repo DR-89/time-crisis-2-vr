@@ -1,99 +1,76 @@
 # Development and validation
 
-## Layout
+## Active code
 
-- `quest/`: Android entry points, OpenXR host, GLES renderer, controller/input/UI and weapon asset.
-- `upstream/`: pinned [namco22-decompile](https://github.com/spacestate1/namco22-decompile) Git submodule.
-- `pc/`: Windows entry, OpenGL loader and CMake build; shares the Quest renderer/host.
-- `tools/patch_upstream.py`: guarded, idempotent changes to seven engine files and the Time Crisis dispatcher.
-- `tools/translate_crate.py`: ROM-verified build-time translation of 318 missing explosion-coroutine instructions.
-- `tools/build.py`: local ROM preparation, DSP/sound translation, CMake build, asset packaging, signing and alignment.
-- `tests/`: native math, GLES image comparisons, settings/cover, ROM import and package validation.
+- `upstream/`: pinned [namco22-decompile](https://github.com/spacestate1/namco22-decompile) submodule at `0837a397ebe554dbf5341d95629aa1e29fc58a52`.
+- `quest/tc2_sources.cmake`: authoritative System 23 source list.
+- `quest/tc2_scene.c` and `quest/tc2_gl.c`: arcade geometry reconstruction and VR rendering.
+- `quest/quest_host.c`: shared OpenXR host, frame pacing and controls.
+- `quest/quest_gun.c`, `quest/tc2_weapon.h`: animated weapons and arcade weapon-state decoding.
+- `pc/`: Windows entry point, OpenGL loader and CMake build.
+- `tools/prepare_tc2.py`: validates the 22 ROM chips and prepares the native game sources.
 
-Use `git submodule update --init` after a non-recursive clone. Do not commit generated upstream sources or extracted game files. ROM files are inputs to the local build, not Git source files.
+TC1-specific files such as `tools/patch_upstream.py`, `tools/translate_crate.py`, `quest/quest_scene.c` and the historical TC1 test scripts are inherited reference material. They are not part of the active TCII build unless listed in `tc2_sources.cmake`.
 
-## Tests
+## Windows build environment
 
-Windows tests use Python 3. Rendering fixtures additionally need Pillow, MSVC and the ANGLE DLLs from VS Code. `Test-Quest.ps1` locates MSVC through vswhere.
+Install Git, Python 3 and CMake on PATH. Clone recursively, or run `git submodule update --init upstream` after cloning. The Windows build fetches its pinned SDL2, OpenXR loader, Ninja, LLVM-MinGW and zlib dependencies into `.tools/`.
 
-```powershell
-./Test-Quest.ps1
-python tests/test_shaders.py
-python tests/test_render_batches.py
-python tests/test_render_batches.py --multiview
-python tests/test_rasters.py
-python tests/test_sprite_cache.py
-python tests/test_patches.py
-python tests/test_gun_render.py
-python tests/test_options.py
-python tests/test_handedness.py
-python tests/test_color.py
-python tests/verify_apk.py
-python tests/verify_apk.py --apk artifacts/bundled/TimeCrisisVR-with-ROM.apk
-python tests/test_pc.py
-python tests/test_pc.py --replay 'C:\path\to\last-session.inputs' --frames 15000
-```
-
-`verify_apk.py` checks either APK variant: ROM hashes (bundled chip bytes or local build inputs), weapon bytes, ARM64 ELF files, DEX and build hash. It also checks the compiled manifest: the complete APK launches `MainActivity` directly, that activity retains both VR categories in every variant, and the optional 2D setup uses a separate task. Packaging verifies APK signing and 16 KiB ZIP alignment.
-
-`test_handedness.py` uses the LLVM/MinGW toolchain and headers installed by `Build-PC.ps1`. It compiles the real shared host input code with mocked OpenXR calls and checks both grip inputs, trigger handoffs, short taps, simultaneous presses, arcade fire edges, pose/haptic routing, stable face buttons, saved defaults and focus/tracking/action loss. `test_options.py` renders both menu layouts and checks all eight saved preference combinations. `test_gun_render.py` checks eight gun views, separate slide/trigger motion, a stationary grip, the 150 ms return and stable aim origin. These checks do not replace an in-headset playtest.
-
-`test_color.py` checks sRGB capability detection, format ordering and the RGBA8 fallback. For an actual Quest GPU comparison, run `python tests/test_color_device.py --adb C:\platform-tools\adb.exe --serial YOUR_SERIAL`. It compares raw output across RGBA8, sRGB stereo and sRGB multiview, including the arcade gamma pass. ANGLE without `GL_EXT_sRGB_write_control` cannot replace that device check.
-
-For launch changes, test opening the app from the Quest library and confirm immersive display in the headset. OpenXR initialization alone does not establish that the app actually opened in VR; the v0.7.1/v0.7.2 launch regression passed that weaker check.
-
-The pure Java importer can be tested without Android:
+For Android, install a JDK and set `JAVA_HOME`. Install Android SDK **platform 35**, **build-tools 35.0.1** and **NDK 28.2.13676358**. Place the SDK at `.tools/android-sdk`, or create a junction to an existing SDK:
 
 ```powershell
-New-Item -ItemType Directory -Force build/rom-import-test
-javac -d build/rom-import-test quest/java/org/timecrisis/quest/RomInstaller.java tests/RomInstallerTest.java
-java -cp build/rom-import-test RomInstallerTest
+New-Item -ItemType Directory -Force .tools
+New-Item -ItemType Junction -Path .tools/android-sdk -Target "$env:LOCALAPPDATA\Android\Sdk"
 ```
 
-Optional arguments are a matching local `timecris.zip` and the `roms.sha256` manifest extracted from the APK; they enable a full real-ROM import round trip. The fixture removes only its own temporary test directory.
+Use the SDK's `sdkmanager` or Android Studio SDK Manager to install the required versions. The build scripts do not install these SDK components automatically. Do not delete an existing SDK when configuring this path.
 
-## Device diagnostics
-
-```sh
-adb logcat -s TCVR TCVR-ROM SDL OpenXR
-adb shell run-as org.timecrisis.quest cat files/timecris-vr.log
-adb shell run-as org.timecrisis.quest cat files/quest-options.cfg
-adb shell run-as org.timecrisis.quest touch files/capture.request
-```
-
-Capture writes `eye-0.ppm` and `eye-1.ppm` in private app files and may cause a brief hitch. Do it outside timed performance windows.
+Build using the arcade `timecrs2.zip`:
 
 ```powershell
-python tools/device_check.py --serial YOUR_SERIAL --capture
-python tools/perf_report.py artifacts/perf-window --capture --seconds 120
+python -X utf8 tools/build_pc.py --rom "$env:USERPROFILE\Downloads\timecrs2.zip" --jobs 2
+python -X utf8 tools/build.py --rom "$env:USERPROFILE\Downloads\timecrs2.zip" --bundle-roms --jobs 2
 ```
 
-The device check targets the default ROM-free artifact. For a bundled install, compare the installed package hash to `artifacts/bundled/build-info.json` separately. Reports are local and ignored by Git. Current historical measurements are summarized in [PERFORMANCE.md](PERFORMANCE.md).
+After successful preparation, `--skip-prepare` reuses the validated generated inputs. `tools/build.py --package-only --bundle-roms` repackages the already-built Android libraries. Omitting `--bundle-roms` produces a ROM-free APK with a ZIP import screen; public v0.2.0 downloads use the bundled variant.
 
-A private `files/refresh-rate.txt` can request another supported refresh rate on next startup; default is 120 Hz. `files/profile.request` enables detailed engine timers. Neither setting is shown in the player menu.
+Outputs:
 
-`Export-Quest-Diagnostics.ps1` copies current and previous logs/input recordings,
-saved options and Android exit details into a local ignored artifact directory.
-It also creates a ZIP for sharing, selects a Quest automatically when exactly
-one is connected, and accepts `-Adb` and `-Serial` overrides. Missing optional
-files are listed in the report. See [Stage 2 report collection](STAGE2-REPORTS.md).
-Input recordings preserve the starting EEPROM and arcade controls. They do not
-record video, audio or headset poses. Windows writes equivalent recordings beside
-the executable. Replays preserve those session files. See [the explosive-box
-regression](CRASH-FIX.md) for the reproduced failure and repair.
+- `artifacts/bundled/TimeCrisis2VR-with-ROM.apk`
+- `artifacts/pc/TimeCrisis2VR-PC/TimeCrisis2VR.exe`
+- `artifacts/pc/TimeCrisis2VR-v0.2.0-windows-x64.zip`
 
-For desktop render diagnostics, `TCVR_FAST=1` disables real-time pacing,
-`TCVR_CAPTURE_FRAME=600` saves a PPM on that rendered frame, and
-`TCVR_SCENE_VIEW=1` uses reconstructed world geometry instead of the normal flat
-camera. `TCVR_GEOMETRY_DIAGNOSTICS=1` reports scene distances. These are developer
-environment variables, not player menu settings. `--no-dialog` suppresses startup
-error dialogs for automated tests. Use `--headless --replay FILE --frames N` for
-simulation-only regression tests without a headset.
+The ROM preparer checks chip sizes and CRCs against the upstream table, records SHA-256 hashes in `build/rom-audit.json` and accepts equivalent filenames by matching content. ROMs, generated sources, keys and build output remain outside Git. APK signing uses the local `.tools/debug.keystore`; retain the same private key to update existing installations.
 
-## Reproducibility and packaging
+## Validation
 
-Upstream commit: `6aaa90b4cbc7a23733e1c9f5f9a5e772a19fe23d`. The sound coverage supplement `quest/snd_extra.cov` adds a ROM-backed return instruction observed at `00DABE` during hardware testing. The translator regenerates it from the local ROM.
+```powershell
+python -X utf8 tests/test_handedness.py
+python -X utf8 tests/verify_apk.py
+```
 
-Packaging uses a fresh asset staging directory. ROM-free builds include only manifests, the generated player model and license notices; bundled builds also include the supplied ROM directory. Models and every required game chip are verified at startup. Settings and EEPROM data are private app files and are preserved on APK updates.
+The input fixture compiles the real host input code with a mock OpenXR runtime. It checks both hands, trigger handoffs, grip cover, pitch, saved layouts, tracking/focus loss and sparse replay preservation. The APK verifier checks all chip hashes, both weapon assets, ARM64 libraries, the immersive entry point, DEX and the package hash. Packaging additionally verifies the signature and 16 KiB ZIP alignment.
 
-APK signing uses a local development keystore under `.tools/`. Keep that key private and backed up if distributing updates; another key cannot replace an existing installation with `adb install -r`.
+`tests/tc2_scene_fixture.c` covers projection, aiming, HUD and mask classification. Compile it with `quest/tc2_scene.c` and the Quest / upstream TCII include paths. `tests/tc2_weapon_fixture.c` covers the arcade weapon-state decoder. The production GLES fixtures use MSVC, Pillow and ANGLE DLLs from VS Code; see [transition validation](TRANSITIONS.md) and [weapon validation](WEAPONS.md). Automated checks complement headset testing.
+
+v0.2.0 preserves the native game code tested in `0.1.0-test.4`. Quest 3 gameplay and a Windows PCVR session through Virtual Desktop were tested. A complete-game playthrough remains pending.
+
+## Diagnostics and replay
+
+```powershell
+./Export-Quest-Diagnostics.ps1
+adb shell run-as org.timecrisis2.arcadevr cat files/timecrisis2-vr.log
+adb shell run-as org.timecrisis2.arcadevr touch files/capture.request
+```
+
+The exporter accepts `-Adb`, `-Serial` and `-Output`. It saves current/previous logs and input recordings, options and Android exit information locally. The capture request writes `eye-0.ppm` / `eye-1.ppm` in app-private files and can briefly stall rendering.
+
+On Windows, `tc2.log`, `tc2-previous.log`, `tc2_last.rec`, `tc2_prev.rec` and cabinet backup RAM reside beside the executable. To replay:
+
+```powershell
+./TimeCrisis2VR.exe --desktop --replay session.rec --frames 12000
+```
+
+Recordings store arcade input changes, not the starting cabinet backup RAM, headset poses or video. Exact reproduction needs matching cabinet settings. Live input is suppressed during replay so held recorded inputs survive frames without a new entry.
+
+For local graphics analysis, `TCVR_SCENE_VIEW=1` enables reconstructed geometry in desktop mode and `TCVR_FAST=1` disables real-time pacing. `TC2_FRAME_CAPTURE` and `TC2_FRAME_RANGE` save renderer snapshots; details are in [TRANSITIONS.md](TRANSITIONS.md). Keep these ROM-derived diagnostic files in ignored local folders.

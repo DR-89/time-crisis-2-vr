@@ -1,6 +1,6 @@
 # Attribution and license scope
 
-Time Crisis II VR is an unofficial local port for Meta Quest 3 and Windows. It is not
+Time Crisis II VR is an unofficial port for Meta Quest 3 and Windows. It is not
 affiliated with or endorsed by Namco, Bandai Namco, or Meta.
 
 - **VR port code:** DR-89 and contributors, MIT; see [LICENSE](LICENSE).
@@ -22,17 +22,18 @@ affiliated with or endorsed by Namco, Bandai Namco, or Meta.
   recorded in `quest/assets/models/player-gun.json`. The model is not extracted
   from Time Crisis. The earlier Tripo3D model remains in the Git history.
 - **Machine-gun model:** generated with Tripo3D and supplied by the user as
-  `compact+submachine+gun+3d+model.glb`. Imported and optimized for the local
-  test builds; source checksum, calibration and conversion details are in
+  `compact+submachine+gun+3d+model.glb`. Imported and optimized for this port;
+  source checksum, calibration and conversion details are in
   `quest/assets/models/machine-gun.json`. This model is not an original arcade
   asset and is not covered by the port code's MIT license.
 - **OpenXR host and controller features:** adapted from
   [DR-89/time-crisis-vr v0.8.4](https://github.com/DR-89/time-crisis-vr/tree/v0.8.4), MIT.
 - **Time Crisis II, original game program, graphics, sound, ROM contents and trademarks:**
   belong to their respective original rights holders. They are not covered by this
-  project's MIT license. Local bundled APK and Windows test packages include the supplied game files;
+  project's MIT license. Bundled APK and Windows packages include the supplied game files;
   a ROM-free APK requires the user to supply them separately.
 
 The repository contains the port, build/import tools and a reference to upstream.
 ROM archives, extracted ROMs, signing keys, generated build output and APKs are
-excluded from Git. This Time Crisis II port has not been published.
+excluded from Git. Downloadable binaries are distributed separately as GitHub
+release assets at https://github.com/DR-89/time-crisis-2-vr/releases.

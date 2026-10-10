@@ -49,7 +49,7 @@ To reproduce the asset, install Python with NumPy and Pillow and Node.js, then r
 
 ```powershell
 npm install --prefix .tools/meshoptimizer --ignore-scripts --save-exact meshoptimizer@1.3.0
-python -X utf8 tools/import_machine_gun.py "C:\Users\Dirk\Downloads\compact+submachine+gun+3d+model.glb" quest/assets/models/machine-gun.tcgun
+python -X utf8 tools/import_machine_gun.py "C:\path\to\compact+submachine+gun+3d+model.glb" quest/assets/models/machine-gun.tcgun
 ```
 
 The importer deliberately accepts only this inspected export. Its calibration
@@ -69,7 +69,9 @@ output path to generate the full-geometry reference for comparison.
   runtime cadence samples report 120 Hz. Stereo captures verify the pistol and
   HUD, while the machine-gun interval is confirmed by the state log. Subjective
   grip/animation feedback was positive (the user confirmed it works well).
-  PCVR headset testing remains deferred.
+  The subsequent v0.2.0 release candidate was also tested through Virtual Desktop
+  on Quest 3; the user confirmed that VR and controls work. This was a short
+  gameplay check, not a complete playthrough of every weapon section.
 - The input fixture preserves the held trigger for 120 simulation ticks.
 - Weapon-state fixtures cover both player slots, endian order, unrelated flags,
   invalid slots and bounded reads. These synthetic tests complement the observed

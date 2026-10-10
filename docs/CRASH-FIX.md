@@ -1,3 +1,5 @@
+> Historical Time Crisis (TC1) reference. This document is inherited from the first port and does not describe Time Crisis II validation. See the [TCII README](../README.md) for current status.
+
 # Stage 1 explosive-box regression
 
 The reported crash was reproduced on Quest 3 after the helicopter/car sequence.
