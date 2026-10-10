@@ -1,12 +1,12 @@
 # Attribution and license scope
 
-Time Crisis VR is an unofficial community port for Meta Quest 3 and Windows. It is not
+Time Crisis II VR is an unofficial local port for Meta Quest 3 and Windows. It is not
 affiliated with or endorsed by Namco, Bandai Namco, or Meta.
 
 - **VR port code:** DR-89 and contributors, MIT; see [LICENSE](LICENSE).
 - **Underlying game reconstruction and shared engine:**
   [spacestate1/namco22-decompile](https://github.com/spacestate1/namco22-decompile),
-  pinned at `6aaa90b4cbc7a23733e1c9f5f9a5e772a19fe23d`.
+  pinned at `0837a397ebe554dbf5341d95629aa1e29fc58a52`, using its `tc2/` System 23 core.
   Its MIT notice credits **Copyright (c) 2026 cmcrann** and is preserved in
   the submodule and APK's `assets/licenses/namco22-LICENSE.txt`.
 - **SDL 2.30.11:** zlib license; original notice included in the APK.
@@ -21,11 +21,13 @@ affiliated with or endorsed by Namco, Bandai Namco, or Meta.
   separate body, trigger and slide parts. Provenance, geometry and checksums are
   recorded in `quest/assets/models/player-gun.json`. The model is not extracted
   from Time Crisis. The earlier Tripo3D model remains in the Git history.
-- **Time Crisis, original game program, graphics, sound, ROM contents and trademarks:**
+- **OpenXR host and controller features:** adapted from
+  [DR-89/time-crisis-vr v0.8.4](https://github.com/DR-89/time-crisis-vr/tree/v0.8.4), MIT.
+- **Time Crisis II, original game program, graphics, sound, ROM contents and trademarks:**
   belong to their respective original rights holders. They are not covered by this
-  project's MIT license. Bundled APK and Windows releases include these original game files;
+  project's MIT license. Local bundled APK and Windows test packages include the supplied game files;
   a ROM-free APK requires the user to supply them separately.
 
 The repository contains the port, build/import tools and a reference to upstream.
 ROM archives, extracted ROMs, signing keys, generated build output and APKs are
-excluded from Git. APKs and Windows ZIPs are distributed separately as release assets.
+excluded from Git. This Time Crisis II port has not been published.

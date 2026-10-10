@@ -1,7 +1,7 @@
 #define QGL_IMPLEMENTATION
 #include <GL/gl.h>
 #include "quest_gl.h"
-#include "post_gl.h"
+
 #include "quest_log.h"
 #include <stdlib.h>
 #include <string.h>

@@ -17,7 +17,8 @@ static XrTime trigger_times[2];
 static bool trigger_active[2]={true,true};
 static XrPath last_haptic,last_stop;
 static XrResult sync_result=XR_SUCCESS;
-static uint16_t arcade_bits;
+uint16_t tc2_inputs;
+#define arcade_bits tc2_inputs
 static float reported_rate=72;
 static unsigned rate_requests;
 static XrResult XRAPI_CALL mock_get_rate(XrSession s,float *rate){(void)s;*rate=reported_rate;return XR_SUCCESS;}
@@ -94,7 +95,7 @@ XRAPI_ATTR XrResult XRAPI_CALL xrApplyHapticFeedback(XrSession s,const XrHapticA
 XRAPI_ATTR XrResult XRAPI_CALL xrStopHapticFeedback(XrSession s,const XrHapticActionInfo *info){
     (void)s;assert(info->action==haptic_action);last_stop=info->subactionPath;return XR_SUCCESS;
 }
-void eng_audio_set_volume(int v){(void)v;}
+void tc2_audio_volume(int v){(void)v;}
 void ss22_snd_inputs(uint16_t bits,unsigned w,unsigned p1,unsigned p2){(void)w;(void)p1;(void)p2;arcade_bits=bits;}
 V3 qgun_muzzle(V3 p,Q4 q){return add(p,rotate(q,v3(0,0,-.1f)));}
 bool qvr_aim(V3 p,V3 d,float *x,float *y,V3 *hit){*x=p.x+.5f;*y=.5f;*hit=add(p,mul(d,2.f));return true;}
@@ -194,7 +195,7 @@ int main(void){
     for(int n=0;n<6;n++)tick();
     assert(!recenter_requested&&coin_frames==0&&options.laser_enabled==laser&&options.physical_crouch==physical);
     memset(buttons,0,sizeof buttons);triggers[0]=triggers[1]=0;tick();
-    click(lower_action,RIGHT_HAND);assert(coin_frames==36);coin_frames=0;
+    click(lower_action,RIGHT_HAND);assert(coin_frames==48);coin_frames=0;
     click(lower_action,LEFT_HAND);assert(recenter_requested);
     click(upper_action,RIGHT_HAND);assert(options.laser_enabled!=laser);
     click(upper_action,LEFT_HAND);assert(options.physical_crouch!=physical);
@@ -227,6 +228,14 @@ int main(void){
     controller_rotation=product((Q4){0,sinf(.6f),0,cosf(.6f)},controller_rotation);tick();
     V3 forward=rotate(gun_rotation,v3(0,0,-1));assert(fabsf(forward.y)<1e-6f&&fabsf(forward.x+sinf(1.2f))<1e-6f);
     controller_rotation=(Q4){0,0,0,1};click(pitch_reset_action,2);tick();assert(options.gun_pitch==0&&gun_rotation.w==1);
-    puts("PASS: real host controls, gun pitch persistence/bounds/repeat/reset, model/muzzle/aim alignment in both hands, local-space correction, focus/action loss and existing input regressions");
+    /* TC2's US cabinet needs four coins per game. A single credit action
+     * emits four separate edges, without changing trigger/grip semantics. */
+    paused=false;trigger=pedal=0;shot_pending=shot_needs_release=false;coin_frames=48;
+    int pulses=0,previous=0;
+    for(int n=0;n<60;n++){ss22_input_update();int on=(arcade_bits&1)!=0;pulses+=on&&!previous;previous=on;}
+    assert(pulses==4&&coin_frames==0);
+    nx=0;ny=0;ss22_input_update();assert(g_ss22_gun_x==91&&g_ss22_gun_y==38);
+    nx=1;ny=1;ss22_input_update();assert(g_ss22_gun_x==824&&g_ss22_gun_y==285);
+    puts("PASS: TC2 four-credit sequence and gun ADC bounds; real host controls, gun pitch persistence/bounds/repeat/reset, model/muzzle/aim alignment in both hands, local-space correction, focus/action loss and existing input regressions");
     return 0;
 }

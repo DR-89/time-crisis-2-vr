@@ -1,4 +1,4 @@
-package org.timecrisis.quest;
+package org.timecrisis2.arcadevr;
 
 import android.app.Activity;
 import android.content.Intent;
@@ -17,9 +17,9 @@ public final class LauncherActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         LinearLayout layout = new LinearLayout(this); layout.setOrientation(LinearLayout.VERTICAL); layout.setPadding(40,40,40,40);
-        TextView title = new TextView(this); title.setText("Time Crisis VR — Setup"); title.setTextSize(26); layout.addView(title);
+        TextView title = new TextView(this); title.setText("Time Crisis II VR - Setup"); title.setTextSize(26); layout.addView(title);
         status = new TextView(this); status.setTextSize(18); status.setPadding(0,24,0,24); layout.addView(status);
-        choose = new Button(this); choose.setText("Select your timecris.zip"); layout.addView(choose);
+        choose = new Button(this); choose.setText("Select your timecrs2.zip"); layout.addView(choose);
         retry = new Button(this); retry.setText("Check files again"); layout.addView(retry);
         choose.setOnClickListener(v -> {
             try { startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE), PICK_ROM); }
@@ -33,18 +33,18 @@ public final class LauncherActivity extends Activity {
     }
     private void showMissing(String detail) {
         Log.i("TCVR-ROM", detail);
-        status.setText(detail + "\n\nGame files are not included. Supply your own Time Crisis World TS2 Ver.B ROM set (timecris.zip).\n\nYou can also use Install-ROM.ps1 via USB. No game files are downloaded by this app.");
+        status.setText(detail + "\n\nGame files are not included. Supply your own Time Crisis II US TSS3 Ver.B ROM set (timecrs2.zip).\n\nYou can also use Install-ROM.ps1 via USB. No game files are downloaded by this app.");
         choose.setEnabled(true); retry.setEnabled(true);
     }
     private void prepare(Uri selected) {
-        choose.setEnabled(false); retry.setEnabled(false); status.setText("Checking and preparing your game files…");
+        choose.setEnabled(false); retry.setEnabled(false); status.setText("Checking and preparing your game files...");
         new Thread(() -> {
             File imported = null;
             try {
                 Map<String,String> expected = RomInstaller.manifest(getAssets().open("roms.sha256"));
-                File directory = new File(getFilesDir(), "roms");
+                File directory = new File(getFilesDir(), "extracted");
                 if (selected != null) {
-                    imported = new File(getCacheDir(), "selected-timecris.zip");
+                    imported = new File(getCacheDir(), "selected-timecrs2.zip");
                     try (InputStream in = getContentResolver().openInputStream(selected); FileOutputStream out = new FileOutputStream(imported)) {
                         if (in == null) throw new IOException("Cannot open selected ZIP");
                         byte[] buffer = new byte[65536]; int n; long total = 0;
@@ -72,7 +72,7 @@ public final class LauncherActivity extends Activity {
                         if (!RomInstaller.ready(directory, expected)) throw new IOException("Bundled ROM verification failed");
                     } else {
                     File external = getExternalFilesDir(null);
-                    File archive = external == null ? null : new File(external, "timecris.zip");
+                    File archive = external == null ? null : new File(external, "timecrs2.zip");
                     if (archive == null || !archive.isFile()) throw new IOException("Your ROM set is needed before the first start.");
                     RomInstaller.importZip(archive, directory, expected);
                     }

@@ -1,4 +1,4 @@
-package org.timecrisis.quest;
+package org.timecrisis2.arcadevr;
 
 import java.io.*;
 import java.nio.file.*;
@@ -8,7 +8,7 @@ import java.util.zip.*;
 
 /** Imports only checksum-matched chip files, never ZIP paths. No Android dependency. */
 public final class RomInstaller {
-    private static final int MAX_CHIP = 4 * 1024 * 1024;
+    private static final int MAX_CHIP = 8 * 1024 * 1024;
     public static Map<String,String> manifest(InputStream stream) throws IOException {
         Map<String,String> result = new LinkedHashMap<>();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, "UTF-8"))) {
@@ -66,7 +66,7 @@ public final class RomInstaller {
             }
             for (Map.Entry<String,String> item : expected.entrySet())
                 if (!matches.containsKey(item.getValue()))
-                    throw new IOException("Missing or incorrect " + item.getKey() + ". Use Time Crisis World TS2 Ver.B (timecris).");
+                    throw new IOException("Missing or incorrect " + item.getKey() + ". Use Time Crisis II US TSS3 Ver.B (timecrs2).");
             if (!directory.isDirectory() && !directory.mkdirs()) throw new IOException("Cannot create ROM directory");
             for (Map.Entry<String,String> item : expected.entrySet()) {
                 File temp = new File(directory, item.getKey() + ".tmp");

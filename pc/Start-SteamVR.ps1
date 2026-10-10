@@ -7,7 +7,7 @@ try {
     }
     $env:XR_RUNTIME_JSON = $runtime
     Set-Location -LiteralPath $PSScriptRoot
-    & (Join-Path $PSScriptRoot 'TimeCrisisVR.exe')
+    & (Join-Path $PSScriptRoot 'TimeCrisis2VR.exe')
 } catch {
     Write-Host $_.Exception.Message
     Read-Host 'Press Enter to close'

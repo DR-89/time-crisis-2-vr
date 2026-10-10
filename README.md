@@ -1,236 +1,65 @@
-# Time Crisis VR for Meta Quest and Windows
+# Time Crisis II VR
 
-An experimental VR port of **Time Crisis** for **Meta Quest** and **Windows PCVR**, with a tracked 3D pistol, stereo rendering, original arcade gameplay and sound, and a choice of physical ducking or grip-controlled cover. Tested on Quest 3; the APK also declares Quest 2 and Quest 3S compatibility. The Windows build includes a mouse-controlled monitor mode.
+A local Quest 3 and Windows PCVR port of the **arcade version** of Time Crisis II (US, TSS3 Ver. B).
 
-**Built on [spacestate1/namco22-decompile](https://github.com/spacestate1/namco22-decompile).** This project adds the Android/OpenXR host, Quest renderer, VR aiming, player weapon and controls to that reconstruction. The original arcade logic and shared engine come from upstream; this is not an independent recreation of the game.
+Based on the native System 23 game core in [spacestate1/namco22-decompile](https://github.com/spacestate1/namco22-decompile/tree/0837a397ebe554dbf5341d95629aa1e29fc58a52/tc2), with the OpenXR host and controller features adapted from [Time Crisis VR v0.8.4](https://github.com/DR-89/time-crisis-vr/tree/v0.8.4).
 
-[Downloads](https://github.com/DR-89/time-crisis-vr/releases) · [Quest quickstart](docs/QUICKSTART.md) · [Windows / PCVR](docs/PCVR.md) · [Technical notes](docs/DEVELOPMENT.md) · [Attribution](NOTICE.md)
+This is a separate app: Android package `org.timecrisis2.arcadevr`. It does not replace Time Crisis VR or the separate PS2 research project.
 
-![Time Crisis running on Quest 3, with the tracked player pistol](docs/images/gameplay.png)
+## Development status
 
-*Actual app eye capture. The screenshot is from the 0.6.0 performance test; it is not a mockup.*
+Local test builds are available for both platforms. The Quest 3 build boots directly in immersive VR, renders separate eye views and has reached gameplay with a tracked pistol. The first headset log confirms 120 Hz; a short 160-second runtime sample reported at least 119 submitted frames/s in 159 samples. These samples include capture stalls and focus changes and do not establish full-game or thermal stability. Windows desktop and spatial-renderer replays reached gameplay and shut down normally with zero processor traps. PCVR headset validation is still pending. No release has been published.
 
-## Current status
+Test build 2 also keeps the health and ammunition models on the HUD plane, so head translation does not separate them from their frames. Full-stage compatibility, stereo scale, aiming accuracy, audio and sustained performance still need broader gameplay testing.
 
-**v0.8.4 — experimental, Quest ARM64 and Windows x64.** Adds a saved gun-angle
-adjustment in options, confirmed working on Quest 3. A live Stage 2 test completed
-without a crash. The reported chandelier/stairs crashes have not been reproduced;
-this release does not claim to fix them. See [report collection](docs/STAGE2-REPORTS.md).
-Quest 2 hardware refresh measurements and a new live PCVR check remain pending.
+On 2026-10-10, the first Quest play session exited normally at frame 18,277 with zero CPU traps, zero floating-point exceptions and no unknown C435 commands. A Windows spatial-renderer run using the captured input sequence also exited normally at frame 18,270. The HUD-corrected test build 2 is installed, but its final visual check in the headset is pending. The PCVR headset test was deferred by the user.
 
-Changes in v0.8.4:
-
-- Adjust **GUN ANGLE** from -60 to +60 degrees in 1-degree steps with the right stick while options are open; click the left stick to reset to zero.
-- Negative angles lower the barrel. Model, muzzle, laser and shot direction use the same correction, saved for both hands. Existing settings are retained; the default angle is zero.
-- Windows PCVR also accepts Up/Down and Home in options. Desktop mouse projection is unchanged.
-- A diagnostic helper exports current/previous logs, input recordings and Android exit details to a ZIP. No diagnostics are uploaded automatically.
-
-Changes in v0.8.3:
-
-- Fix for off-centre aim/impact mismatch: the old flat layer used a 500 px focal length while the recorded arcade camera uses 772.5625 px, making the flat layer about 1.545 times too wide.
-- Shot-mark sprites now use the nearest hit surface's depth, with an aligned flat-plane fallback. Other HUD sprites remain flat; normal desktop mouse projection is unchanged.
-- Explicit Quest 2 manifest entry. Prefer 120 Hz when supported, otherwise the highest supported lower rate, such as 90 Hz. Confirm the actual rate and retry requests a bounded number of times after focus.
-- Pixel-level projection tests pass, and the recorded Stage 1 session renders through 15,000 frames without CPU traps. See [camera alignment and refresh validation](docs/AIM-PROJECTION.md).
-
-Changes in v0.8.2:
-
-- New CC0 arcade pistol with a moving slide and trigger; recoil does not alter the aim ray.
-- Either grip holds the virtual pedal. Both triggers select their controller and fire.
-- Saved default hand keeps face-button roles stable during play. Physical ducking remains available.
-- Corrected sRGB output prevents a second gamma encoding from washing out the arcade colours. The tester confirmed the improved appearance on Quest 3.
-
-**Upgrading from v0.8.1:** cover has moved from the other controller's trigger to **either grip button**. Both triggers now select their own controller and fire. Existing laser, default-hand and physical-ducking preferences are preserved. The saved default hand controls the face-button layout; automatic handoffs do not swap those buttons.
-
-Earlier builds established Quest gameplay, physical ducking and left-handed play. A Quest 3 connected through Virtual Desktop displayed stereo PCVR at 90 Hz on an RTX 3050 Laptop GPU, and the tester confirmed VR and controls worked. Those checks predate the v0.8.2 control changes. A complete playthrough and every boss/edge-case hit have not been verified.
-
-Changes in v0.8.0:
-
-- Native Windows OpenXR/OpenGL port, plus a desktop mouse mode.
-- Arcade timing stays independent of compositor half-rate modes such as 45 Hz reprojection.
-- Laser assistance is **on by default**; the weapon-hand upper button toggles it silently and saved choices are retained.
-- Fix for the reproduced Stage 1 explosive-box exit: 318 omitted original instructions are translated at build time. The recorded failing session now passes frame 12,087 and runs through frame 15,000. See the [regression details](docs/CRASH-FIX.md).
-- An infinite far plane prevents distant scenery from being clipped at the former 2 km limit. This addresses distant geometry loss; other missing-texture reports and geometry outside the original arcade camera still need testing.
-- Current and previous session recordings/logs for reproducible bug reports.
-
-The direct immersive Quest launcher fix from v0.7.3 is retained. Versions v0.7.1 and v0.7.2 could open as a flat panel.
-
-The headset is asked to run at **120 Hz** when the runtime supports it, with a supported lower-rate fallback. This is a target, not a guarantee of perfectly stable 120 FPS. Quest 2's actual rate still needs a device measurement. See the measured results below.
-
-## Download and install
-
-1. Download **`TimeCrisisVR-v0.8.4-quest.apk`** from [Releases](https://github.com/DR-89/time-crisis-vr/releases).
-2. Enable developer mode on the Quest, connect it by USB and allow USB debugging.
-3. Install the APK with SideQuest or Android platform-tools:
-
-   ```sh
-   adb install -r TimeCrisisVR-v0.8.4-quest.apk
-   ```
-
-4. Open **Time Crisis VR (Experimental)** from the Quest library's **Unknown sources** section.
-5. After the arcade startup, press **A on the right controller** (or **X** with the saved default hand set to LEFT), wait briefly for the three credits, then press **either trigger** to select that hand and start.
-
-The bundled release APK includes the supplied Time Crisis ROM set and prepares it automatically on first start. **No separate ZIP selection or ROM import is required for that APK.** First startup can take a little longer while files are verified. Original game content is distinct from the MIT-licensed port code; see [NOTICE.md](NOTICE.md).
-
-Updates installed with `adb install -r` retain your settings and game data. Uninstalling the app removes its private data. The APK uses the project's development signing key and remains debuggable for diagnostics; this is a sideload release, not a store release. The private signing key is not in the repository.
-
-### Windows / PCVR
-
-Extract **`TimeCrisisVR-v0.8.4-windows-x64.zip`** to a writable folder. Connect the
-headset through your PC VR software, select an OpenXR runtime with OpenGL support,
-then open **Play VR.cmd**. **Play SteamVR.cmd** selects an installed SteamVR runtime
-for this launch only. **Play Desktop.cmd** starts mouse/keyboard play on a monitor.
-Keep the complete extracted folder together. See [PCVR setup and controls](docs/PCVR.md).
-
-### Optional ROM-free builds
-
-The build tools can also create an APK without game files. Only for such a build, select your own **`timecris.zip` — Time Crisis World TS2 Ver.B** in the first-run setup screen. A matching ZIP can also be copied via USB:
-
-```powershell
-./Install-ROM.ps1 -Rom 'C:\path\to\timecris.zip'
-```
-
-The importer verifies every required chip by SHA-256 and accepts checksum-matching older chip names. Other regional/program revisions are not interchangeable. No ROM files are downloaded by the app. No extra BIOS file is required.
+The original MIPS game program and both H8 programs run as translated native C. The GPU draws the original textured polygons from a separate tracked viewpoint for each eye. The arcade text layer and direct screen graphics remain on a camera-aligned plane. The original arcade simulation runs at its original rate; OpenXR presentation and controller tracking use the headset rate.
 
 ## Controls
 
-| Action | Default hand: right | Default hand: left |
-| --- | --- | --- |
-| Aim the visible 3D pistol | Controller selected by its trigger | Controller selected by its trigger |
-| Select weapon hand and fire / start / confirm | Either trigger | Either trigger |
-| Insert three credits | A right | X left |
-| Toggle laser silently, with no popup | B right | Y left |
-| Pause and open options / resume | Left menu button | Left menu button |
-| Set default hand, **in options** | Right thumbstick click | Right thumbstick click |
-| Adjust gun angle, **in options** | Right stick up / down | Right stick up / down |
-| Reset gun angle, **in options** | Left thumbstick click | Left thumbstick click |
-| Switch cover mode, **in options** | Y left | B right |
-| Recenter and set upright head height | X left | A right |
-| Grip cover: hold to leave cover; release both to hide/reload | Either grip button | Either grip button |
-| Physical cover: hide/reload; leave cover | Duck; return upright | Duck; return upright |
-
-**Weapon hand:** a fresh left trigger press moves the pistol to the left controller and fires; a fresh right trigger press does the same on the right. Aim and recoil vibration follow that controller. Holding both triggers does not repeatedly switch hands. After focus or tracking loss, release a trigger before firing again.
-
-**Default hand and buttons:** open options and click the **right thumbstick** to change **DEFAULT HAND**. This saved preference determines the starting hand and the face-button layout in the table. Automatic trigger handoffs leave that layout unchanged. The left menu button always resumes play.
-
-**Laser:** on by default, saved between sessions. A previous explicit off setting is retained. Turning it off hides only the beam; aiming and shooting still work.
-
-**Gun angle:** open the left menu and move the right stick up
-or down to adjust pitch in 1-degree steps, from -60 to +60 degrees. Hold the
-stick to repeat. Negative values lower the barrel; if it points about 45 degrees
-too high, try **-45 DEG**. Click the left stick to reset to zero. The setting is
-saved and applies to both hands, rotating the model, muzzle, laser and shot
-direction together. Zero preserves the original runtime aim pose. Recenter and
-automatic hand switching retain your angle.
-
-**Cover mode:** either grip button by default. Hold at least one to leave cover; release both to hide and reload. Open the left menu and press **Y** (right default hand) or **B** (left default hand) to switch between **PHYSICAL DUCKING** and **GRIP BUTTONS**. Cover mode can only change in options. The in-game menu and all documentation use English.
-
-### Physical ducking
-
-Choose physical ducking in the menu while upright. Press **X** (right-handed) or **A** (left-handed) while standing or sitting upright to calibrate your normal head height, then resume.
-
-- Lowering your head by about **20 cm** enters cover and reloads.
-- Returning to within **12 cm** of your calibrated height leaves cover.
-- The gap between those thresholds prevents rapid switching from small movements.
-- The recenter button recalibrates for a different standing/seated position. Height is recalibrated each app session; the selected mode is saved.
-- Missing head tracking releases the virtual pedal. Cover input does not depend on the weapon controller being visible.
-
-![Options with left default hand, -45 degree gun angle and grip cover](docs/images/options-english.png)
-
-*Rendered from the actual menu code in the desktop GLES test fixture.*
-
-## What the port includes
-
-- Native Android/ARM64 app using **OpenXR and OpenGL ES**, running entirely on the headset.
-- Native Windows x64 application using **OpenXR and OpenGL 4.3**, with stereo headset output, a PC mirror and an optional desktop mode.
-- Separate eye poses/projections and head movement, with the original arcade camera progression.
-- Tracked, textured player pistol, visual recoil and controller vibration.
-- Original game logic, levels, textures, DSP and sound path supplied by upstream and the ROM set.
-- Geometry-based controller aiming mapped to the original lightgun coordinates.
-- Saved weapon hand, laser and cover preferences, pause, recenter and focus handling.
-- A shared **multiview world pass**, bounded sprite image caching and faster sprite/text rasterization.
-- Original game simulation at approximately **59.906 Hz**, with head and weapon poses updated at the headset refresh rate.
-
-## Performance: measured, not promised
-
-A two-minute active gameplay test of **v0.6.0** on Quest 3, with both controllers and the weapon rendered, recorded:
-
-| Metric | Result |
+| Action | Control |
 | --- | --- |
-| Requested / observed display rate | 120 Hz |
-| Mean / median runtime FPS | 120.017 / 120 |
-| Lowest one-second FPS sample | 115 |
-| Repeated/late frames reported by runtime | 293 / 14,400 nominal frames — **2.035%** |
-| Mean / p95 runtime CPU + GPU time | 5.21 / 6.84 ms |
-| Per-eye render resolution | 1374 × 1440 |
+| Select weapon hand and shoot | Left or right trigger |
+| Leave cover | Hold either grip |
+| Cover / reload | Release both grips |
+| Insert coins | A with default right hand; X with default left hand |
+| Toggle laser | B with default right hand; Y with default left hand |
+| Recenter and calibrate upright height | X with default right hand; A with default left hand |
+| Open / close options | Left menu button |
+| Default weapon hand, in options | Right stick click |
+| Physical ducking / grip cover, in options | Y with default right hand; B with default left hand |
+| Gun angle, in options | Right stick up / down, -60 to +60 degrees |
+| Reset gun angle, in options | Left stick click |
 
-One-second FPS counters can read slightly above 120 due to sample boundaries. They do not prove that every frame arrived on time. Short hitches remain, particularly on first loading or new textures. New textures may briefly appear coarser while the existing texture budget refines them. These results predate the menu/ducking/import changes and are **not a benchmark of v0.8.0 or PCVR**. See [performance details](docs/PERFORMANCE.md).
+Laser is enabled by default. Options are saved locally. Trigger hand switching does not change the saved face-button layout. All player-facing text is English.
 
-## Known limitations
+## Build locally
 
-- This is an experimental community port, not an official Namco or Meta release.
-- No complete-game validation, and no guarantee of perfectly stable 120 FPS in every scene.
-- The arcade game can discard geometry outside its original camera; unrestricted 360-degree viewing and roomscale traversal are not assured.
-- Some sprites/HUD elements use a fixed-depth plane. World scale, stereo comfort and large sideways movements need broader testing.
-- Original 2D hit logic still matters. All bosses, special targets and edge-of-screen hits have not been verified.
-- The gun uses its own depth buffer and is drawn as a foreground model; level walls do not occlude it.
-- No hand model, MSAA or articulated gun slide. Desktop operator/settings menus are not fully exposed in VR.
-- Tested on **Quest 3**. The manifest allows Quest 3S, but that device has not been validated. Quest 2 is not a supported target.
-- PCVR initially targets Quest Touch controls and has been tested through Virtual Desktop. Other runtimes and controller profiles remain unverified.
-
-## Build from source (Windows)
-
-You need Git, CMake, Python 3 and a JDK. Android Studio's bundled JDK is detected at its usual Windows location; otherwise set `JAVA_HOME`. Building requires your own matching ROM set even for a ROM-free APK, because the DSP and sound translations are generated locally.
+Required: CMake, Python 3, the pinned SDL/OpenXR/LLVM-MinGW dependencies fetched by the build scripts, and an Android SDK with platform 35, build-tools 35.0.1 and NDK 28.2.13676358 at `.tools/android-sdk`. Set `JAVA_HOME` to a JDK. This development checkout reuses the user's existing Android SDK through a local junction.
 
 ```powershell
-git clone --recurse-submodules https://github.com/DR-89/time-crisis-vr.git
-cd time-crisis-vr
-
-# APK with your supplied ROMs; starts without an import step:
-./Build-Quest.ps1 -Rom 'C:\path\to\timecris.zip' -BundleRoms
-
-# Optional ROM-free APK:
-./Build-Quest.ps1 -Rom 'C:\path\to\timecris.zip'
-
-# Windows PCVR and desktop package:
-./Build-PC.ps1 -Rom 'C:\path\to\timecris.zip'
+python -X utf8 tools/prepare_tc2.py C:\Users\Dirk\Downloads\timecrs2.zip
+python -X utf8 tools/build_pc.py --skip-prepare --jobs 2
+python -X utf8 tools/build.py --skip-prepare --bundle-roms --rom C:\Users\Dirk\Downloads\timecrs2.zip --jobs 2
 ```
 
-Output:
+The ROM preparer checks the 22 chip sizes and CRCs against the pinned upstream table. It accepts the older `tss3verb.3` filename when its content matches `tss1vera.3`. SHA-256 checksums are recorded in `build/rom-audit.json`; the original ZIP is never modified. Game data is kept in ignored local build/output directories. The local test APK includes the supplied ROM data for direct launch.
 
-- Bundled: `artifacts/bundled/TimeCrisisVR-with-ROM.apk`
-- ROM-free: `artifacts/TimeCrisisVR-quest3-debug.apk`
-- Build metadata and SHA-256: `build-info.json` beside the corresponding APK.
-- Windows: `artifacts/pc/TimeCrisisVR-v0.8.4-windows-x64.zip` and its `.sha256` file.
+Outputs:
 
-The bootstrap downloads pinned NDK r27c, API 34, Build Tools 35.0.0, SDL 2.30.11, OpenXR loader 1.1.43 and Ninja 1.12.1 into `.tools/`. The first build takes several minutes and multiple GB. It does not install a global Android SDK. CMake and the JDK must already be installed.
+- `artifacts/bundled/TimeCrisis2VR-with-ROM.apk`
+- `artifacts/pc/TimeCrisis2VR-PC/TimeCrisis2VR.exe`
+- `artifacts/pc/TimeCrisis2VR-v0.1.0-windows-x64.zip`
 
-The Windows build needs Git, CMake and Python 3; no Android SDK or JDK is required.
-It downloads LLVM/MinGW 20260922, SDL 2.30.11, OpenXR loader 1.1.43, zlib 1.3.1 and
-Ninja locally. The glad 2.0.8 OpenGL loader is included in source.
+## Testing
 
-Upstream is pinned as a submodule at [`6aaa90b4`](https://github.com/spacestate1/namco22-decompile/tree/6aaa90b4cbc7a23733e1c9f5f9a5e772a19fe23d). `tools/patch_upstream.py` applies the guarded Quest adaptations reproducibly; generated game code and extracted ROMs stay out of this repository.
+`tests/test_handedness.py` exercises the real shared input code with a mock OpenXR runtime: both hands, trigger handoff, pitch, saved options and focus/tracking loss. `tests/tc2_scene_fixture.c` checks the System 23 projection, camera offsets, surface aiming and fallback plane. `tests/verify_apk.py` checks the packaged chips, ARM64 libraries and immersive Android entry point.
 
-## Tests and diagnostics
+Use `Export-Quest-Diagnostics.ps1` to save a local report with the game logs, `tc2_last.rec` / `tc2_prev.rec` input recordings and VR options. Nothing is uploaded. On Windows, `--desktop --replay session.rec --frames 12000` runs a bounded replay. The upstream recording stores inputs; it does not embed the starting backup RAM, so reproducing a session also requires matching cabinet settings.
 
-See [DEVELOPMENT.md](docs/DEVELOPMENT.md) for the complete test and diagnostic workflow. Tests cover stereo/raycast math, exact GLES shaders, multiview image equivalence, sprite caching, 256 original-vs-optimized raster cases, saved options, physical-cover hysteresis and tracking loss, model rendering, ROM import and APK contents.
+The inherited TC1-specific source files, tests and historical documentation are reference material; they are not evidence that the System 23 port has passed those checks. The active core source list is `quest/tc2_sources.cmake`.
 
-```powershell
-./Test-Quest.ps1
-python tests/test_options.py
-python tests/test_handedness.py
-python tests/test_rasters.py
-python tests/test_sprite_cache.py
-python tests/test_patches.py
-python tests/verify_apk.py
-python tests/test_pc.py
-./Export-Quest-Diagnostics.ps1
-adb logcat -s TCVR TCVR-ROM SDL OpenXR
-```
+## Credits and licensing
 
-Tests that render through ANGLE currently use the ANGLE DLLs installed with VS Code on Windows and require MSVC. They do not emulate a Quest headset. Report bugs with the APK version, headset model, cover mode, scene and relevant log excerpts; do not attach ROMs or signing keys to issues.
-
-## Credits
-
-The foundation is **[spacestate1/namco22-decompile](https://github.com/spacestate1/namco22-decompile)**, whose engine, translated game code, tooling and hardware reconstruction make this port possible. Please visit that repository for the original project and its other games.
-
-Additional components: [SDL](https://github.com/libsdl-org/SDL), [Khronos OpenXR](https://github.com/KhronosGroup/OpenXR-SDK), and [FireWarden's CC0 Lowpoly Pistol](https://opengameart.org/content/lowpoly-pistol) with an animated slide. Attribution, original copyright notices and the distinction between port code and original game content are documented in [NOTICE.md](NOTICE.md).
+The upstream System 23 reconstruction is by **spacestate1** and contributors. Their own code is MIT licensed; the translated original game program and all ROM content retain their original rights. Time Crisis II and its game assets belong to Namco / Bandai Namco. SDL2, OpenXR and the CC0 pistol model retain their respective licenses. See `NOTICE.md` and the original upstream license.

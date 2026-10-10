@@ -1,4 +1,4 @@
-/* Quest host for the existing SS22 scheduler. All OpenXR/GL work stays on SDL's main thread. */
+/* System 23 OpenXR host, adapted from Time Crisis II VR v0.8.4. */
 #ifdef TCVR_PC
 #include <windows.h>
 #include <unknwn.h>
@@ -19,13 +19,9 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
-#include "ss22_host.h"
-#include "ss22_game.h"
-#include "ss22_gl.h"
-#include "ss22_out.h"
-#include "audio_out.h"
+#include "tc2_vr.h"
 #include "quest_gl.h"
-#include "quest_scene.h"
+#include "tc2_scene.h"
 #include "quest_gun.h"
 #include "quest_options.h"
 #include "quest_cover.h"
@@ -87,7 +83,7 @@ static float nx=.5f,ny=.5f,trigger,pedal;
 static bool aim_valid,gun_tracked;
 static uint64_t recoil_started;
 static int coin_frames;
-static const ss22_host_game *host;
+
 static struct Eye { XrSwapchain chain;uint32_t w,h,n;QSwapchainImage *images;GLuint *fb,depth; } eyes[2];
 static double profile_parts[6],profile_thread;
 static double cpu_ms(void){
@@ -280,7 +276,7 @@ static bool events(void){
 #ifdef TCVR_PC
         if(s.type==SDL_KEYDOWN&&!s.key.repeat){
             if(s.key.keysym.sym==SDLK_ESCAPE){paused=!paused;reset_fire_input();reset_pitch_input();ss22_input_neutral();}
-            if(s.key.keysym.sym==SDLK_c)coin_frames=36;
+            if(s.key.keysym.sym==SDLK_c||s.key.keysym.sym==SDLK_5)coin_frames=48;
             if(s.key.keysym.sym==SDLK_l){options.laser_enabled=!options.laser_enabled;options_saved=qoptions_save(options_path,&options);}
             if(s.key.keysym.sym==SDLK_r)recenter_requested=true;
             if(s.key.keysym.sym==SDLK_h&&paused)change_weapon_hand();
@@ -302,7 +298,7 @@ static bool events(void){
             if(state==XR_SESSION_STATE_STOPPING){if(running)xrEndSession(session);running=false;game_deadline=0;}
             if(state==XR_SESSION_STATE_EXITING||state==XR_SESSION_STATE_LOSS_PENDING)quit=true;
             bool focus=state==XR_SESSION_STATE_FOCUSED;
-            if(focused!=focus){focused=focus;reset_input_edges();game_deadline=0;ss22_input_neutral();eng_audio_set_volume(focus&&!paused?100:0);if(focus){rate_attempts=0;rate_check_time=0;}}
+            if(focused!=focus){focused=focus;reset_input_edges();game_deadline=0;ss22_input_neutral();tc2_audio_volume(focus&&!paused?100:0);if(focus){rate_attempts=0;rate_check_time=0;}}
         }else if(e.type==XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING)quit=true;
         else if(e.type==XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING){recenter_requested=true;}
         else if(e.type==XR_TYPE_EVENT_DATA_DISPLAY_REFRESH_RATE_CHANGED_FB){
@@ -322,13 +318,13 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
     if(!focused){reset_input_edges();return;}
     XrActiveActionSet aset={action_set,XR_NULL_PATH};XrActionsSyncInfo sync={XR_TYPE_ACTIONS_SYNC_INFO};sync.countActiveActionSets=1;sync.activeActionSets=&aset;
     if(!XR(xrSyncActions(session,&sync))){reset_input_edges();return;}
-    if(pressed(pause_action,XR_NULL_PATH,&pause_button)){paused=!paused;reset_fire_input();reset_pitch_input();game_deadline=0;eng_audio_set_volume(paused?0:100);ss22_input_neutral();}
+    if(pressed(pause_action,XR_NULL_PATH,&pause_button)){paused=!paused;reset_fire_input();reset_pitch_input();game_deadline=0;tc2_audio_volume(paused?0:100);ss22_input_neutral();}
     bool change_hand=pressed(hand_action,XR_NULL_PATH,&hand_button);
     if(paused&&change_hand){change_weapon_hand();return;}
     adjust_gun_pitch(time);
     /* Face-button roles follow the saved layout, even during trigger handoffs. */
     int controls=options.left_handed?LEFT_HAND:RIGHT_HAND;XrPath weapon=hand_paths[controls],other=hand_paths[1-controls];
-    if(pressed(lower_action,weapon,&coin_button))coin_frames=36;
+    if(pressed(lower_action,weapon,&coin_button))coin_frames=48;
     if(pressed(lower_action,other,&recenter_button))recenter_requested=true;
     if(pressed(upper_action,weapon,&laser_button)){
         options.laser_enabled=!options.laser_enabled;options_saved=qoptions_save(options_path,&options);
@@ -391,8 +387,7 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
 
 /* Input tests compile the real action and polling code without a window/runtime. */
 #ifndef TCVR_INPUT_TEST
-bool ss22_host_open(const ss22_host_game *g,int scale,bool full){
-    (void)scale;(void)full;host=g;
+bool tc2_vr_open(void){
     qoptions_load(options_path,&options);active_weapon_hand=options.left_handed?LEFT_HAND:RIGHT_HAND;
     fprintf(stderr,"[OPTIONS] laser %s; cover %s; default hand %s; trigger handoff enabled (left menu: options)\n",options.laser_enabled?"ON":"OFF",options.physical_crouch?"PHYSICAL":"GRIP",options.left_handed?"LEFT":"RIGHT");
     fprintf(stderr,"[OPTIONS] gun angle %+d deg\n",options.gun_pitch);
@@ -408,9 +403,9 @@ bool ss22_host_open(const ss22_host_game *g,int scale,bool full){
     SDL_GL_SetAttribute(SDL_GL_RED_SIZE,8);SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE,8);SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,8);SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE,8);
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,0);SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER,1);
 #ifdef TCVR_PC
-    window=SDL_CreateWindow("Time Crisis VR",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,1280,960,SDL_WINDOW_OPENGL|SDL_WINDOW_RESIZABLE);
+    window=SDL_CreateWindow("Time Crisis II VR",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,1280,960,SDL_WINDOW_OPENGL|SDL_WINDOW_RESIZABLE);
 #else
-    window=SDL_CreateWindow("Time Crisis VR",0,0,1280,720,SDL_WINDOW_OPENGL|SDL_WINDOW_FULLSCREEN);
+    window=SDL_CreateWindow("Time Crisis II VR",0,0,1280,720,SDL_WINDOW_OPENGL|SDL_WINDOW_FULLSCREEN);
 #endif
     if(!window)goto fail;context=SDL_GL_CreateContext(window);if(!context)goto fail;
 #ifdef TCVR_PC
@@ -454,7 +449,7 @@ bool ss22_host_open(const ss22_host_game *g,int scale,bool full){
     ic.next=&android;
 #endif
     ic.enabledExtensionCount=extension_count;ic.enabledExtensionNames=extensions;
-    strcpy(ic.applicationInfo.applicationName,"Time Crisis VR");ic.applicationInfo.applicationVersion=1;strcpy(ic.applicationInfo.engineName,"Namco22 Quest");ic.applicationInfo.engineVersion=1;ic.applicationInfo.apiVersion=XR_MAKE_VERSION(1,0,34);
+    strcpy(ic.applicationInfo.applicationName,"Time Crisis II VR");ic.applicationInfo.applicationVersion=1;strcpy(ic.applicationInfo.engineName,"Namco23 VR");ic.applicationInfo.engineVersion=1;ic.applicationInfo.apiVersion=XR_MAKE_VERSION(1,0,34);
     REQUIRE(xrCreateInstance(&ic,&instance));
 #ifndef TCVR_PC
     (*env)->DeleteLocalRef(env,activity);
@@ -539,11 +534,12 @@ bool ss22_host_open(const ss22_host_game *g,int scale,bool full){
 graphics_ready:
     if(!qgl_init())goto fail;
 #ifndef TCVR_PC
-    multiview=eyes[0].w==eyes[1].w&&eyes[0].h==eyes[1].h&&qgl_stereo_init(SDL_GL_GetProcAddress("glFramebufferTextureMultiviewOVR"));
+    multiview=false; /* TC2 priority and gamma passes currently render each eye separately. */
 #endif
     if(!qgun_init("models/player-gun.tcgun"))goto fail;
     if(!qui_init())goto fail;
-    ss22_gl_set_gun_flash(false);eng_audio_set_gain(g->out_gain);eng_audio_open();g->snd_set_output(true);g->input_init();
+    if(!tc2_gl_init())goto fail;
+    void ss22_gl_set_gun_flash(int);ss22_gl_set_gun_flash(0);tc2_audio_open();
     active=true;fprintf(stderr,"[XR] Renderer initialized: %ux%u per eye; %s\n",eyes[0].w,eyes[0].h,glGetString(GL_RENDERER));return true;
 fail:
     fprintf(stderr,"[XR] initialization failed; SDL: %s\n",SDL_GetError());ss22_host_close();return false;
@@ -569,7 +565,7 @@ static bool desktop_frame(void){
         projection(p,-atanf(.64f),atanf(.64f),-atanf(.48f),atanf(.48f));
         /* Keep a 4:3 image centered in a resizable window. */
         if((float)w/h>4.f/3.f){p[0]*=(float)vw/w;}else{p[5]*=(float)vh/h;}
-        hud_camera();qgl_target(0,0);qgl_eye(v,p);ss22_draw(w,h);qgl_flush();
+        hud_camera();qgl_target(0,0);qgl_eye(v,p);qtc2_draw(v,p,w,h,0);qgl_flush();
         if(options.laser_enabled&&aim_valid&&!paused){qgl_pointer(v3(.24f,-.24f,-.45f),v3((nx-.5f)*3.2f,(.5f-ny)*2.4f,-2.5f));qgl_flush();}
         if(paused)qui_draw(v,p,v3(0,0,0),(Q4){0,0,0,1},options.laser_enabled,options.physical_crouch,options.left_handed,options.gun_pitch,options_saved);
         const char *capture_frame=getenv("TCVR_CAPTURE_FRAME");
@@ -578,7 +574,7 @@ static bool desktop_frame(void){
         GLenum error=glGetError();if(error)fprintf(stderr,"[GL] desktop error 0x%x\n",error);
         SDL_GL_SwapWindow(window);
         if(!fast){Uint64 now=SDL_GetPerformanceCounter(),freq=SDL_GetPerformanceFrequency();if(!deadline||now>deadline+freq/4)deadline=now;deadline+=freq*1000/59906;while((now=SDL_GetPerformanceCounter())<deadline)SDL_Delay(1);}
-        if(!paused){host->input_update();return true;}
+        if(!paused){ss22_input_update();return true;}
     }
 }
 #endif
@@ -591,7 +587,7 @@ bool ss22_host_frame(void){
         if(!events())return false;
         if(!running){SDL_Delay(10);continue;}
         if(game_deadline&&focused&&!paused&&last_tracking&&last_display_time>=game_deadline){
-            if(qclock_take(&game_deadline,last_display_time)){host->input_update();return true;}
+            if(qclock_take(&game_deadline,last_display_time)){ss22_input_update();return true;}
         }
         XrFrameWaitInfo wi={XR_TYPE_FRAME_WAIT_INFO};XrFrameState frame={XR_TYPE_FRAME_STATE};if(!XR(xrWaitFrame(session,&wi,&frame)))return false;
         display_rate_check(frame.predictedDisplayTime);
@@ -621,12 +617,6 @@ bool ss22_host_frame(void){
         }
         hud_camera();
         bool stereo_frame=false;
-        if(draw_frame&&multiview){
-            stage_start=wall_ms();stereo_frame=qgl_stereo_begin(v[0],p[0],eyes[0].w,eyes[0].h);
-            if(stereo_frame){ss22_draw(eyes[0].w,eyes[0].h);qgl_stereo_end();}
-            else multiview=false;
-            parts[2]+=wall_ms()-stage_start;
-        }
         for(int i=0;draw_frame&&i<2;i++){
             stage_start=wall_ms();
             struct Eye *eye=&eyes[i];uint32_t index;
@@ -637,7 +627,7 @@ bool ss22_host_frame(void){
             qgl_target(i,eye->fb[index]);
             glViewport(0,0,eye->w,eye->h);
             qgl_eye(v[i],p[i]);
-            if(stereo_frame)qgl_stereo_blit(i);else ss22_draw(eye->w,eye->h);
+            qtc2_draw(v[i],p[i],eye->w,eye->h,eye->fb[index]);
             if(options.laser_enabled&&focused&&aim_valid&&!paused)qgl_pointer(gun_origin,gun_hit);
             qgl_flush();
             parts[2]+=wall_ms()-stage_start;stage_start=wall_ms();
@@ -673,7 +663,7 @@ bool ss22_host_frame(void){
         else{memset(profile_parts,0,sizeof profile_parts);profile_thread=0;}
         frame_profile(render_start,frame.predictedDisplayPeriod,draw_frame&&focused&&!paused);
         if(!focused||paused||!tracking){ss22_input_neutral();game_deadline=0;continue;}
-        if(qclock_take(&game_deadline,frame.predictedDisplayTime)){host->input_update();return true;}
+        if(qclock_take(&game_deadline,frame.predictedDisplayTime)){ss22_input_update();return true;}
     }
 }
 #endif
@@ -690,10 +680,10 @@ void ss22_input_update(void){
         if(fire)bits|=0x10;if(pedal>.55f)bits|=0x20;if(coin_frames){if((coin_frames%12)>5)bits|=1;--coin_frames;}
     }
     fire_output_down=(bits&0x10)!=0;
-    g_ss22_gun_off=!aim_valid;g_ss22_gun_x=(uint16_t)(68+fminf(1,fmaxf(0,nx))*626);g_ss22_gun_y=(uint16_t)(43+fminf(1,fmaxf(0,ny))*241);
-    ss22_snd_inputs(bits,0x200,0,0);
+    g_ss22_gun_off=!aim_valid;g_ss22_gun_x=(uint16_t)(91+fminf(1,fmaxf(0,nx))*733);g_ss22_gun_y=(uint16_t)(38+fminf(1,fmaxf(0,ny))*247);
+    tc2_inputs=bits;
 }
-void ss22_input_neutral(void){trigger=pedal=0;shot_pending=shot_needs_release=fire_output_down=false;ss22_snd_inputs(0,0x200,0,0);}
+void ss22_input_neutral(void){trigger=pedal=0;shot_pending=shot_needs_release=fire_output_down=false;tc2_inputs=0;}
 const eng_ui_page *ss22_input_page(void){return NULL;}
 void ss22_input_event(const SDL_Event *e){(void)e;}
 void ss22_input_motor(uint8_t b){(void)b;}
@@ -714,7 +704,7 @@ bool ss22_host_open_headless(void){return false;}
 bool ss22_host_pointer(float *x,float *y,bool *inside){*x=nx;*y=ny;*inside=aim_valid;return active;}
 void ss22_host_shot(const char *p){(void)p;}
 void ss22_host_close(void){
-    active=false;eng_audio_close();
+    active=false;
     if(context&&gpu_ready){qui_shutdown();qgun_shutdown();qgl_shutdown();}
     for(int i=0;i<2;i++){if(context&&gpu_ready&&eyes[i].fb)glDeleteFramebuffers(eyes[i].n,eyes[i].fb);if(context&&gpu_ready)glDeleteRenderbuffers(1,&eyes[i].depth);if(eyes[i].chain)xrDestroySwapchain(eyes[i].chain);free(eyes[i].images);free(eyes[i].fb);memset(&eyes[i],0,sizeof eyes[i]);}
     for(int i=0;i<HAND_COUNT;i++){if(aim_spaces[i])xrDestroySpace(aim_spaces[i]);aim_spaces[i]=0;}

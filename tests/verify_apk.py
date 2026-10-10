@@ -2,13 +2,13 @@
 from pathlib import Path
 import argparse,hashlib,json,math,re,struct,subprocess,zipfile
 ROOT=Path(__file__).resolve().parents[1]
-p=argparse.ArgumentParser();p.add_argument('--apk',type=Path,default=ROOT/'artifacts/TimeCrisisVR-quest3-debug.apk');args=p.parse_args()
+p=argparse.ArgumentParser();p.add_argument('--apk',type=Path,default=ROOT/'artifacts/bundled/TimeCrisis2VR-with-ROM.apk');args=p.parse_args()
 apk=args.apk.resolve();info=json.loads(apk.with_name('build-info.json').read_text());bundled=info['roms_bundled']
 with zipfile.ZipFile(apk) as z:
     assert z.testzip() is None
     manifest=z.read('assets/roms.sha256').decode().splitlines()
-    assert len(manifest)==31, len(manifest)
-    if not bundled:assert not any(n.startswith('assets/roms/') or n.endswith('timecris.zip') for n in z.namelist()),'ROM-free APK must not bundle ROMs'
+    assert len(manifest)==22, len(manifest)
+    if not bundled:assert not any(n.startswith('assets/roms/') or n.endswith('timecrs2.zip') for n in z.namelist()),'ROM-free APK must not bundle ROMs'
     for line in manifest:
         digest,name=line.split('  ',1)
         data=z.read('assets/roms/'+name) if bundled else (ROOT/'build/assets/roms'/name).read_bytes()
@@ -41,23 +41,23 @@ with zipfile.ZipFile(apk) as z:
         elf=z.read(lib);assert elf[:5]==b'\x7fELF\x02';assert struct.unpack_from('<H',elf,18)[0]==183,lib
     assert z.read('classes.dex')[:4]==b'dex\n'
     for name in ['namco22-LICENSE.txt','SDL2-LICENSE.txt','OpenXR-LICENSE.txt']:assert z.read('assets/licenses/'+name)
-badging=subprocess.check_output([str(ROOT/'.tools/buildtools/android-15/aapt.exe'),'dump','badging',str(apk)],text=True)
-assert "package: name='org.timecrisis.quest'" in badging
+badging=subprocess.check_output([str(ROOT/'.tools/android-sdk/build-tools/35.0.1/aapt.exe'),'dump','badging',str(apk)],text=True)
+assert "package: name='org.timecrisis2.arcadevr'" in badging
 entry='MainActivity' if bundled else 'LauncherActivity'
-assert f"launchable-activity: name='org.timecrisis.quest.{entry}'" in badging
-tree=subprocess.check_output([str(ROOT/'.tools/buildtools/android-15/aapt.exe'),'dump','xmltree',str(apk),'AndroidManifest.xml'],text=True)
+assert f"launchable-activity: name='org.timecrisis2.arcadevr.{entry}'" in badging
+tree=subprocess.check_output([str(ROOT/'.tools/android-sdk/build-tools/35.0.1/aapt.exe'),'dump','xmltree',str(apk),'AndroidManifest.xml'],text=True)
 activities=re.findall(r'(?ms)^([ ]+)E: activity\b(.*?)(?=^\1E: |\Z)',tree)
 main=next(block for _,block in activities if '=".MainActivity"' in block)
 setup=next(block for _,block in activities if '=".LauncherActivity"' in block)
 for category in ('org.khronos.openxr.intent.category.IMMERSIVE_HMD','com.oculus.intent.category.VR'):
     assert category in main,'The actual OpenXR activity must be marked immersive'
     assert category not in setup,'Setup must not masquerade as the immersive game'
-assert 'org.timecrisis.quest.setup' in setup,'Setup needs a separate Android task'
+assert 'org.timecrisis2.arcadevr.setup' in setup,'Setup needs a separate Android task'
 assert ('android.intent.category.LAUNCHER' in main)==bundled
 assert "native-code: 'arm64-v8a'" in badging
 assert 'quest2|quest3|quest3s' in tree,'Quest 2 must not fall back to an older-device compatibility profile'
-readelf=ROOT/'.tools/ndk/android-ndk-r27c/toolchains/llvm/prebuilt/windows-x86_64/bin/llvm-readelf.exe'
+readelf=ROOT/'.tools/android-sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/windows-x86_64/bin/llvm-readelf.exe'
 symbols=subprocess.check_output([str(readelf),'--dyn-syms',str(ROOT/'build/package-libs/libmain.so')],text=True)
 assert ' SDL_main' in symbols
 assert info['sha256']==hashlib.sha256(apk.read_bytes()).hexdigest()
-print(f'APK verified: bundled={bundled}, 31 chip hashes, gun, ARM64/DEX/SDL_main, {entry} launcher, actual game marked immersive, isolated setup task, licenses and hash')
+print(f'APK verified: bundled={bundled}, 22 chip hashes, gun, ARM64/DEX/SDL_main, {entry} launcher, actual game marked immersive, isolated setup task, licenses and hash')

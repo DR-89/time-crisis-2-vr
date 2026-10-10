@@ -20,8 +20,8 @@ if(!$Serial){
     $Serial=$quests[0]
 }
 $targetArgs=@('-s',$Serial)
-$access=Read-Adb ($targetArgs+@('shell','run-as','org.timecrisis.quest','id'))
-if($access.Code -ne 0){throw 'Cannot read Time Crisis VR on this device. Check the selected Quest, installation and USB debugging permission.'}
+$access=Read-Adb ($targetArgs+@('shell','run-as','org.timecrisis2.arcadevr','id'))
+if($access.Code -ne 0){throw 'Cannot read Time Crisis II VR on this device. Check the selected Quest, installation and USB debugging permission.'}
 if(!$Output){$Output=Join-Path $PSScriptRoot ('artifacts\diagnostics-'+(Get-Date -Format 'yyyyMMdd-HHmmss-fff'))}
 $Output=[IO.Path]::GetFullPath($Output)
 $archive=$Output+'.zip'
@@ -29,20 +29,20 @@ if((Test-Path -LiteralPath $archive) -or ((Test-Path -LiteralPath $Output) -and 
 New-Item -ItemType Directory -Force -Path $Output | Out-Null
 $utf8=[Text.UTF8Encoding]::new($false)
 $copied=@();$missing=@()
-foreach($name in @('timecris-vr.log','timecris-vr-previous.log','last-session.inputs','previous-session.inputs','quest-options.cfg')){
-    $result=Read-Adb ($targetArgs+@('shell','run-as','org.timecrisis.quest','cat',"files/$name"))
+foreach($name in @('timecrisis2-vr.log','timecrisis2-vr-previous.log','tc2_last.rec','tc2_prev.rec','quest-options.cfg')){
+    $result=Read-Adb ($targetArgs+@('shell','run-as','org.timecrisis2.arcadevr','cat',"files/$name"))
     if($result.Code -eq 0){
-        # Input replays begin with SS22REC; a Windows PowerShell UTF-8 BOM breaks that header.
+        # Keep input recordings as plain UTF-8 text without a Windows BOM.
         [IO.File]::WriteAllText((Join-Path $Output $name),($result.Lines -join "`n")+"`n",$utf8)
         $copied+=$name
     }else{$missing+=$name}
 }
-foreach($query in @(@('exit-info.txt','shell','dumpsys','activity','exit-info','org.timecrisis.quest'),@('package.txt','shell','dumpsys','package','org.timecrisis.quest'))){
+foreach($query in @(@('exit-info.txt','shell','dumpsys','activity','exit-info','org.timecrisis2.arcadevr'),@('package.txt','shell','dumpsys','package','org.timecrisis2.arcadevr'))){
     $result=Read-Adb ($targetArgs+$query[1..($query.Count-1)])
     if($result.Code -eq 0){[IO.File]::WriteAllText((Join-Path $Output $query[0]),($result.Lines -join "`n")+"`n",$utf8)}else{$missing+=$query[0]}
 }
-if(!($copied -contains 'timecris-vr.log') -and !($copied -contains 'timecris-vr-previous.log')){throw "No game log could be read. Partial diagnostics remain in $Output; no ZIP was created."}
-$report=@('Time Crisis VR diagnostic export','Collected: '+(Get-Date -Format o),'Copied: '+($copied -join ', '),'Unavailable: '+($missing -join ', '),'Input files contain arcade controls and starting EEPROM, not video/audio/head poses.','Nothing has been uploaded. Review the files before sharing them.') -join "`n"
+if(!($copied -contains 'timecrisis2-vr.log') -and !($copied -contains 'timecrisis2-vr-previous.log')){throw "No game log could be read. Partial diagnostics remain in $Output; no ZIP was created."}
+$report=@('Time Crisis II VR diagnostic export','Collected: '+(Get-Date -Format o),'Copied: '+($copied -join ', '),'Unavailable: '+($missing -join ', '),'Input recordings contain arcade controls and gun coordinates, not video/audio/head poses.','Nothing has been uploaded. Review the files before sharing them.') -join "`n"
 [IO.File]::WriteAllText((Join-Path $Output 'report.txt'),$report+"`n",$utf8)
 Compress-Archive -LiteralPath $Output -DestinationPath $archive
 Write-Host "Diagnostics saved to $Output"
