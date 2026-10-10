@@ -1,0 +1,382 @@
+{
+  "generator": "Tripo3D",
+  "source_file": "compact+submachine+gun+3d+model.glb",
+  "source_sha256": "391118669dfa126ae128fe51f9d8dde9d4fb8f506032a91a044c578f068df02c",
+  "asset_sha256": "bcda93197d92a8ec5027e7c5b1f8e78dfd9bc5ba5ba5449a6b4cbf26437599b8",
+  "format": "TCGUN001",
+  "source_parts": 65,
+  "source_triangles": 99484,
+  "vertices": 7246,
+  "triangles": 9177,
+  "albedo_size": [
+    2048,
+    2048
+  ],
+  "atlas_padding_px": 8,
+  "bounds_m": [
+    [
+      -0.026935014873743057,
+      -0.18353156745433807,
+      -0.26158633828163147
+    ],
+    [
+      0.01888757385313511,
+      0.06460095196962357,
+      0.18841364979743958
+    ]
+  ],
+  "muzzle_m": [
+    0.0,
+    0.0,
+    -0.26055850721258816
+  ],
+  "calibration": {
+    "source_forward": [
+      -0.2472818,
+      0.19851744,
+      -0.94838945
+    ],
+    "source_muzzle": [
+      -0.12247651008849472,
+      0.47063976771123506,
+      -0.48472601657833037
+    ],
+    "source_grip": [
+      0.029682405292987823,
+      0.15491321682929993,
+      0.09414516389369965
+    ],
+    "length_m": 0.45,
+    "grip_z_m": 0.025
+  },
+  "simplifier": "meshoptimizer 1.3.0",
+  "target_triangles": 6000,
+  "max_part_error": 0.019993962720036507,
+  "parts": [
+    {
+      "name": "tripo_part_0",
+      "triangles": 1017,
+      "error": 0.006454969756305218
+    },
+    {
+      "name": "tripo_part_1",
+      "triangles": 362,
+      "error": 0.019873611629009247
+    },
+    {
+      "name": "tripo_part_10",
+      "triangles": 119,
+      "error": 0.011831479147076607
+    },
+    {
+      "name": "tripo_part_11",
+      "triangles": 228,
+      "error": 0.01992795243859291
+    },
+    {
+      "name": "tripo_part_12",
+      "triangles": 137,
+      "error": 0.01375447679311037
+    },
+    {
+      "name": "tripo_part_13",
+      "triangles": 156,
+      "error": 0.012444117106497288
+    },
+    {
+      "name": "tripo_part_14",
+      "triangles": 355,
+      "error": 0.01980028860270977
+    },
+    {
+      "name": "tripo_part_15",
+      "triangles": 225,
+      "error": 0.019797060638666153
+    },
+    {
+      "name": "tripo_part_16",
+      "triangles": 218,
+      "error": 0.019993962720036507
+    },
+    {
+      "name": "tripo_part_17",
+      "triangles": 83,
+      "error": 0.012921236455440521
+    },
+    {
+      "name": "tripo_part_18",
+      "triangles": 191,
+      "error": 0.01981106400489807
+    },
+    {
+      "name": "tripo_part_19",
+      "triangles": 371,
+      "error": 0.019856683909893036
+    },
+    {
+      "name": "tripo_part_2",
+      "triangles": 201,
+      "error": 0.019003216177225113
+    },
+    {
+      "name": "tripo_part_20",
+      "triangles": 150,
+      "error": 0.019883431494235992
+    },
+    {
+      "name": "tripo_part_21",
+      "triangles": 160,
+      "error": 0.019913995638489723
+    },
+    {
+      "name": "tripo_part_22",
+      "triangles": 92,
+      "error": 0.019910626113414764
+    },
+    {
+      "name": "tripo_part_23",
+      "triangles": 94,
+      "error": 0.01809222809970379
+    },
+    {
+      "name": "tripo_part_24",
+      "triangles": 87,
+      "error": 0.01964198611676693
+    },
+    {
+      "name": "tripo_part_25",
+      "triangles": 108,
+      "error": 0.01968095265328884
+    },
+    {
+      "name": "tripo_part_26",
+      "triangles": 300,
+      "error": 0.019898587837815285
+    },
+    {
+      "name": "tripo_part_27",
+      "triangles": 36,
+      "error": 0.012449431233108044
+    },
+    {
+      "name": "tripo_part_28",
+      "triangles": 117,
+      "error": 0.01127057708799839
+    },
+    {
+      "name": "tripo_part_29",
+      "triangles": 80,
+      "error": 0.014109402894973755
+    },
+    {
+      "name": "tripo_part_3",
+      "triangles": 207,
+      "error": 0.016538670286536217
+    },
+    {
+      "name": "tripo_part_30",
+      "triangles": 106,
+      "error": 0.019670985639095306
+    },
+    {
+      "name": "tripo_part_31",
+      "triangles": 67,
+      "error": 0.019860420376062393
+    },
+    {
+      "name": "tripo_part_32",
+      "triangles": 74,
+      "error": 0.019910011440515518
+    },
+    {
+      "name": "tripo_part_33",
+      "triangles": 105,
+      "error": 0.019679410383105278
+    },
+    {
+      "name": "tripo_part_34",
+      "triangles": 49,
+      "error": 0.015073275193572044
+    },
+    {
+      "name": "tripo_part_35",
+      "triangles": 77,
+      "error": 0.019807925447821617
+    },
+    {
+      "name": "tripo_part_36",
+      "triangles": 99,
+      "error": 0.019520407542586327
+    },
+    {
+      "name": "tripo_part_37",
+      "triangles": 71,
+      "error": 0.019917510449886322
+    },
+    {
+      "name": "tripo_part_38",
+      "triangles": 135,
+      "error": 0.01993696391582489
+    },
+    {
+      "name": "tripo_part_39",
+      "triangles": 96,
+      "error": 0.019690092653036118
+    },
+    {
+      "name": "tripo_part_4",
+      "triangles": 303,
+      "error": 0.012636668980121613
+    },
+    {
+      "name": "tripo_part_40",
+      "triangles": 31,
+      "error": 0.01987585425376892
+    },
+    {
+      "name": "tripo_part_41",
+      "triangles": 31,
+      "error": 0.019834285601973534
+    },
+    {
+      "name": "tripo_part_42",
+      "triangles": 37,
+      "error": 0.01975405029952526
+    },
+    {
+      "name": "tripo_part_43",
+      "triangles": 25,
+      "error": 0.01746840961277485
+    },
+    {
+      "name": "tripo_part_44",
+      "triangles": 108,
+      "error": 0.01984896883368492
+    },
+    {
+      "name": "tripo_part_45",
+      "triangles": 25,
+      "error": 0.01655041240155697
+    },
+    {
+      "name": "tripo_part_46",
+      "triangles": 150,
+      "error": 0.01956416852772236
+    },
+    {
+      "name": "tripo_part_47",
+      "triangles": 195,
+      "error": 0.01984591782093048
+    },
+    {
+      "name": "tripo_part_48",
+      "triangles": 155,
+      "error": 0.019849397242069244
+    },
+    {
+      "name": "tripo_part_49",
+      "triangles": 22,
+      "error": 0.01986931450664997
+    },
+    {
+      "name": "tripo_part_5",
+      "triangles": 174,
+      "error": 0.019900426268577576
+    },
+    {
+      "name": "tripo_part_50",
+      "triangles": 130,
+      "error": 0.019759412854909897
+    },
+    {
+      "name": "tripo_part_51",
+      "triangles": 36,
+      "error": 0.01888188160955906
+    },
+    {
+      "name": "tripo_part_52",
+      "triangles": 26,
+      "error": 0.018572954460978508
+    },
+    {
+      "name": "tripo_part_53",
+      "triangles": 88,
+      "error": 0.0191984623670578
+    },
+    {
+      "name": "tripo_part_54",
+      "triangles": 62,
+      "error": 0.019177643582224846
+    },
+    {
+      "name": "tripo_part_55",
+      "triangles": 73,
+      "error": 0.019187135621905327
+    },
+    {
+      "name": "tripo_part_56",
+      "triangles": 149,
+      "error": 0.019162233918905258
+    },
+    {
+      "name": "tripo_part_57",
+      "triangles": 64,
+      "error": 0.018633229658007622
+    },
+    {
+      "name": "tripo_part_58",
+      "triangles": 51,
+      "error": 0.019837714731693268
+    },
+    {
+      "name": "tripo_part_59",
+      "triangles": 106,
+      "error": 0.019980603829026222
+    },
+    {
+      "name": "tripo_part_6",
+      "triangles": 265,
+      "error": 0.009408967569470406
+    },
+    {
+      "name": "tripo_part_60",
+      "triangles": 85,
+      "error": 0.019957751035690308
+    },
+    {
+      "name": "tripo_part_61",
+      "triangles": 53,
+      "error": 0.019909922033548355
+    },
+    {
+      "name": "tripo_part_62",
+      "triangles": 33,
+      "error": 0.019893718883395195
+    },
+    {
+      "name": "tripo_part_63",
+      "triangles": 90,
+      "error": 0.01985199749469757
+    },
+    {
+      "name": "tripo_part_64",
+      "triangles": 56,
+      "error": 0.01963544636964798
+    },
+    {
+      "name": "tripo_part_7",
+      "triangles": 181,
+      "error": 0.014834248460829258
+    },
+    {
+      "name": "tripo_part_8",
+      "triangles": 210,
+      "error": 0.015751134604215622
+    },
+    {
+      "name": "tripo_part_9",
+      "triangles": 190,
+      "error": 0.012438423000276089
+    }
+  ]
+}

@@ -21,6 +21,11 @@ affiliated with or endorsed by Namco, Bandai Namco, or Meta.
   separate body, trigger and slide parts. Provenance, geometry and checksums are
   recorded in `quest/assets/models/player-gun.json`. The model is not extracted
   from Time Crisis. The earlier Tripo3D model remains in the Git history.
+- **Machine-gun model:** generated with Tripo3D and supplied by the user as
+  `compact+submachine+gun+3d+model.glb`. Imported and optimized for the local
+  test builds; source checksum, calibration and conversion details are in
+  `quest/assets/models/machine-gun.json`. This model is not an original arcade
+  asset and is not covered by the port code's MIT license.
 - **OpenXR host and controller features:** adapted from
   [DR-89/time-crisis-vr v0.8.4](https://github.com/DR-89/time-crisis-vr/tree/v0.8.4), MIT.
 - **Time Crisis II, original game program, graphics, sound, ROM contents and trademarks:**

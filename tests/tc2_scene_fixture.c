@@ -30,7 +30,9 @@ int main(void){
     // HUD model depths must not detach health/ammo from the text-layer frames,
     // nor intercept aiming rays. A neighbouring world model retains its depth.
     e->type=TC2_RE_MODEL;b->npoly=1;
-    for(int model=3474;model<=3476;model++){
+    const int hud_models[]={3474,3475,3476,6083};
+    for(unsigned i=0;i<sizeof hud_models/sizeof *hud_models;i++){
+        int model=hud_models[i];
         p->model=model;qvr_scene_prepare(b);flat=qvr_tc2_vertex(b,p,0);near(-flat.z,2.5f);
         assert(qvr_flat_camera(&cx,&cy,&f));near(cx+f*flat.x/-flat.z,xy[0][0]+20);
         assert(qvr_aim(v3(0,0,0),v3(0,0,-1),&nx,&ny,&hit));near(-hit.z,2.5f);

@@ -537,6 +537,8 @@ graphics_ready:
     multiview=false; /* TC2 priority and gamma passes currently render each eye separately. */
 #endif
     if(!qgun_init("models/player-gun.tcgun"))goto fail;
+    if(!qgun_load_weapon(QGUN_MACHINE_GUN,"models/machine-gun.tcgun"))
+        fprintf(stderr,"[GUN] Machine gun asset unavailable; using pistol fallback\n");
     if(!qui_init())goto fail;
     if(!tc2_gl_init())goto fail;
     void ss22_gl_set_gun_flash(int);ss22_gl_set_gun_flash(0);tc2_audio_open();
@@ -606,7 +608,8 @@ bool ss22_host_frame(void){
         bool head_tracked=tracking&&frame.shouldRender&&(vs.viewStateFlags&XR_VIEW_STATE_POSITION_TRACKED_BIT);
         sync_input(frame.predictedDisplayTime,head_tracked,(views[0].pose.position.y+views[1].pose.position.y)*.5f);
         parts[0]+=wall_ms()-stage_start;
-        float recoil=recoil_started?qgun_recoil((float)(SDL_GetTicks64()-recoil_started)):0;
+        float shot_age=recoil_started?(float)(SDL_GetTicks64()-recoil_started):-1;
+        float recoil=qgun_recoil(shot_age),flash=paused?0:qgun_flash(shot_age);
         XrCompositionLayerProjectionView pv[2]={{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW},{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};
         bool draw_frame=frame.shouldRender&&tracking;
         bool frame_ok=true;
@@ -631,7 +634,7 @@ bool ss22_host_frame(void){
             if(options.laser_enabled&&focused&&aim_valid&&!paused)qgl_pointer(gun_origin,gun_hit);
             qgl_flush();
             parts[2]+=wall_ms()-stage_start;stage_start=wall_ms();
-            if(focused&&gun_tracked)qgun_draw(v[i],p[i],gun_position,gun_rotation,recoil,trigger);
+            if(focused&&gun_tracked)qgun_draw(v[i],p[i],gun_position,gun_rotation,recoil,trigger,flash);
             if(focused&&paused){
                 V3 head=mul(add(relative_position(views[0].pose.position),relative_position(views[1].pose.position)),.5f);
                 qui_draw(v[i],p[i],head,relative_rotation(views[0].pose.orientation),options.laser_enabled,options.physical_crouch,options.left_handed,options.gun_pitch,options_saved);

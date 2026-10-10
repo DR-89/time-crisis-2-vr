@@ -38,10 +38,10 @@ def package_manifest(bundle_roms):
 
 def package(assets):
     models=assets/'models';models.mkdir(exist_ok=True)
-    model=ROOT/'quest/assets/models/player-gun.tcgun'
-    if not model.is_file():raise RuntimeError('Missing player gun asset: '+str(model))
-    shutil.copy2(model,models/model.name)
-    (assets/'models.sha256').write_text(hashlib.sha256(model.read_bytes()).hexdigest()+'  '+model.name+'\n',encoding='ascii')
+    source_models=sorted((ROOT/'quest/assets/models').glob('*.tcgun'))
+    if not any(m.name=='player-gun.tcgun' for m in source_models):raise RuntimeError('Missing player gun asset')
+    for model in source_models:shutil.copy2(model,models/model.name)
+    (assets/'models.sha256').write_text(''.join(hashlib.sha256(model.read_bytes()).hexdigest()+'  '+model.name+'\n' for model in source_models),encoding='ascii')
     bt=ROOT/'.tools/android-sdk/build-tools/35.0.1';android=ROOT/'.tools/android-sdk/platforms/android-35/android.jar'
     classes=BUILD/'classes';classes.mkdir(exist_ok=True)
     sources=list((ROOT/'.tools/sdl/SDL2-2.30.11/android-project/app/src/main/java').rglob('*.java'))+list((ROOT/'quest/java').rglob('*.java'))
@@ -58,7 +58,9 @@ def package(assets):
     # Whitelist public assets into a fresh directory; stale build ROMs cannot leak.
     with tempfile.TemporaryDirectory(prefix='public-assets-',dir=BUILD) as temp:
         public=Path(temp)
-        for name in ('models','licenses'):shutil.copytree(assets/name,public/name)
+        shutil.copytree(assets/'licenses',public/'licenses')
+        (public/'models').mkdir()
+        for model in source_models:shutil.copy2(model,public/'models'/model.name)
         shutil.copy2(assets/'models.sha256',public/'models.sha256')
         if args.bundle_roms:shutil.copytree(assets/'roms',public/'roms')
         # c71.bin is optional and already supplied by the upstream engine.

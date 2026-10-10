@@ -142,7 +142,8 @@ int main(void){
     triggers[LEFT_HAND]=.9f;tick();assert(weapon_hand()==LEFT_HAND&&!(arcade_bits&0x10));
     assert(last_stop==hand_paths[RIGHT_HAND]&&gun_position.x==-.25f&&aim_valid);
     tick();assert(arcade_bits&0x10);ss22_input_rumble(0,48000,45);assert(last_haptic==hand_paths[LEFT_HAND]);
-    for(int n=0;n<8;n++){tick();assert(weapon_hand()==LEFT_HAND);}
+    /* Scripted machine-gun sections need a sustained arcade trigger level. */
+    for(int n=0;n<120;n++){tick();assert(weapon_hand()==LEFT_HAND&&(arcade_bits&0x10));}
     triggers[LEFT_HAND]=0;tick();assert(!(arcade_bits&0x10)&&weapon_hand()==LEFT_HAND);
     assert(!options.left_handed); /* Handoffs do not change the saved button layout. */
     click(lower_action,RIGHT_HAND);assert(coin_frames>0);coin_frames=0;

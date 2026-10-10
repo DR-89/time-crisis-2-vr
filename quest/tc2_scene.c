@@ -32,7 +32,9 @@ static bool world(const tc2_built *b,const tc2_poly *p){
      * depths in VR separates the icons from their frames as the head moves,
      * and can incorrectly intercept the gun ray. Preserve their screen rays
      * on the same 2.5-m plane as the rest of the HUD. */
-    return !(e->type==TC2_RE_MODEL&&p->model>=3474&&p->model<=3476);
+    /* Model 6083 is the machine-gun pickup animation in this same HUD
+     * (US program 800CE654/800CE68C/800CE6D8). It also has no world depth. */
+    return !(e->type==TC2_RE_MODEL&&((p->model>=3474&&p->model<=3476)||p->model==6083));
 }
 static V3 unproject(Camera c,float sx,float sy,float z){return v3((sx-c.cx)*z/c.f,(c.cy-sy)*z/c.f,-z);}
 V3 qvr_tc2_vertex(const tc2_built *b,const tc2_poly *p,int index){

@@ -34,6 +34,10 @@ The original MIPS game program and both H8 programs run as translated native C. 
 
 Laser is enabled by default. Options are saved locally. Trigger hand switching does not change the saved face-button layout. All player-facing text is English.
 
+The arcade game equips the machine gun automatically in scripted sections, including the pickup in Stage 1, Area 2. Hold the active hand's trigger for automatic fire while out of cover; there is no separate weapon-selection button. Test build 3 switches the VR hand model between the pistol and the supplied Tripo3D machine gun using the same player-state flag as the original ammunition display.
+
+Accepted shots animate the pistol slide or machine-gun recoil and a brief muzzle flash. The effects share their timing with controller haptics and do not move the aiming ray. Both models are loaded at startup to avoid loading during a weapon change. See [weapon implementation and validation](docs/WEAPONS.md).
+
 ## Build locally
 
 Required: CMake, Python 3, the pinned SDL/OpenXR/LLVM-MinGW dependencies fetched by the build scripts, and an Android SDK with platform 35, build-tools 35.0.1 and NDK 28.2.13676358 at `.tools/android-sdk`. Set `JAVA_HOME` to a JDK. This development checkout reuses the user's existing Android SDK through a local junction.

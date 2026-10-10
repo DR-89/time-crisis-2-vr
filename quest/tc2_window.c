@@ -4,6 +4,7 @@
 #include "tc2_vr.h"
 #include "tc2_scene.h"
 #include "tc2_host.h"
+#include "tc2_weapon.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <SDL2/SDL.h>
@@ -23,6 +24,12 @@ int tc2_window_open(int scale,int full) {
 int tc2_window_active(void) { return opened; }
 void tc2_window_frame(void) {
     if(!opened)return;
+    extern uint8_t tc2_ram[0x1000000];
+    QGunKind weapon=qtc2_weapon_kind(tc2_ram,sizeof tc2_ram);
+    if(weapon!=qgun_selected()){
+        qgun_select(weapon);
+        fprintf(stderr,"[WEAPON] frame %u: %s (arcade player state)\n",rr_frame,weapon==QGUN_MACHINE_GUN?"MACHINE GUN":"PISTOL");
+    }
     qvr_scene_prepare(tc2_built_latest_wait());
     static uint64_t started;
     if(!started)started=SDL_GetPerformanceCounter();
