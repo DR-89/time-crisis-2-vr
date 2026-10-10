@@ -49,7 +49,8 @@ static const char *fs_poly =
     "uint b8(vec4 t, int c) { return uint(t[c] * 255.0 + 0.5); }\n"
     "void main() {\n"
     "  ivec2 px = ivec2(v_screen);\n"
-    ""
+    /* Screen overlays must not leak beyond the arcade viewport in VR. */
+    "  if(v_clip.z>0.5&&(v_screen.x<0.0||v_screen.x>=640.0||v_screen.y<0.0||v_screen.y>=480.0))discard;\n"
     "  int fl = int(v_par.w);\n"
     "  uint tx = uint(int(v_uvs.x)), ty = uint(int(v_uvs.y));\n"
     "  if ((fl & 1) != 0) {\n"                                            /* the stencil: a 0 bit in the C412 SRAM hides the pixel */
@@ -108,7 +109,7 @@ static const char *vs_screen =
 static const char *fs_text =
     "#version 300 es\nprecision highp float;precision highp int;out vec4 frag;\n"
     "in vec2 v_screen;uniform highp sampler2D t_mix, t_pal, t_prio, t_band;\n"
-    "uniform int u_ex, u_scale, u_h, u_pass, u_fade, u_ff, u_alpha, u_amask, u_c12, u_c13;\n"
+    "uniform int u_ex, u_scale, u_h, u_pass, u_fade, u_ff, u_alpha, u_amask, u_c12, u_c13;uniform ivec2 u_bars;\n"
     "uniform ivec3 u_fcol;\n"
     "void main() {\n"
     "  ivec2 px = ivec2(v_screen);\n"
@@ -122,10 +123,14 @@ static const char *fs_text =
     "    mv = uint(m.r * 255.0 + 0.5) | (uint(m.g * 255.0 + 0.5) << 8u);\n"
     "  }\n"
     "  if ((mv & 0x8000u) == 0u) discard;\n"
-    "  if (u_pass == 0) { frag = vec4(1.0, 0.0, 0.0, 0.0); return; }\n"       /* the priority target starts as 'text here' */
-    "  if (u_pass == 2) { vec4 p = texelFetch(t_prio, ivec2(gl_FragCoord.xy), 0); if (!(p.r > 0.5 && p.g > 0.5 && p.a < 0.5)) discard; }\n"
+    /* The cutscene mask exists in BOTH the polygon and C361 text layers.
+     * Remove its black pixels in every text/priority pass; keep white WAIT,
+     * subtitles and other colored foreground text in the same rows. */
     "  uint pen = mv & 0x7FFFu;\n"
     "  ivec3 col = ivec3(texelFetch(t_pal, ivec2(int(pen & 255u), int(pen >> 8u)), 0).rgb * 255.0 + 0.5);\n"
+    "  if((px.y<u_bars.x||px.y>=u_bars.y)&&all(equal(col,ivec3(0))))discard;\n"
+    "  if (u_pass == 0) { frag = vec4(1.0, 0.0, 0.0, 0.0); return; }\n"       /* the priority target starts as 'text here' */
+    "  if (u_pass == 2) { vec4 p = texelFetch(t_prio, ivec2(gl_FragCoord.xy), 0); if (!(p.r > 0.5 && p.g > 0.5 && p.a < 0.5)) discard; }\n"
     "  if (u_fade != 0) col = (col * u_ff + u_fcol * (256 - u_ff)) >> 8;\n"
     "  bool ua = u_alpha != 255 && (int(pen & 15u) == u_amask || (int(pen) >= u_c12 && int(pen) <= u_c13));\n"
     "  frag = vec4(vec3(col) / 255.0, ua ? float(u_alpha) / 256.0 : 1.0);\n"
@@ -258,8 +263,8 @@ int tc2_gl_init(void)
     static const char *pn[] = { "t_rom", "t_map", "t_pal", "t_sten", "u_scale", "u_h", "u_prio", "u_pfade", "u_ff", "u_alpha", "u_alpha_pen", "u_pcol", "u_fcol", "u_ex",
                                 "t_near", "t_nearz", "u_near", "u_depth", "u_keep" };
     for (int i = 0; i < 19; i++) up[i] = glGetUniformLocation(prog_poly, pn[i]);
-    static const char *tn[] = { "t_mix", "t_pal", "t_prio", "u_scale", "u_h", "u_pass", "u_fade", "u_ff", "u_alpha", "u_amask", "u_c12", "u_c13", "u_fcol", "u_ex", "t_band" };
-    for (int i = 0; i < 15; i++) ut[i] = glGetUniformLocation(prog_text, tn[i]);
+    static const char *tn[] = { "t_mix", "t_pal", "t_prio", "u_scale", "u_h", "u_pass", "u_fade", "u_ff", "u_alpha", "u_amask", "u_c12", "u_c13", "u_fcol", "u_ex", "t_band", "u_bars" };
+    for (int i = 0; i < 16; i++) ut[i] = glGetUniformLocation(prog_text, tn[i]);
 
     const uint8_t *texrom; const uint32_t *tm; const uint8_t *tattr;
     tc2_render_assets(&texrom, &tm, &tattr);
@@ -297,10 +302,13 @@ static int fill_vertices(const tc2_built *b)
 {
     size_t need = 0;
     for (int i = 0; i < b->npoly; i++) need += (size_t)(b->polys[i].n - 2) * 3;
+    if(!need)return 0;
     if (need * VFLOATS > vcap) { vcap = need * VFLOATS * 2 + 4096; verts = realloc(verts, vcap * sizeof *verts); }
     float *o = verts;
     for (int i = 0; i < b->npoly; i++) {
         const tc2_poly *p = &b->polys[b->order[i]];
+        QTC2Layer layer=qvr_tc2_layer(b,p);
+        if(!qvr_flat_view&&layer==QTC2_LETTERBOX)continue;
         const int cl = (320 - p->vp_size_x) + p->vp_offset_x, cr = (320 + p->vp_size_x) + p->vp_offset_x;
         const int ct = (240 - p->vp_size_y) - p->vp_offset_y, cb = (240 + p->vp_size_y) - p->vp_offset_y;
         /* widescreen (Hor+): a viewport that fills the 4:3 screen fills the wide one -- same camera, more world at the sides */
@@ -317,12 +325,12 @@ static int fill_vertices(const tc2_built *b)
                 else {V3 pos=qvr_tc2_vertex(b,p,tri[j]);*o++=pos.x;*o++=pos.y;*o++=pos.z;*o++=1;}
                 *o++ = v->p[1] * w; *o++ = v->p[2] * w; *o++ = v->p[3] * w;
                 *o++ = (float)p->color_base; *o++ = (float)p->cmode; *o++ = (float)p->tbase; *o++ = flags;
-                *o++=sx;*o++=sy;*o++=0;*o++=0;
+                *o++=sx;*o++=sy;*o++=!qvr_flat_view&&layer!=QTC2_WORLD;*o++=0;
                 *o++ = (float)((p->entry & 0x3FFF) + 1); *o++ = (float)(p->zkey >> 21);
             }
         }
     }
-    return (int)need;
+    return (int)((o-verts)/VFLOATS);
 }
 int tc2_depth_on(void); float tc2_depth_keep(void);   /* src/tc2_render.c: the exact-depth setting */
 static void bind_tex(int unit, GLuint t) { glActiveTexture(GL_TEXTURE0 + unit); glBindTexture(GL_TEXTURE_2D, t); }
@@ -349,6 +357,7 @@ static void text_pass(const tc2_built *b, int pass)
     glUniform1i(ut[6], (C4(0x1A) & 2) && C4(0x19)); glUniform1i(ut[7], 0xFF - C4(0x19));
     glUniform1i(ut[8], 0xFF - C4(0x15)); glUniform1i(ut[9], C4(0x14)); glUniform1i(ut[10], C4(0x12)); glUniform1i(ut[11], C4(0x13));
     glUniform3i(ut[12], C4(0x16), C4(0x17), C4(0x18)); glUniform1i(ut[13], ex); glUniform1i(ut[14], 3);
+    int top=0,bottom=480;if(!qvr_flat_view)qvr_tc2_letterbox(&top,&bottom);glUniform2i(ut[15],top,bottom);
 #undef C4
     bind_tex(0, t_mix); bind_tex(1, t_pal); bind_tex(2, t_prio); bind_tex(3, t_band);
     draw_quad();

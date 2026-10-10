@@ -68,7 +68,8 @@ output path to generate the full-geometry reference for comparison.
   frame 19,342 (about 41 seconds). No GL errors are logged in that interval;
   runtime cadence samples report 120 Hz. Stereo captures verify the pistol and
   HUD, while the machine-gun interval is confirmed by the state log. Subjective
-  grip/animation feedback is pending; PCVR headset testing remains deferred.
+  grip/animation feedback was positive (the user confirmed it works well).
+  PCVR headset testing remains deferred.
 - The input fixture preserves the held trigger for 120 simulation ticks.
 - Weapon-state fixtures cover both player slots, endian order, unrelated flags,
   invalid slots and bounded reads. These synthetic tests complement the observed

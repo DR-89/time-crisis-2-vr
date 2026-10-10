@@ -237,6 +237,10 @@ int main(void){
     assert(pulses==4&&coin_frames==0);
     nx=0;ny=0;ss22_input_update();assert(g_ss22_gun_x==91&&g_ss22_gun_y==38);
     nx=1;ny=1;ss22_input_update();assert(g_ss22_gun_x==824&&g_ss22_gun_y==285);
+    /* Sparse recordings retain their input until the next recorded change. */
+    replay_input=true;arcade_bits=0x30;g_ss22_gun_x=456;g_ss22_gun_y=123;g_ss22_gun_off=false;
+    for(int n=0;n<120;n++){ss22_input_update();ss22_input_neutral();assert(arcade_bits==0x30&&g_ss22_gun_x==456&&g_ss22_gun_y==123&&!g_ss22_gun_off);}
+    replay_input=false;ss22_input_neutral();assert(arcade_bits==0);
     puts("PASS: TC2 four-credit sequence and gun ADC bounds; real host controls, gun pitch persistence/bounds/repeat/reset, model/muzzle/aim alignment in both hands, local-space correction, focus/action loss and existing input regressions");
     return 0;
 }

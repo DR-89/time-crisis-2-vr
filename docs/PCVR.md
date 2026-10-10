@@ -8,4 +8,6 @@ This development build is not yet verified through a complete game. Logs are wri
 
 Test build 3 automatically switches the tracked hand model to the Tripo3D machine gun when the arcade equips it. Hold the trigger while out of cover for automatic fire. Accepted shots produce recoil and muzzle flash; the pistol also has animated slide and trigger parts.
 
+Test build 4 removes cinematic letterbox masks in VR and places animated ammunition and player markers on the HUD plane. The desktop view keeps the original masks. Recorded input playback now preserves held input states between recorded changes.
+
 The desktop and spatial-renderer input replays pass, including an 18,270-frame run of a captured Quest session. Headset testing over Virtual Desktop / Quest Link is deferred; this package is not yet confirmed in PCVR. The native Quest build is tested separately.

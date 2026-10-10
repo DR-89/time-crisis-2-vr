@@ -30,7 +30,7 @@ int main(void){
     // HUD model depths must not detach health/ammo from the text-layer frames,
     // nor intercept aiming rays. A neighbouring world model retains its depth.
     e->type=TC2_RE_MODEL;b->npoly=1;
-    const int hud_models[]={3474,3475,3476,6083};
+    const int hud_models[]={3474,3475,3476,3477,5077,5078,5079,5080,5081,5082,6083};
     for(unsigned i=0;i<sizeof hud_models/sizeof *hud_models;i++){
         int model=hud_models[i];
         p->model=model;qvr_scene_prepare(b);flat=qvr_tc2_vertex(b,p,0);near(-flat.z,2.5f);
@@ -38,5 +38,20 @@ int main(void){
         assert(qvr_aim(v3(0,0,0),v3(0,0,-1),&nx,&ny,&hit));near(-hit.z,2.5f);
     }
     p->model=3473;qvr_scene_prepare(b);near(-qvr_tc2_vertex(b,p,0).z,10);
+    // Only the known wide edge masks are letterboxing. A full-screen mask
+    // remains visible for fades; similarly shaped world polygons are retained.
+    p->model=3478;p->n=4;p->vp_offset_x=p->vp_offset_y=0;
+    const float bar[4][2]={{-.631f,-175.971f},{640.631f,-175.971f},{640.631f,64.502f},{-.631f,64.502f}};
+    for(int i=0;i<4;i++){p->pv[i].x=bar[i][0];p->pv[i].y=bar[i][1];p->pv[i].p[0]=32;}
+    assert(qvr_tc2_layer(b,p)==QTC2_LETTERBOX);qvr_scene_prepare(b);
+    int top,bottom;qvr_tc2_letterbox(&top,&bottom);assert(top==65&&bottom==480);
+    assert(qvr_aim(v3(0,0,0),v3(0,0,-1),&nx,&ny,&hit));near(-hit.z,2.5f);
+    for(int i=0;i<4;i++)p->pv[i].y=480-bar[i][1];
+    qvr_scene_prepare(b);qvr_tc2_letterbox(&top,&bottom);assert(top==0&&bottom==415);
+    for(int i=0;i<4;i++)p->pv[i].y=i<2?-1:481;
+    assert(qvr_tc2_layer(b,p)==QTC2_OVERLAY);qvr_scene_prepare(b);near(-qvr_tc2_vertex(b,p,0).z,2.5f);
+    qvr_tc2_letterbox(&top,&bottom);assert(top==0&&bottom==480);
+    p->model=3473;assert(qvr_tc2_layer(b,p)==QTC2_WORLD);
+    qvr_scene_prepare(NULL);qvr_tc2_letterbox(&top,&bottom);assert(top==0&&bottom==480);
     free(b);puts("TC2 camera, stereo geometry, surface aim, direct layer and empty-space projection passed");return 0;
 }

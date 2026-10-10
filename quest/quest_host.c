@@ -82,6 +82,7 @@ static Q4 origin_rotation={0,0,0,1},gun_rotation={0,0,0,1};
 static float nx=.5f,ny=.5f,trigger,pedal;
 static bool aim_valid,gun_tracked;
 static uint64_t recoil_started;
+static bool replay_input;
 static int coin_frames;
 
 static struct Eye { XrSwapchain chain;uint32_t w,h,n;QSwapchainImage *images;GLuint *fb,depth; } eyes[2];
@@ -388,6 +389,7 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
 /* Input tests compile the real action and polling code without a window/runtime. */
 #ifndef TCVR_INPUT_TEST
 bool tc2_vr_open(void){
+    replay_input=getenv("TC2_REPLAY")!=NULL;
     qoptions_load(options_path,&options);active_weapon_hand=options.left_handed?LEFT_HAND:RIGHT_HAND;
     fprintf(stderr,"[OPTIONS] laser %s; cover %s; default hand %s; trigger handoff enabled (left menu: options)\n",options.laser_enabled?"ON":"OFF",options.physical_crouch?"PHYSICAL":"GRIP",options.left_handed?"LEFT":"RIGHT");
     fprintf(stderr,"[OPTIONS] gun angle %+d deg\n",options.gun_pitch);
@@ -670,8 +672,11 @@ bool ss22_host_frame(void){
     }
 }
 #endif
-void ss22_input_init(const ss22_input_game *g){(void)g;}
+void ss22_input_init(const ss22_input_game *g){(void)g;replay_input=getenv("TC2_REPLAY")!=NULL;}
 void ss22_input_update(void){
+    /* The upstream recording stores CHANGES, not a full state every frame.
+     * Live input must not overwrite the held replay state between those lines. */
+    if(replay_input)return;
     uint16_t bits=0;
     if(focused&&!paused){
         bool fire=trigger>.55f;
@@ -686,7 +691,7 @@ void ss22_input_update(void){
     g_ss22_gun_off=!aim_valid;g_ss22_gun_x=(uint16_t)(91+fminf(1,fmaxf(0,nx))*733);g_ss22_gun_y=(uint16_t)(38+fminf(1,fmaxf(0,ny))*247);
     tc2_inputs=bits;
 }
-void ss22_input_neutral(void){trigger=pedal=0;shot_pending=shot_needs_release=fire_output_down=false;tc2_inputs=0;}
+void ss22_input_neutral(void){trigger=pedal=0;shot_pending=shot_needs_release=fire_output_down=false;if(!replay_input)tc2_inputs=0;}
 const eng_ui_page *ss22_input_page(void){return NULL;}
 void ss22_input_event(const SDL_Event *e){(void)e;}
 void ss22_input_motor(uint8_t b){(void)b;}
