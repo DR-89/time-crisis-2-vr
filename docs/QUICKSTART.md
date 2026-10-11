@@ -2,7 +2,7 @@
 
 **v0.3.3:** left menu opens options; left stick up/down selects **GRAPHICS**. Right stick left/right selects a per-eye resolution; fully restart the app to apply it. Left grip toggles texture filtering immediately (default ON). Launcher icons and banners are included.
 
-Download **v0.3.3** from the [release page](https://github.com/DR-89/time-crisis-2-vr/releases/tag/v0.3.3). Both packages include the game files and animated weapons.
+Download **v0.3.3** from the [release page](https://github.com/DR-89/time-crisis-2-vr/releases/tag/v0.3.3). Both packages include the game files and animated weapons. Steam Frame builds are separate and ROM-free; see below.
 
 ## Quest 3
 
@@ -19,6 +19,20 @@ Download **v0.3.3** from the [release page](https://github.com/DR-89/time-crisis
 4. Use **Play Desktop.cmd** for mouse/keyboard play without a headset.
 
 See [PCVR setup](PCVR.md) for runtime and troubleshooting details.
+
+## Steam Frame (macOS build)
+
+The Steam Frame flavor is an ARM64 Android/OpenXR developer build with package ID `org.timecrisis2.frame`. Its APK and installer bundle are ROM-free; on first launch, select your own `timecrs2.zip` or copy it to `/sdcard/Documents/TimeCrisis2VR/timecrs2.zip`. The launcher verifies all 22 required chips by hash and stores the archive, extracted chips, settings, logs, and captures in `Documents/TimeCrisis2VR`.
+
+Build on macOS with the pinned Android SDK/NDK and the already verified shared dependency cache:
+
+```sh
+python3 tools/build_frame.py --rom "$HOME/Downloads/timecrs2.zip" --shared-tools /path/to/time-crisis-vr/.tools --jobs 2
+```
+
+The APK is written to `artifacts/steam-frame/TimeCrisis2VR-SteamFrame-arm64.apk`; `artifacts/steam-frame/bundle` contains the checksummed ROM-free installer. The bundle defaults to local verification or a non-writing dry run. Installation requires an explicit `--install`, a matching Steam Frame booking lock script, and the user's ROM path; see [Steam Frame verification](VR_ARCHITECTURE.md).
+
+With the Steam Frame controller profile active, either trigger fires, either grip leaves cover, right A adds credits, right B toggles the laser, right Menu opens/resumes options, and right X changes cover mode in options. Left View taps back/resume, holds for one second to recenter, or holds for three seconds to recenter and calibrate upright height. OpenXR Touch remains available as a fallback.
 
 ## Playing
 

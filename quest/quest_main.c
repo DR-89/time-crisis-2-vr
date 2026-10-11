@@ -7,7 +7,11 @@
 int tc_game_main(int,char**);
 int SDL_main(int argc,char **argv) {
     (void)argc;(void)argv;
+#ifdef TCVR_STEAM_FRAME
+    const char *dir="/sdcard/Documents/TimeCrisis2VR";
+#else
     const char *dir=SDL_AndroidGetInternalStoragePath();
+#endif
     if(!dir||chdir(dir))return 2;
     remove("timecrisis2-vr-previous.log");rename("timecrisis2-vr.log","timecrisis2-vr-previous.log");
     freopen("timecrisis2-vr.log","w",stderr);setvbuf(stderr,NULL,_IOLBF,0);

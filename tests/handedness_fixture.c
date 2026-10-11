@@ -9,6 +9,8 @@ void tc2_gl_set_filter(int enabled){applied_filter=enabled!=0;filter_calls++;}
 static char paths[40][100];
 static unsigned path_count,action_count,space_count,binding_count;
 static XrActionSuggestedBinding suggested[20];
+static XrActionSuggestedBinding frame_suggested[20],touch_suggested[20];
+static unsigned frame_binding_count,touch_binding_count;
 static XrActionType types[16];
 static bool dual[16],buttons[16][3],connected[2]={true,true},tracked[2]={true,true};
 static float stick_x,stick_y;
@@ -24,6 +26,10 @@ static float triggers[2],grips[2];
 static XrTime trigger_times[2];
 static bool trigger_active[2]={true,true};
 static XrPath last_haptic,last_stop;
+static float last_haptic_amplitude;
+static XrDuration last_haptic_duration;
+static unsigned haptic_count;
+static XrPath current_profile;
 static XrResult sync_result=XR_SUCCESS;
 uint16_t tc2_inputs;
 #define arcade_bits tc2_inputs
@@ -57,9 +63,18 @@ XRAPI_ATTR XrResult XRAPI_CALL xrCreateAction(XrActionSet set,const XrActionCrea
     *out=(XrAction)(uintptr_t)n;return XR_SUCCESS;
 }
 XRAPI_ATTR XrResult XRAPI_CALL xrSuggestInteractionProfileBindings(XrInstance i,const XrInteractionProfileSuggestedBinding *s){
-    (void)i;assert(!strcmp(paths[s->interactionProfile],"/interaction_profiles/oculus/touch_controller"));
+    (void)i;
     binding_count=s->countSuggestedBindings;assert(binding_count<=20);
-    memcpy(suggested,s->suggestedBindings,binding_count*sizeof suggested[0]);return XR_SUCCESS;
+    memcpy(suggested,s->suggestedBindings,binding_count*sizeof suggested[0]);
+    if(!strcmp(paths[s->interactionProfile],"/interaction_profiles/oculus/touch_controller")){
+        touch_binding_count=binding_count;memcpy(touch_suggested,suggested,binding_count*sizeof suggested[0]);
+    }else if(!strcmp(paths[s->interactionProfile],"/interaction_profiles/valve/frame_controller_valve")){
+        frame_binding_count=binding_count;memcpy(frame_suggested,suggested,binding_count*sizeof suggested[0]);
+    }else assert(!"unexpected interaction profile");
+    return XR_SUCCESS;
+}
+XRAPI_ATTR XrResult XRAPI_CALL xrGetCurrentInteractionProfile(XrSession s,XrPath hand,XrInteractionProfileState *out){
+    (void)s;assert(hand==hand_paths[RIGHT_HAND]);out->interactionProfile=current_profile;return XR_SUCCESS;
 }
 XRAPI_ATTR XrResult XRAPI_CALL xrAttachSessionActionSets(XrSession s,const XrSessionActionSetsAttachInfo *a){
     (void)s;assert(a->countActionSets==1&&a->actionSets[0]==action_set);return XR_SUCCESS;
@@ -98,8 +113,10 @@ XRAPI_ATTR XrResult XRAPI_CALL xrLocateSpace(XrSpace space,XrSpace base,XrTime t
     out->pose=(XrPosef){{controller_rotation.x,controller_rotation.y,controller_rotation.z,controller_rotation.w},{h==LEFT_HAND?-.25f:.25f,1.4f,-.5f}};return XR_SUCCESS;
 }
 XRAPI_ATTR XrResult XRAPI_CALL xrApplyHapticFeedback(XrSession s,const XrHapticActionInfo *info,const XrHapticBaseHeader *v){
-    (void)s;(void)v;assert(info->action==haptic_action&&dual[id(info->action)]);
-    assert(hand_index(info->subactionPath)<2);last_haptic=info->subactionPath;return XR_SUCCESS;
+    (void)s;assert(info->action==haptic_action&&dual[id(info->action)]);
+    assert(hand_index(info->subactionPath)<2);last_haptic=info->subactionPath;haptic_count++;
+    if(v&&v->type==XR_TYPE_HAPTIC_VIBRATION){const XrHapticVibration *pulse=(const XrHapticVibration*)v;last_haptic_amplitude=pulse->amplitude;last_haptic_duration=pulse->duration;}
+    return XR_SUCCESS;
 }
 XRAPI_ATTR XrResult XRAPI_CALL xrStopHapticFeedback(XrSession s,const XrHapticActionInfo *info){
     (void)s;assert(info->action==haptic_action);last_stop=info->subactionPath;return XR_SUCCESS;
@@ -108,12 +125,117 @@ void tc2_audio_volume(int v){(void)v;}
 void ss22_snd_inputs(uint16_t bits,unsigned w,unsigned p1,unsigned p2){(void)w;(void)p1;(void)p2;arcade_bits=bits;}
 V3 qgun_muzzle(V3 p,Q4 q){return add(p,rotate(q,v3(0,0,-.1f)));}
 bool qvr_aim(V3 p,V3 d,float *x,float *y,V3 *hit){*x=p.x+.5f;*y=.5f;*hit=add(p,mul(d,2.f));return true;}
-static void tick(void){sync_input(100,true,1.7f);ss22_input_update();}
+#ifdef TCVR_STEAM_FRAME
+void glPixelStorei(GLenum name,GLint value){(void)name;(void)value;}
+void glReadPixels(GLint x,GLint y,GLsizei width,GLsizei height,GLenum format,GLenum type,void *pixels){
+    (void)x;(void)y;(void)format;(void)type;memset(pixels,0,(size_t)width*height*4);
+}
+#endif
+static void tick_at(XrTime time){sync_input(time,true,1.7f);ss22_input_update();}
+static void tick(void){tick_at(100);}
 static void click(XrAction a,int h){buttons[id(a)][h]=true;tick();buttons[id(a)][h]=false;tick();}
 static void bound(XrAction a,const char *name){
     for(unsigned i=0;i<binding_count;i++)if(suggested[i].action==a&&!strcmp(paths[suggested[i].binding],name))return;
     fprintf(stderr,"Missing binding: %s\n",name);abort();
 }
+#ifdef TCVR_STEAM_FRAME
+static bool has_binding(const XrActionSuggestedBinding *bindings,unsigned count,XrAction action,const char *name){
+    for(unsigned i=0;i<count;i++)if(bindings[i].action==action&&!strcmp(paths[bindings[i].binding],name))return true;
+    return false;
+}
+static void require_binding(const XrActionSuggestedBinding *bindings,unsigned count,XrAction action,const char *name){
+    if(!has_binding(bindings,count,action,name)){fprintf(stderr,"Missing profile binding: %s\n",name);abort();}
+}
+int main(void){
+    get_rate=mock_get_rate;request_rate=mock_request_rate;preferred_rate=120;focused=true;
+    rate_attempts=0;rate_requests=0;display_rate_request();assert(rate_requests==0&&rate_attempts==0);
+    display_rate_check(10000000000LL);assert(rate_requests==0&&rate_attempts==0);
+    get_rate=NULL;request_rate=NULL;
+    options_path="frame-profile-test.cfg";qoptions_load(options_path,&options);
+    assert(options.laser_enabled&&!options.left_handed);instance=(XrInstance)(uintptr_t)1;session=(XrSession)(uintptr_t)1;
+    running=focused=origin_set=true;frame_profile_supported=true;
+    assert(actions_init());assert(space_count==2&&frame_binding_count==17&&touch_binding_count==17);
+    require_binding(frame_suggested,frame_binding_count,distance_action,"/user/hand/left/input/thumbstick");
+    const char *hands[]={"/user/hand/left","/user/hand/right"};
+    for(int h=0;h<2;h++){
+        char name[100];
+        snprintf(name,sizeof name,"%s/input/aim/pose",hands[h]);require_binding(frame_suggested,frame_binding_count,aim_action,name);
+        snprintf(name,sizeof name,"%s/input/trigger/value",hands[h]);require_binding(frame_suggested,frame_binding_count,trigger_action,name);
+        snprintf(name,sizeof name,"%s/input/squeeze/value",hands[h]);require_binding(frame_suggested,frame_binding_count,grip_action,name);
+        snprintf(name,sizeof name,"%s/output/haptic",hands[h]);require_binding(frame_suggested,frame_binding_count,haptic_action,name);
+    }
+    require_binding(frame_suggested,frame_binding_count,lower_action,"/user/hand/right/input/a/click");
+    require_binding(frame_suggested,frame_binding_count,upper_action,"/user/hand/right/input/b/click");
+    require_binding(frame_suggested,frame_binding_count,cover_mode_action,"/user/hand/right/input/x/click");
+    require_binding(frame_suggested,frame_binding_count,pause_action,"/user/hand/right/input/menu/click");
+    require_binding(frame_suggested,frame_binding_count,view_action,"/user/hand/left/input/view/click");
+    require_binding(frame_suggested,frame_binding_count,pitch_action,"/user/hand/right/input/thumbstick");
+    require_binding(frame_suggested,frame_binding_count,hand_action,"/user/hand/right/input/thumbstick/click");
+    require_binding(frame_suggested,frame_binding_count,pitch_reset_action,"/user/hand/left/input/thumbstick/click");
+    require_binding(touch_suggested,touch_binding_count,lower_action,"/user/hand/left/input/x/click");
+    require_binding(touch_suggested,touch_binding_count,lower_action,"/user/hand/right/input/a/click");
+    require_binding(touch_suggested,touch_binding_count,pause_action,"/user/hand/left/input/menu/click");
+
+    /* The original Touch profile remains active and keeps its hand/layout roles. */
+    current_profile=touch_profile_path;update_frame_profile();assert(!frame_profile_active);
+    tick();assert(gun_tracked&&gun_position.x==.25f);
+    click(lower_action,RIGHT_HAND);assert(coin_frames>0);coin_frames=0;
+    click(upper_action,RIGHT_HAND);assert(!options.laser_enabled);
+    recenter_requested=false;click(lower_action,LEFT_HAND);assert(recenter_requested);
+
+    /* Frame profile assigns trigger/grip on both hands and options to Frame controls. */
+    current_profile=frame_profile_path;update_frame_profile();assert(frame_profile_active);
+    options.laser_enabled=true;paused=false;coin_frames=0;recenter_requested=false;
+    buttons[id(lower_action)][RIGHT_HAND]=false;buttons[id(upper_action)][RIGHT_HAND]=false;
+    tick();click(lower_action,RIGHT_HAND);assert(coin_frames>0);coin_frames=0;
+    click(upper_action,RIGHT_HAND);assert(!options.laser_enabled);
+    click(lower_action,LEFT_HAND);click(upper_action,LEFT_HAND);assert(coin_frames==0&&!options.laser_enabled);
+
+    /* Either trigger selects the firing hand; grips expose cover. */
+    triggers[LEFT_HAND]=.9f;tick();assert(weapon_hand()==LEFT_HAND&&(arcade_bits&0x10));
+    triggers[LEFT_HAND]=0;tick();grips[LEFT_HAND]=.8f;tick();assert(pedal==.8f);
+    grips[LEFT_HAND]=0;tick();triggers[RIGHT_HAND]=.9f;tick();assert(weapon_hand()==RIGHT_HAND&&(arcade_bits&0x10));
+    triggers[RIGHT_HAND]=0;tick();
+
+    /* Right Menu opens options; right X switches cover mode only while paused. */
+    click(pause_action,2);assert(paused);
+    bool old_cover=options.physical_crouch;click(cover_mode_action,2);assert(options.physical_crouch!=old_cover);
+    click(cover_mode_action,2);assert(options.physical_crouch==old_cover);
+
+    /* A one-second View hold recentres and emits the standard two-hand pulse. */
+    buttons[id(view_action)][LEFT_HAND]=false;tick_at(1000);
+    unsigned before=haptic_count;buttons[id(view_action)][LEFT_HAND]=true;
+    tick_at(2000);tick_at(1000002000LL);
+    assert(recenter_requested&&haptic_count==before+2&&fabsf(last_haptic_amplitude-.6f)<.001f&&last_haptic_duration==80000000LL);
+    buttons[id(view_action)][LEFT_HAND]=false;tick_at(1000003000LL);assert(paused);
+
+    /* Three seconds adds upright-height calibration and a second standard pulse. */
+    tick_at(1100000000LL);cover_calibration_pending=false;cover.calibrated=false;before=haptic_count;buttons[id(view_action)][LEFT_HAND]=true;
+    tick_at(1100000100LL);tick_at(4100000100LL);
+    assert(recenter_calibration_requested&&cover.calibrated&&fabsf(cover.upright_y-1.7f)<.001f&&haptic_count==before+4);
+    buttons[id(view_action)][LEFT_HAND]=false;tick_at(4100000200LL);assert(paused);
+
+    /* A fresh short release resumes; releasing a held gesture never short-acts. */
+    tick_at(4200000000LL);buttons[id(view_action)][LEFT_HAND]=true;tick_at(4200000100LL);
+    buttons[id(view_action)][LEFT_HAND]=false;tick_at(4200000200LL);assert(!paused);
+    click(pause_action,2);assert(paused);tick_at(4300000000LL);
+    buttons[id(view_action)][LEFT_HAND]=true;tick_at(4300000100LL);tick_at(5300000100LL);
+    buttons[id(view_action)][LEFT_HAND]=false;tick_at(5300000200LL);assert(paused);
+
+    /* The one-shot probe arms capture after game ticks, captures both eyes, then consumes the marker. */
+    paused=false;FILE *config=fopen("frame-probe.cfg","w");assert(config);
+    fputs("force_render=1\ncapture_once=1\ncapture_after_ticks=2\n",config);fclose(config);
+    frame_probe=(FrameProbe){0};frame_probe_load();assert(frame_probe.enabled&&frame_probe.capture_once&&frame_probe.capture_after_ticks==2);
+    frame_probe_game_tick();assert(frame_probe.game_ticks==1&&access("capture.request",F_OK)!=0);
+    frame_probe_game_tick();assert(frame_probe.game_ticks==2&&access("capture.request",F_OK)==0);
+    assert(capture_eye(0,2,2)&&access("capture.request",F_OK)==0);
+    assert(capture_eye(1,2,2)&&access("capture.request",F_OK)!=0&&!frame_probe.capture_once);
+    assert(access("eye-0.ppm",F_OK)==0&&access("eye-1.ppm",F_OK)==0);
+    unlink("eye-0.ppm");unlink("eye-1.ppm");frame_probe.enabled=false;
+    puts("PASS: production Frame OpenXR action path; both profile bindings and Touch fallback, trigger/grip behavior, Menu/options mappings, View tap/hold timing, recenter/calibration and haptics; bounded tick-delayed paired capture; runtime-owned refresh policy");
+    return 0;
+}
+#else
 int main(void){
     /* A successful request is not proof of application. Retry while focused,
      * stop on measured success, and cap retries if the runtime refuses to switch. */
@@ -423,3 +545,4 @@ int main(void){
     puts("PASS: resolution page navigation, release/focus/disconnect guards, cycling/reset/persistence and runtime/GPU dimension limits");
     return 0;
 }
+#endif

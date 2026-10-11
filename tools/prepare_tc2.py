@@ -5,7 +5,7 @@ ROOT=Path(__file__).resolve().parents[1]
 TC=ROOT/'upstream/tc2'
 PIN='0837a397ebe554dbf5341d95629aa1e29fc58a52'
 
-def prepare(rom):
+def prepare(rom, build_root=None):
     actual=subprocess.check_output(['git','rev-parse','HEAD'],cwd=TC,text=True).strip()
     if actual!=PIN:raise RuntimeError('Unexpected upstream revision: '+actual)
     # Read the upstream table without executing its command-line program.
@@ -38,12 +38,13 @@ def prepare(rom):
             if kind=='io':env['H8_ROMSIZE']='0x4000'
             cov=[str(p.relative_to(TC).with_suffix('')) for p in sorted((TC/'cov').glob('h8'+kind+'_*.pcs'))]
             run(sys.executable,'tools/h8/h8_translate.py',kind+'.bin',mode,prefix,output,*cov,env=env)
-    assets=ROOT/'build/assets/roms';assets.mkdir(parents=True,exist_ok=True)
+    output=Path(build_root) if build_root is not None else ROOT/'build'
+    assets=output/'assets/roms';assets.mkdir(parents=True,exist_ok=True)
     import shutil
     for m in manifest:shutil.copy2(extracted/m['file'],assets/m['file'])
     (assets.parent/'roms.sha256').write_text(''.join(m['sha256']+'  '+m['file']+'\n' for m in manifest),encoding='ascii')
     report={'upstream':PIN,'archive_sha256':hashlib.sha256(Path(rom).read_bytes()).hexdigest(),'chips':manifest}
-    (ROOT/'build/rom-audit.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
+    (output/'rom-audit.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
     print(f'Validated {len(manifest)} arcade ROM chips; native MIPS and H8 sources ready.',flush=True)
     return assets.parent
 
