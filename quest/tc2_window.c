@@ -39,7 +39,13 @@ void tc2_window_frame(void) {
     const char *limit=getenv("TC2_MAX_FRAMES");
     if((limit && rr_frame>=strtoul(limit,NULL,10)) || !ss22_host_frame()) {
         fprintf(stderr,"[TC2VR] normal shutdown at frame %u\n",rr_frame);
+#ifdef TCVR_STEAM_FRAME
+        fprintf(stderr,"[TC2VR] host requested shutdown; unwinding lifted core\n");
+        extern void tc2_frame_request_shutdown(void);
+        tc2_frame_request_shutdown();
+#else
         tc2_on_exit();ss22_host_close();exit(0);
+#endif
     }
     if(tc2_link_take_restart()){void tc2_machine_restart(void);ss22_input_neutral();tc2_machine_restart();}
 }

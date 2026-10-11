@@ -44,6 +44,7 @@ def generate(output, headless=False):
     replacements = [
         ("int main(int argc, char **argv)", MAIN_API + "\nint main(int argc, char **argv)"),
         ('    const int power_on = !strcmp(argv[1], "reset");', '    const int power_on = !strcmp(argv[1], "reset");\n    if(setjmp(power_on_return))machine_reset();\n    restart_armed=1;'),
+        ('    rr_jump(pc, pc);', '#ifdef TCVR_STEAM_FRAME\n    if(TC2_FRAME_SHUTDOWN_CHECKPOINT())TC2_FRAME_SHUTDOWN_CATCH();\n    frame_shutdown_armed=1;\n#endif\n    rr_jump(pc, pc);\n#ifdef TCVR_STEAM_FRAME\n    frame_shutdown_armed=0;\n#endif'),
         ('#include "tc2_host.h"', '#include "tc2_host.h"\n#include "tc2_link.h"'),
         ('    scripted_inputs(frame);', '    tc2_link_vblank(frame);\n    scripted_inputs(frame);'),
         ('    ins_total += n;', '    ins_total += n;\n    tc2_link_poll();'),
