@@ -56,9 +56,30 @@ MAIN_API = '''
 #include <setjmp.h>
 static jmp_buf power_on_return;
 static int restart_armed;
+#ifdef TCVR_STEAM_FRAME
+static jmp_buf frame_shutdown_return;
+static int frame_shutdown_armed;
+#define TC2_FRAME_SHUTDOWN_CHECKPOINT() setjmp(frame_shutdown_return)
+#define TC2_FRAME_SHUTDOWN_CATCH() do { \\
+    frame_shutdown_armed=0; \\
+    fprintf(stderr,"[TC2VR] lifted core unwound for orderly Frame shutdown\\n"); \\
+    tc2_on_exit(); \\
+    fprintf(stderr,"[TC2VR] core shutdown reporting complete\\n"); \\
+    return 0; \\
+} while(0)
+_Noreturn void tc2_frame_request_shutdown(void) {
+    if(!frame_shutdown_armed){fprintf(stderr,"[TC2VR] shutdown requested outside lifted core\\n");abort();}
+    longjmp(frame_shutdown_return,1);
+}
+#endif
 /* Called only after the host finished an XR frame and the renderer is idle. */
 void tc2_machine_restart(void) {
-    if(restart_armed)longjmp(power_on_return,1);
+    if(restart_armed){
+#ifdef TCVR_STEAM_FRAME
+        frame_shutdown_armed=0;
+#endif
+        longjmp(power_on_return,1);
+    }
 }
 static void machine_reset(void) {
     void tc2_render_reset(void),tc2_cpu_reset(void),tc2_mem_reset(void),tc2_chips_reset(void);

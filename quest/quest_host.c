@@ -1238,13 +1238,25 @@ void ss22_host_close(void){
     active=false;
 #ifdef TCVR_STEAM_FRAME
     if(frame_probe.owns_capture_marker)unlink("capture.request");
+    fprintf(stderr,"[TC2VR] host close: graphics destruction begin\n");
 #endif
     if(context&&gpu_ready){qui_shutdown();qgun_shutdown();qgl_shutdown();}
+#ifdef TCVR_STEAM_FRAME
+    fprintf(stderr,"[TC2VR] host close: graphics destruction complete\n");
+    fprintf(stderr,"[TC2VR] host close: OpenXR destruction begin\n");
+#endif
     for(int i=0;i<2;i++){if(context&&gpu_ready&&eyes[i].fb)glDeleteFramebuffers(eyes[i].n,eyes[i].fb);if(context&&gpu_ready)glDeleteRenderbuffers(1,&eyes[i].depth);if(eyes[i].chain)xrDestroySwapchain(eyes[i].chain);free(eyes[i].images);free(eyes[i].fb);memset(&eyes[i],0,sizeof eyes[i]);}
     for(int i=0;i<HAND_COUNT;i++){if(aim_spaces[i])xrDestroySpace(aim_spaces[i]);aim_spaces[i]=0;}
     if(local_space)xrDestroySpace(local_space);
     if(session)xrDestroySession(session);if(action_set)xrDestroyActionSet(action_set);if(instance)xrDestroyInstance(instance);
     local_space=0;session=0;action_set=0;instance=0;running=false;
+#ifdef TCVR_STEAM_FRAME
+    fprintf(stderr,"[TC2VR] host close: OpenXR destruction complete\n");
+    fprintf(stderr,"[TC2VR] host close: SDL destruction begin\n");
+#endif
     if(context)SDL_GL_DeleteContext(context);context=NULL;gpu_ready=false;if(window)SDL_DestroyWindow(window);window=NULL;SDL_Quit();
+#ifdef TCVR_STEAM_FRAME
+    fprintf(stderr,"[TC2VR] host close: SDL_Quit complete\n");
+#endif
 }
 #endif
