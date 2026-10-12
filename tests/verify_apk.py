@@ -14,7 +14,7 @@ with zipfile.ZipFile(apk) as z:
         data=z.read('assets/roms/'+name) if bundled else (ROOT/'build/assets/roms'/name).read_bytes()
         assert hashlib.sha256(data).hexdigest()==digest,name
     model_manifest=z.read('assets/models.sha256').decode().splitlines()
-    assert {line.split('  ',1)[1] for line in model_manifest}=={'player-gun.tcgun','machine-gun.tcgun'}
+    assert {line.split('  ',1)[1] for line in model_manifest}=={'player-gun.tcgun','machine-gun.tcgun','namco-gun.tcgun'}
     for line in model_manifest:
         digest,name=line.split('  ',1);model=z.read('assets/models/'+name)
         assert hashlib.sha256(model).hexdigest()==digest,name
@@ -44,6 +44,9 @@ with zipfile.ZipFile(apk) as z:
         elf=z.read(lib);assert elf[:5]==b'\x7fELF\x02';assert struct.unpack_from('<H',elf,18)[0]==183,lib
     assert z.read('classes.dex')[:4]==b'dex\n'
     for name in ['namco22-LICENSE.txt','SDL2-LICENSE.txt','OpenXR-LICENSE.txt']:assert z.read('assets/licenses/'+name)
+    notice=z.read('assets/licenses/NOTICE.md').decode()
+    assert 'Martoscar' in notice and 'https://creativecommons.org/licenses/by/4.0/' in notice
+    assert '15fbd5b9add94a34b5c21746e3dd32be' in notice
 badging=subprocess.check_output([str(ROOT/'.tools/android-sdk/build-tools/35.0.1/aapt.exe'),'dump','badging',str(apk)],text=True)
 assert "package: name='org.timecrisis2.arcadevr'" in badging
 entry='MainActivity' if bundled else 'LauncherActivity'
@@ -63,4 +66,4 @@ readelf=ROOT/'.tools/android-sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/wind
 symbols=subprocess.check_output([str(readelf),'--dyn-syms',str(ROOT/'build/package-libs/libmain.so')],text=True)
 assert ' SDL_main' in symbols
 assert info['sha256']==hashlib.sha256(apk.read_bytes()).hexdigest()
-print(f'APK verified: bundled={bundled}, 22 chip hashes, both weapon assets, ARM64/DEX/SDL_main, {entry} launcher, actual game marked immersive, isolated setup task, licenses and hash')
+print(f'APK verified: bundled={bundled}, 22 chip hashes, all three weapon assets, ARM64/DEX/SDL_main, {entry} launcher, actual game marked immersive, isolated setup task, model attribution, licenses and hash')

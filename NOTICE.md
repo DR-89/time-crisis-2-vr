@@ -16,7 +16,16 @@ affiliated with or endorsed by Namco, Bandai Namco, or Meta.
 - **Windows dependencies:** zlib 1.3.1, SDL 2.30.11, Khronos OpenXR 1.1.43,
   LLVM/MinGW runtime and winpthreads. Their notices are included under `licenses`
   in the portable Windows package.
-- **Player weapon model:** [Lowpoly Pistol by FireWarden](https://opengameart.org/content/lowpoly-pistol),
+- **Namco Arcade Gun model:** [Namco Arcade Gun by Martoscar](https://sketchfab.com/3d-models/namco-arcade-gun-15fbd5b9add94a34b5c21746e3dd32be),
+  licensed under [Creative Commons Attribution 4.0 International](https://creativecommons.org/licenses/by/4.0/).
+  Supplied by the user as `namco-arcade-gun.zip`. Converted for this port:
+  axes and grip/muzzle calibration, reconstructed missing normals, baked base
+  colors into a 1024-square atlas, omitted normal/roughness maps, combined mesh
+  parts and added whole-model recoil. Original geometry is retained (17,108
+  triangles). Source checksum and conversion details are recorded in
+  `quest/assets/models/namco-gun.json`. This independently created model is not
+  extracted from Time Crisis and is not covered by the port's MIT license.
+- **Fallback player weapon model:** [Lowpoly Pistol by FireWarden](https://opengameart.org/content/lowpoly-pistol),
   released under CC0. Imported from the user-supplied QuestRetroDepth header, with
   separate body, trigger and slide parts. Provenance, geometry and checksums are
   recorded in `quest/assets/models/player-gun.json`. The model is not extracted

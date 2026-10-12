@@ -151,6 +151,7 @@ static int capture_w,capture_h;
 static unsigned output_framebuffer;
 static float vr_view[16],vr_projection[16];
 static const tc2_built *uploaded;
+static float uploaded_world_scale,uploaded_view_distance;
 static int vertex_count;
 static GLuint prog_poly, prog_text, prog_gamma, vbo, quad_vbo, t_out, fbo_out, t_lut;
 static GLint ug[2];
@@ -369,8 +370,8 @@ unsigned tc2_gl_draw(const tc2_built *b)
     GLint vp[4]; glGetIntegerv(GL_VIEWPORT, vp);
     glBindVertexArray(vao);
     const tc2_fx *f = &b->fx;
-    if(uploaded!=b){
-    uploaded=b;
+    bool new_frame=uploaded!=b;
+    if(new_frame){
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     static uint32_t palette[32768];
     for(int i=0;i<32768;i++){uint32_t c=b->fs.pens[i];palette[i]=0xff000000u|((c&255)<<16)|(c&0xff00)|((c>>16)&255);}
@@ -380,6 +381,11 @@ unsigned tc2_gl_draw(const tc2_built *b)
         bind_tex(0, t_mix); glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 640, 480, GL_RG, GL_UNSIGNED_BYTE, b->mix);
         bind_tex(0, t_band); glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 480, 1, GL_RG, GL_UNSIGNED_BYTE, b->band);
     }
+    }
+    /* A paused frame retains its pointer, but the options slider still changes
+     * its geometry. Refresh vertices once; the second eye reuses the upload. */
+    if(new_frame||uploaded_world_scale!=qvr_world_scale||uploaded_view_distance!=qvr_view_distance){
+    uploaded=b;uploaded_world_scale=qvr_world_scale;uploaded_view_distance=qvr_view_distance;
     vertex_count=fill_vertices(b);
     glBindBuffer(GL_ARRAY_BUFFER,vbo);glBufferData(GL_ARRAY_BUFFER,(GLsizeiptr)(vertex_count*VFLOATS*sizeof(float)),verts,GL_STREAM_DRAW);
     }

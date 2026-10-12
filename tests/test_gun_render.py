@@ -81,5 +81,18 @@ if reference.exists():
     a=np.any(raw!=background,axis=2);b=np.any(opt!=background,axis=2);iou=np.sum(a&b)/np.sum(a|b)
     print(f'Machine-gun reference silhouette IoU: {iou:.4f}');assert iou>.97,'Simplification changed the silhouette excessively'
 current(display,None,None,None);bind(egl,'eglDestroyContext',U,P,P)(display,context);bind(egl,'eglDestroySurface',U,P,P)(display,surface)
+namco=bind(lib,'namco_fixture',I,C.c_char_p,I,C.c_float,I,I,P)
+surface=bind(egl,'eglCreatePbufferSurface',P,P,P,P)(display,config,(I*5)(0x3057,w,0x3056,h,0x3038))
+context=bind(egl,'eglCreateContext',P,P,P,P,P)(display,config,None,(I*3)(0x3098,3,0x3038));assert surface and context and current(display,surface,surface,context)
+namco_images={}
+for eye,age in [(i,-1) for i in range(3)]+[(0,18),(0,160)]:
+    pixels=(C.c_ubyte*(w*h*4))();assert namco(str(ROOT/'quest/assets/models/namco-gun.tcgun').encode(),eye,age,w,h,pixels)==1
+    im=Image.frombytes('RGBA',(w,h),bytes(pixels)).transpose(Image.Transpose.FLIP_TOP_BOTTOM).convert('RGB');namco_images[eye,age]=im
+    assert sum(p!=im.getpixel((0,0)) for p in im.get_flattened_data())>1500
+    im.save(ROOT/f'artifacts/namco-gun-{eye}-{int(age)}.png')
+assert namco_images[1,-1].tobytes()!=namco_images[2,-1].tobytes()
+assert namco_images[0,-1].tobytes()!=namco_images[0,18].tobytes()
+assert namco_images[0,-1].tobytes()==namco_images[0,160].tobytes()
+current(display,None,None,None);bind(egl,'eglDestroyContext',U,P,P)(display,context);bind(egl,'eglDestroySurface',U,P,P)(display,surface)
 bind(egl,'eglTerminate',U,P)(display)
 print('PASS: both production guns, arcade-state selection, stereo, recoil/slide/trigger, muzzle flash lifetime, fallback and stable aim; no GLES errors. Shot previews saved.')

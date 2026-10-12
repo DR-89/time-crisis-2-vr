@@ -16,7 +16,7 @@ vswhere=Path(os.environ['ProgramFiles(x86)'])/'Microsoft Visual Studio/Installer
 vs=Path(subprocess.check_output([str(vswhere),'-latest','-products','*','-requires','Microsoft.VisualStudio.Component.VC.Tools.x86.x64','-property','installationPath'],text=True).strip())
 vcvars=vs/'VC/Auxiliary/Build/vcvars64.bat'
 angle=next((Path(os.environ['LOCALAPPDATA'])/'Programs/Microsoft VS Code').glob('*/libEGL.dll')).parent
-headers=ROOT/'.tools/ndk/android-ndk-r27c/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/include'
+headers=ROOT/'.tools/android-sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/include'
 for folder in ('GLES3','KHR'):shutil.copytree(headers/folder,out/'include'/folder,dirs_exist_ok=True)
 (out/'include/android').mkdir(exist_ok=True)
 (out/'include/android/log.h').write_text('#define ANDROID_LOG_ERROR 6\nstatic int __android_log_print(int p,const char*t,const char*f,...){return 0;}\n')
@@ -81,5 +81,20 @@ if not a.reference:
     assert projected[0]!=projected[1],'Camera uniform did not change the flat layer'
     assert projected[1]==projected[2],'Flat sprites and reconstructed camera rays do not align off-centre'
     print('PASS: flat sprite grid matches reconstructed polygons pixel-for-pixel; old 500 px projection differs.')
+# Production orange tracer: shared snapshot, stereo, fade, and no pixels at expiry.
+from PIL import Image
+lib=C.CDLL(str(out/'deferred.dll'));tracer=bind(lib,'tracer_fixture',I,I,I,I,I,P)
+surface=bind(egl,'eglCreatePbufferSurface',P,P,P,P)(display,config,(I*5)(0x3057,512,0x3056,512,0x3038))
+context=bind(egl,'eglCreateContext',P,P,P,P,P)(display,config,None,(I*3)(0x3098,3,0x3038));assert surface and context and make_current(display,surface,surface,context)
+shots={}
+for age,eye in [(0,0),(0,1),(32,0),(65,0),(120,0)]:
+    pixels=(C.c_ubyte*(512*512*4))();assert tracer(age,eye,512,512,pixels)==1
+    im=Image.frombytes('RGBA',(512,512),bytes(pixels)).transpose(Image.Transpose.FLIP_TOP_BOTTOM).convert('RGB');shots[age,eye]=im
+    im.save(ROOT/f'artifacts/tracer-{age}-{eye}.png')
+    changed=sum(p!=im.getpixel((0,0)) for p in im.get_flattened_data())
+    assert changed>20 if age<65 else changed==0,(age,changed)
+assert shots[0,0].tobytes()!=shots[0,1].tobytes()!=shots[32,0].tobytes()
+assert any(r>g*2 and g>b*2 for r,g,b in shots[0,0].get_flattened_data()),'Tracer must be orange'
+make_current(display,None,None,None);bind(egl,'eglDestroyContext',U,P,P)(display,context);bind(egl,'eglDestroySurface',U,P,P)(display,surface)
 bind(egl,'eglTerminate',U,P)(display)
 print('PASS: '+('raw sRGB target, ' if a.srgb else '')+('multiview' if a.multiview else 'deferred')+' both eyes, identity and non-identity gamma are byte-identical to reference; no GLES errors.')

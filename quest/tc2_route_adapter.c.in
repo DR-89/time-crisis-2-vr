@@ -1,0 +1,5 @@
+/* Generated from the pinned lifted program by tc2_sources.cmake.
+ * The sole adapter call selects the standalone character route at its native
+ * initialization boundary. Original instructions and register logic follow. */
+#include "tc2_cabinet.h"
+@TC2_ROUTE_SOURCE@

@@ -27,7 +27,10 @@ being placed into the world or intercepting aim rays.
 
 ## Assets and animation
 
-The existing animated pistol is `models/player-gun.tcgun`. The second slot
+v0.3.0 loads Martoscar's Namco model from
+`models/namco-gun.tcgun`; `models/player-gun.tcgun` is the earlier animated pistol
+and remains the fallback. See [asset, grip and tracer details](FEEDBACK-TEST.md).
+The second slot
 loads `models/machine-gun.tcgun`; a missing/invalid file retains the pistol and
 writes a clear fallback message to the local log. Models are loaded once at
 startup, and changing the selected slot performs no disk access or GL upload.

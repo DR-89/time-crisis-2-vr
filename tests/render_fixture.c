@@ -3,6 +3,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include RENDERER_SOURCE
+#include "quest_tracer.h"
+__declspec(dllexport) int tracer_fixture(int age,int eye,int w,int h,uint8_t *pixels){
+    if(!qgl_init())return 0;
+    float v[16],p[16];view_matrix(v,v3(eye? .032f:-.032f,0,0),(Q4){0,0,0,1});projection(p,-.4f,.4f,-.4f,.4f);
+    qgl_target(eye,0);qgl_eye(v,p);glViewport(0,0,w,h);glClearColor(.08f,.12f,.16f,1);glClear(GL_COLOR_BUFFER_BIT);
+    QTracer tracer={0};qtracer_start(&tracer,v3(.10f,-.06f,-.40f),v3(.30f,.18f,-2.5f),1000);
+    qgl_tracer(tracer.origin,tracer.end,qtracer_opacity(&tracer,1000+age));qgl_flush();
+    glReadPixels(0,0,w,h,GL_RGBA,GL_UNSIGNED_BYTE,pixels);GLenum error=glGetError();qgl_shutdown();return error?-(int)error:1;
+}
 #ifdef TEST_SRGB_TARGET
 #include "quest_color.h"
 #endif

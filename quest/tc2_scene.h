@@ -3,6 +3,10 @@
 #include "tc2_build.h"
 extern int qvr_flat_view;
 extern float qvr_units_per_meter;
+/* Size relative to the human-scale calibration; geometry caches remain in base metres. */
+extern float qvr_world_scale;
+/* Extra camera-to-scene clearance in physical metres; overlays stay fixed. */
+extern float qvr_view_distance;
 typedef enum { QTC2_WORLD, QTC2_OVERLAY, QTC2_LETTERBOX } QTC2Layer;
 QTC2Layer qvr_tc2_layer(const tc2_built *b,const tc2_poly *p);
 void qvr_tc2_letterbox(int *top,int *bottom);

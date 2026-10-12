@@ -1,0 +1,61 @@
+{
+  "model": "Namco Arcade Gun",
+  "author": "Martoscar",
+  "license": "CC-BY-4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "source": "https://sketchfab.com/3d-models/namco-arcade-gun-15fbd5b9add94a34b5c21746e3dd32be",
+  "source_sha256": "989b25eaa2d22a25c424c6bb3d3830eda0a88724099019bf21fe2989d2fe1a02",
+  "asset_sha256": "4a8231dcc6ba717d61ab5783156c3a0d0367572ddb54537b0b283415da12fab8",
+  "format": "TCGUN001",
+  "vertices": 13149,
+  "triangles": 17108,
+  "parts": [
+    {
+      "name": "softsurfaces",
+      "triangles": 9850,
+      "vertices": 6415
+    },
+    {
+      "name": "hardsurfaces",
+      "triangles": 6906,
+      "vertices": 6417
+    },
+    {
+      "name": "screws",
+      "triangles": 160,
+      "vertices": 192
+    },
+    {
+      "name": "lens",
+      "triangles": 192,
+      "vertices": 125
+    }
+  ],
+  "texture_size": [
+    1024,
+    1024
+  ],
+  "source_grip_m": [
+    -0.05,
+    -0.015,
+    0.0
+  ],
+  "muzzle_m": [
+    0.0,
+    0.054069425,
+    -0.173751
+  ],
+  "bounds_m": [
+    [
+      -0.01719599962234497,
+      -0.0700799971818924,
+      -0.17375099658966064
+    ],
+    [
+      0.01719599962234497,
+      0.1011970043182373,
+      0.07375100255012512
+    ]
+  ],
+  "modifications": "Baked transforms/materials/vertex colours, reconstructed missing normals, calibrated grip and muzzle. Full source topology; lightweight directional lighting replaces PBR/normal maps; whole-gun recoil."
+}

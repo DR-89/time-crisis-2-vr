@@ -1,0 +1,4 @@
+/* Generated from the pinned upstream source by tc2_sources.cmake.
+ * Expose the actual TSS I/O cabinet-ID switch. */
+#include "tc2_cabinet.h"
+@TC2_H8_SOURCE@

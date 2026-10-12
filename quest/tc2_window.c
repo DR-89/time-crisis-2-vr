@@ -31,6 +31,7 @@ void tc2_window_frame(void) {
         fprintf(stderr,"[WEAPON] frame %u: %s (arcade player state)\n",rr_frame,weapon==QGUN_MACHINE_GUN?"MACHINE GUN":"PISTOL");
     }
     qvr_scene_prepare(tc2_built_latest_wait());
+    if(rr_frame&&rr_frame%300==0)fprintf(stderr,"[PLAYER] frame %u: local slot %u route %u mode %u\n",rr_frame,qtc2_weapon_be32(tc2_ram+0x2cee28),qtc2_weapon_be32(tc2_ram+0x2f3fd4),qtc2_weapon_be32(tc2_ram+0x2f3fd0));
     static uint64_t started;
     if(!started)started=SDL_GetPerformanceCounter();
     if(rr_frame && rr_frame%300==0)fprintf(stderr,"[TC2VR] frame %u elapsed %.3f s\n",rr_frame,(SDL_GetPerformanceCounter()-started)/(double)SDL_GetPerformanceFrequency());
