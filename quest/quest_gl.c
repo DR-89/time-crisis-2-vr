@@ -301,10 +301,18 @@ void qglTexCoord4f(float s,float t,float r,float q){uv[0]=s;uv[1]=t;uv[2]=r;uv[3
 void qglVertex2f(float x,float y){if(im_count>=4096)abort();Vertex*v=&immediate[im_count++];v->p[0]=x;v->p[1]=y;v->p[2]=0;v->p[3]=0;memcpy(v->c,color,16);memcpy(v->uv,uv,16);}
 void qglVertex4f(float x,float y,float z,float w){qglVertex2f(x,y);immediate[im_count-1].p[2]=z;immediate[im_count-1].p[3]=w;}
 void qglEnd(void){if(im_mode==GL_QUADS){for(int i=0;i+3<im_count;i+=4){Vertex v[6]={immediate[i],immediate[i+1],immediate[i+2],immediate[i],immediate[i+2],immediate[i+3]};draw(v,6,GL_TRIANGLES);}}else draw(immediate,im_count,im_mode);}
-void qgl_pointer(V3 origin,V3 end){
-    Vertex v[2]={{{origin.x,origin.y,origin.z,1},{.2f,.85f,1,1},{0,0,0,1}},{{end.x,end.y,end.z,1},{.2f,.85f,1,1},{0,0,0,1}}};
-    int t0=texture_on[0],t1=texture_on[1],a=alpha_on;texture_on[0]=texture_on[1]=alpha_on=0;
-    blend_on=0;memset(color_mask,1,4);draw(v,2,GL_LINES);texture_on[0]=t0;texture_on[1]=t1;alpha_on=a;
+static void feedback_ray(V3 origin,V3 end,float r,float g,float b,float opacity){
+    Vertex v[2]={{{origin.x,origin.y,origin.z,1},{r,g,b,opacity},{0,0,0,1}},{{end.x,end.y,end.z,1},{r,g,b,opacity},{0,0,0,1}}};
+    int t0=texture_on[0],t1=texture_on[1],a=alpha_on,blend=blend_on;
+    GLenum src=blend_src,dst=blend_dst;GLboolean mask[4];memcpy(mask,color_mask,4);
+    texture_on[0]=texture_on[1]=alpha_on=0;blend_on=opacity<1;
+    blend_src=GL_SRC_ALPHA;blend_dst=GL_ONE_MINUS_SRC_ALPHA;memset(color_mask,1,4);
+    draw(v,2,GL_LINES);
+    texture_on[0]=t0;texture_on[1]=t1;alpha_on=a;blend_on=blend;blend_src=src;blend_dst=dst;memcpy(color_mask,mask,4);
+}
+void qgl_pointer(V3 origin,V3 end){feedback_ray(origin,end,.2f,.85f,1,1);}
+void qgl_tracer(V3 origin,V3 end,float opacity){
+    if(opacity>0&&isfinite(opacity))feedback_ray(origin,end,1,.32f,.025f,fminf(opacity,1));
 }
 void eng_post_lut(const uint8_t lut[3][256],int w,int h){
     if(multi_active){memcpy(multi_gamma_table,lut,sizeof multi_gamma_table);multi_gamma=!identity_lut(lut);return;}

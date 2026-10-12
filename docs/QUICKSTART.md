@@ -1,11 +1,11 @@
 # Time Crisis II VR - Quickstart
 
-Download **v0.2.0** from the [release page](https://github.com/DR-89/time-crisis-2-vr/releases/tag/v0.2.0). Both packages include the game files and animated weapons.
+Download **v0.3.0** from the [release page](https://github.com/DR-89/time-crisis-2-vr/releases/tag/v0.3.0). Both packages include the game files and animated weapons.
 
 ## Quest 3
 
 1. Enable developer mode and accept USB debugging in the headset.
-2. Sideload `TimeCrisis2VR-v0.2.0-quest3.apk` with SideQuest or `adb install -r TimeCrisis2VR-v0.2.0-quest3.apk`.
+2. Sideload `TimeCrisis2VR-v0.3.0-quest3.apk` with SideQuest or `adb install -r TimeCrisis2VR-v0.3.0-quest3.apk`.
 3. Open **Time Crisis II VR (Test)** from **Unknown sources**.
 4. Wait for the arcade startup. Press **A** for credits, then either trigger to start.
 
@@ -22,11 +22,15 @@ See [PCVR setup](PCVR.md) for runtime and troubleshooting details.
 
 - **Either trigger:** move the weapon to that hand and shoot.
 - **Hold either grip:** leave cover. **Release both:** hide and reload.
-- **A:** credits. **B:** laser on/off. **X:** recenter and calibrate upright height.
+- **A:** credits. **B:** cycle LASER / OFF / TRACER. **X:** recenter and calibrate upright height.
 - **Left menu button:** options. In options, right stick click changes the default hand; right stick up/down changes **GUN ANGLE**; left stick click resets the angle.
 - **Y in options:** switch physical ducking / grip cover. With physical ducking selected, calibrate upright using **X**, then duck to hide and stand back up to shoot.
 - The arcade selects the machine gun automatically. Hold the trigger for automatic fire outside cover.
 
-These face buttons assume the default right hand. The saved left-hand layout uses **X** for credits, **Y** for laser, **A** for recenter and **B** for cover-mode selection. Trigger handoffs do not change the saved face-button layout.
+These face buttons assume the default right hand. The saved left-hand layout uses **X** for credits, **Y** for aim mode, **A** for recenter and **B** for cover-mode selection. Trigger handoffs do not change the saved face-button layout.
 
-Laser assistance starts on; saved choices are retained. The release remains experimental and has not passed a complete-game playthrough. Full controls, test status and credits are in the [README](../README.md).
+**World size:** in options, right stick left/right adjusts WORLD SIZE; left stick left/right adjusts VIEW DISTANCE. Start with **100% / 0 cm** in a running level.
+
+**Gun fit / Robert:** left stick up/down switches to GUN FIT / PLAYER. Right stick up/down adjusts gun height and right/left pulls it back/forward in 5 mm steps. Left click resets both offsets. Left stick left/right selects Keith or Robert; fully restart the app to apply the route. Robert is an experimental standalone route, not linked multiplayer.
+
+Laser assistance starts on; saved choices are retained. Choose TRACER for a brief orange shot line without a permanent laser. The release remains experimental and has not passed a complete-game playthrough. Full controls, test status and credits are in the [README](../README.md).

@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <direct.h>
+#include "tc2_cabinet.h"
 
 int tc_game_main(int,char **);
 /* SDL supplies the discrete-GPU selection exports for hybrid laptops. */
@@ -30,6 +31,7 @@ int main(int argc,char **argv){
         else if(!strcmp(argv[i],"--headless")||!strcmp(argv[i],"--no-dialog"))continue;
         else args[n++]=argv[i];
     }
+    qtc2_cabinet_configure("quest-options.cfg");
     int result=tc_game_main(n,args);free(args);
     if(result&&!headless&&!no_dialog)SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,"Time Crisis II VR",
         "Startup failed. See tc2.log next to the executable.\nFor VR, connect your headset and select an OpenXR runtime with OpenGL support (such as SteamVR).\nUse Play Desktop.cmd to play without a headset.",NULL);

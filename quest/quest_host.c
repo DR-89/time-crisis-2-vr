@@ -28,6 +28,8 @@
 #include "quest_clock.h"
 #include "quest_refresh.h"
 #include "quest_ui.h"
+#include "quest_tracer.h"
+#include "tc2_cabinet.h"
 
 #ifdef TCVR_PC
 typedef XrSwapchainImageOpenGLKHR QSwapchainImage;
@@ -52,9 +54,15 @@ static bool running,quit,active,focused,paused,origin_set,recenter_requested;
 static bool multiview;
 typedef struct ButtonEdge { bool synced,was; } ButtonEdge;
 static ButtonEdge coin_button,recenter_button,pause_button,laser_button,cover_button,hand_button,pitch_reset_button;
-static bool pitch_armed;
+static bool pitch_armed,scale_armed;
+static int scale_direction;
+static XrTime scale_repeat_time;
 static int pitch_direction;
 static XrTime pitch_repeat_time;
+static XrAction distance_action;
+static bool distance_armed;
+static int distance_direction;
+static XrTime distance_repeat_time;
 typedef struct FireTrigger { bool armed,pressed; } FireTrigger;
 static FireTrigger fire_triggers[HAND_COUNT];
 static bool shot_pending,shot_needs_release,fire_output_down,options_saved=true;
@@ -82,6 +90,9 @@ static Q4 origin_rotation={0,0,0,1},gun_rotation={0,0,0,1};
 static float nx=.5f,ny=.5f,trigger,pedal;
 static bool aim_valid,gun_tracked;
 static uint64_t recoil_started;
+static QTracer tracer;
+static int options_page;
+static bool page_armed;
 static bool replay_input;
 static int coin_frames;
 
@@ -157,12 +168,15 @@ static void frame_profile(uint64_t start,XrDuration period,bool visible){
 static XrPath path(const char *s){XrPath p=0;xrStringToPath(instance,s,&p);return p;}
 static int weapon_hand(void){return active_weapon_hand;}
 static void reset_fire_input(void){
+    tracer.active=false;
     memset(fire_triggers,0,sizeof fire_triggers);shot_pending=shot_needs_release=fire_output_down=false;
 }
-static void reset_pitch_input(void){pitch_armed=false;pitch_direction=0;pitch_repeat_time=0;}
+static void reset_pitch_input(void){pitch_armed=scale_armed=false;pitch_direction=scale_direction=0;pitch_repeat_time=scale_repeat_time=0;}
+static void reset_distance_input(void){page_armed=false;distance_armed=false;distance_direction=0;distance_repeat_time=0;}
 static void reset_input_edges(void){
     coin_button=recenter_button=pause_button=laser_button=cover_button=hand_button=pitch_reset_button=(ButtonEdge){0};
     reset_pitch_input();
+    reset_distance_input();
     reset_fire_input();
 }
 static void select_weapon_hand(int hand){
@@ -171,7 +185,7 @@ static void select_weapon_hand(int hand){
         XrHapticActionInfo info={XR_TYPE_HAPTIC_ACTION_INFO};info.action=haptic_action;info.subactionPath=hand_paths[weapon_hand()];
         xrStopHapticFeedback(session,&info);
     }
-    active_weapon_hand=hand;recoil_started=0;aim_valid=gun_tracked=false;
+    active_weapon_hand=hand;recoil_started=0;tracer.active=false;aim_valid=gun_tracked=false;
 }
 static void change_weapon_hand(void){
     options.left_handed=!options.left_handed;options_saved=qoptions_save(options_path,&options);
@@ -185,6 +199,54 @@ static void set_gun_pitch(int value){
     if(value==options.gun_pitch)return;
     options.gun_pitch=value;options_saved=qoptions_save(options_path,&options);
     fprintf(stderr,"[OPTIONS] gun angle %+d deg; saved %d\n",value,options_saved);
+}
+static void set_world_scale(int value){
+    if(value<QOPTIONS_WORLD_SCALE_MIN)value=QOPTIONS_WORLD_SCALE_MIN;
+    if(value>QOPTIONS_WORLD_SCALE_MAX)value=QOPTIONS_WORLD_SCALE_MAX;
+    if(value==options.world_scale)return;
+    options.world_scale=value;qvr_world_scale=value/100.f;
+    options_saved=qoptions_save(options_path,&options);
+    fprintf(stderr,"[OPTIONS] world size %d%%; saved %d\n",value,options_saved);
+}
+static void set_view_distance(int value){
+    if(value<QOPTIONS_VIEW_DISTANCE_MIN)value=QOPTIONS_VIEW_DISTANCE_MIN;
+    if(value>QOPTIONS_VIEW_DISTANCE_MAX)value=QOPTIONS_VIEW_DISTANCE_MAX;
+    if(value==options.view_distance)return;
+    options.view_distance=value;qvr_view_distance=value/100.f;
+    options_saved=qoptions_save(options_path,&options);
+    fprintf(stderr,"[OPTIONS] view distance %d cm; saved %d\n",value,options_saved);
+}
+static void cycle_aim_guide(void){
+    if(options.laser_enabled){options.laser_enabled=false;options.tracer_enabled=false;}
+    else if(options.tracer_enabled){options.tracer_enabled=false;options.laser_enabled=true;}
+    else options.tracer_enabled=true;
+    tracer.active=false;options_saved=qoptions_save(options_path,&options);
+    fprintf(stderr,"[OPTIONS] aiming %s; saved %d\n",qoptions_aim_label(&options),options_saved);
+}
+static void set_gun_offset(bool vertical,int value){
+    if(value<QOPTIONS_GUN_OFFSET_MIN)value=QOPTIONS_GUN_OFFSET_MIN;
+    if(value>QOPTIONS_GUN_OFFSET_MAX)value=QOPTIONS_GUN_OFFSET_MAX;
+    int *field=vertical?&options.gun_offset_y_mm:&options.gun_offset_z_mm;
+    if(*field==value)return;*field=value;tracer.active=false;
+    options_saved=qoptions_save(options_path,&options);
+}
+static void set_player_side(int side){
+    if(side<1||side>2||side==options.player_side)return;
+    options.player_side=side;options_saved=qoptions_save(options_path,&options);
+    fprintf(stderr,"[OPTIONS] P%d selected for next app start; current P%d\n",side,qtc2_cabinet_side);
+}
+static void adjust_horizontal(int direction){
+    if(options_page)set_gun_offset(false,options.gun_offset_z_mm+direction*QOPTIONS_GUN_OFFSET_STEP);
+    else set_world_scale(options.world_scale+direction*QOPTIONS_WORLD_SCALE_STEP);
+}
+static void adjust_vertical(int direction){
+    if(options_page)set_gun_offset(true,options.gun_offset_y_mm+direction*QOPTIONS_GUN_OFFSET_STEP);
+    else set_gun_pitch(options.gun_pitch+direction);
+}
+static void shot_feedback(uint64_t now){
+    recoil_started=now;
+    if(options.tracer_enabled&&!options.laser_enabled&&focused&&!paused&&gun_tracked&&aim_valid)
+        qtracer_start(&tracer,gun_origin,gun_hit,now);
 }
 static bool action(XrAction *out,const char *name,const char *label,XrActionType type,bool both_hands){
     XrActionCreateInfo ci={XR_TYPE_ACTION_CREATE_INFO};ci.actionType=type;
@@ -205,6 +267,7 @@ static bool actions_init(void){
        !action(&hand_action,"weapon_hand","Change weapon hand in options",XR_ACTION_TYPE_BOOLEAN_INPUT,false)||
        !action(&pitch_action,"gun_angle","Adjust gun angle in options",XR_ACTION_TYPE_VECTOR2F_INPUT,false)||
        !action(&pitch_reset_action,"gun_angle_reset","Reset gun angle in options",XR_ACTION_TYPE_BOOLEAN_INPUT,false)||
+       !action(&distance_action,"view_distance","Adjust view distance in options",XR_ACTION_TYPE_VECTOR2F_INPUT,false)||
        !action(&haptic_action,"recoil","Gun recoil",XR_ACTION_TYPE_VIBRATION_OUTPUT,true))return false;
     XrActionSuggestedBinding bindings[]={
         {aim_action,path("/user/hand/left/input/aim/pose")},
@@ -221,6 +284,7 @@ static bool actions_init(void){
         {hand_action,path("/user/hand/right/input/thumbstick/click")},
         {pitch_action,path("/user/hand/right/input/thumbstick")},
         {pitch_reset_action,path("/user/hand/left/input/thumbstick/click")},
+        {distance_action,path("/user/hand/left/input/thumbstick")},
         {haptic_action,path("/user/hand/left/output/haptic")},
         {haptic_action,path("/user/hand/right/output/haptic")}};
     XrInteractionProfileSuggestedBinding suggest={XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING};
@@ -244,18 +308,43 @@ static float axis(XrAction a,XrPath hand){XrActionStateFloat s;return axis_state
 static void adjust_gun_pitch(XrTime time){
     bool reset=pressed(pitch_reset_action,XR_NULL_PATH,&pitch_reset_button);
     if(!paused){reset_pitch_input();return;}
-    if(reset){set_gun_pitch(0);reset_pitch_input();return;}
+    if(reset){if(options_page){set_gun_offset(true,0);set_gun_offset(false,0);}else set_gun_pitch(0);reset_pitch_input();return;}
     XrActionStateGetInfo get={XR_TYPE_ACTION_STATE_GET_INFO};get.action=pitch_action;
     XrActionStateVector2f stick={XR_TYPE_ACTION_STATE_VECTOR2F};
-    if(XR_FAILED(xrGetActionStateVector2f(session,&get,&stick))||!stick.isActive||!isfinite(stick.currentState.y)){
+    if(XR_FAILED(xrGetActionStateVector2f(session,&get,&stick))||!stick.isActive||!isfinite(stick.currentState.x)||!isfinite(stick.currentState.y)){
         reset_pitch_input();return;
     }
-    float y=stick.currentState.y;
+    float x=stick.currentState.x,y=stick.currentState.y;
+    if(fabsf(x)>fabsf(y))y=0;else x=0;
+    if(fabsf(x)<.25f){scale_armed=true;scale_direction=0;scale_repeat_time=0;}
+    else if(scale_armed&&fabsf(x)>=.65f){
+        int direction=x>0?1:-1;
+        if(direction!=scale_direction){adjust_horizontal(direction);scale_direction=direction;scale_repeat_time=time+400000000LL;}
+        else if(time>=scale_repeat_time){adjust_horizontal(direction);scale_repeat_time=time+100000000LL;}
+    }
     if(fabsf(y)<.25f){pitch_armed=true;pitch_direction=0;pitch_repeat_time=0;return;}
     if(!pitch_armed||fabsf(y)<.65f)return;
     int direction=y>0?1:-1;
-    if(direction!=pitch_direction){set_gun_pitch(options.gun_pitch+direction);pitch_direction=direction;pitch_repeat_time=time+400000000LL;}
-    else if(time>=pitch_repeat_time){set_gun_pitch(options.gun_pitch+direction);pitch_repeat_time=time+100000000LL;}
+    if(direction!=pitch_direction){adjust_vertical(direction);pitch_direction=direction;pitch_repeat_time=time+400000000LL;}
+    else if(time>=pitch_repeat_time){adjust_vertical(direction);pitch_repeat_time=time+100000000LL;}
+}
+static void adjust_view_distance(XrTime time){
+    if(!paused){reset_distance_input();return;}
+    XrActionStateGetInfo get={XR_TYPE_ACTION_STATE_GET_INFO};get.action=distance_action;
+    XrActionStateVector2f stick={XR_TYPE_ACTION_STATE_VECTOR2F};
+    if(XR_FAILED(xrGetActionStateVector2f(session,&get,&stick))||!stick.isActive||!isfinite(stick.currentState.x)||!isfinite(stick.currentState.y)){
+        reset_distance_input();return;
+    }
+    float x=stick.currentState.x,y=stick.currentState.y;
+    if(fabsf(y)<.25f)page_armed=true;
+    if(fabsf(y)>=.65f&&fabsf(x)<.25f&&page_armed){
+        options_page=1-options_page;page_armed=false;reset_pitch_input();distance_armed=false;return;
+    }
+    if(fabsf(x)<.25f){distance_armed=true;distance_direction=0;distance_repeat_time=0;return;}
+    if(!distance_armed||fabsf(x)<.65f||fabsf(x)<fabsf(stick.currentState.y))return;
+    int direction=x>0?1:-1;
+    if(direction!=distance_direction){if(options_page)set_player_side(direction>0?2:1);else set_view_distance(options.view_distance+direction*QOPTIONS_VIEW_DISTANCE_STEP);distance_direction=direction;distance_repeat_time=time+400000000LL;}
+    else if(time>=distance_repeat_time){if(options_page)set_player_side(direction>0?2:1);else set_view_distance(options.view_distance+direction*QOPTIONS_VIEW_DISTANCE_STEP);distance_repeat_time=time+100000000LL;}
 }
 static V3 vec(XrVector3f v){return v3(v.x,v.y,v.z);}
 static Q4 quat(XrQuaternionf q){return (Q4){q.x,q.y,q.z,q.w};}
@@ -278,12 +367,18 @@ static bool events(void){
         if(s.type==SDL_KEYDOWN&&!s.key.repeat){
             if(s.key.keysym.sym==SDLK_ESCAPE){paused=!paused;reset_fire_input();reset_pitch_input();ss22_input_neutral();}
             if(s.key.keysym.sym==SDLK_c||s.key.keysym.sym==SDLK_5)coin_frames=48;
-            if(s.key.keysym.sym==SDLK_l){options.laser_enabled=!options.laser_enabled;options_saved=qoptions_save(options_path,&options);}
+            if(s.key.keysym.sym==SDLK_l)cycle_aim_guide();
+            if(s.key.keysym.sym==SDLK_TAB&&paused){options_page=1-options_page;reset_pitch_input();}
             if(s.key.keysym.sym==SDLK_r)recenter_requested=true;
             if(s.key.keysym.sym==SDLK_h&&paused)change_weapon_hand();
-            if(s.key.keysym.sym==SDLK_UP&&paused)set_gun_pitch(options.gun_pitch+1);
-            if(s.key.keysym.sym==SDLK_DOWN&&paused)set_gun_pitch(options.gun_pitch-1);
-            if(s.key.keysym.sym==SDLK_HOME&&paused)set_gun_pitch(0);
+            if(s.key.keysym.sym==SDLK_UP&&paused)adjust_vertical(1);
+            if(s.key.keysym.sym==SDLK_DOWN&&paused)adjust_vertical(-1);
+            if(s.key.keysym.sym==SDLK_HOME&&paused){if(options_page){set_gun_offset(true,0);set_gun_offset(false,0);}else set_gun_pitch(0);}
+            if(s.key.keysym.sym==SDLK_LEFT&&paused)adjust_horizontal(-1);
+            if(s.key.keysym.sym==SDLK_RIGHT&&paused)adjust_horizontal(1);
+            if(s.key.keysym.sym==SDLK_END&&paused)set_world_scale(QOPTIONS_WORLD_SCALE_DEFAULT);
+            if(s.key.keysym.sym==SDLK_PAGEUP&&paused){if(options_page)set_player_side(2);else set_view_distance(options.view_distance+QOPTIONS_VIEW_DISTANCE_STEP);}
+            if(s.key.keysym.sym==SDLK_PAGEDOWN&&paused){if(options_page)set_player_side(1);else set_view_distance(options.view_distance-QOPTIONS_VIEW_DISTANCE_STEP);}
         }
 #endif
     }
@@ -323,15 +418,12 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
     bool change_hand=pressed(hand_action,XR_NULL_PATH,&hand_button);
     if(paused&&change_hand){change_weapon_hand();return;}
     adjust_gun_pitch(time);
+    adjust_view_distance(time);
     /* Face-button roles follow the saved layout, even during trigger handoffs. */
     int controls=options.left_handed?LEFT_HAND:RIGHT_HAND;XrPath weapon=hand_paths[controls],other=hand_paths[1-controls];
     if(pressed(lower_action,weapon,&coin_button))coin_frames=48;
     if(pressed(lower_action,other,&recenter_button))recenter_requested=true;
-    if(pressed(upper_action,weapon,&laser_button)){
-        options.laser_enabled=!options.laser_enabled;options_saved=qoptions_save(options_path,&options);
-        /* The weapon-hand upper button toggles the laser silently. */
-        fprintf(stderr,"[OPTIONS] laser %s; saved %d\n",options.laser_enabled?"ON":"OFF",options_saved);
-    }
+    if(pressed(upper_action,weapon,&laser_button))cycle_aim_guide();
     bool change_cover=pressed(upper_action,other,&cover_button);
     if(paused&&change_cover){
         options.physical_crouch=!options.physical_crouch;options_saved=qoptions_save(options_path,&options);
@@ -378,6 +470,10 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
          * Positive raises the barrel; zero preserves the runtime's aim pose. */
         float half_pitch=options.gun_pitch*(3.14159265358979323846f/360.f);
         gun_rotation=product(gun_rotation,(Q4){sinf(half_pitch),0,0,cosf(half_pitch)});
+        /* Controller-local translation: +Y up, +Z back. Rotate the offset
+         * before the pitch correction so fitting does not swing around the barrel. */
+        Q4 hand_rotation=relative_rotation(locations[hand].pose.orientation);
+        gun_position=add(gun_position,rotate(hand_rotation,v3(0,options.gun_offset_y_mm*.001f,options.gun_offset_z_mm*.001f)));
         gun_origin=qgun_muzzle(gun_position,gun_rotation);
         V3 dir=rotate(gun_rotation,v3(0,0,-1));
         aim_valid=qvr_aim(gun_origin,dir,&nx,&ny,&gun_hit);
@@ -390,7 +486,9 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
 #ifndef TCVR_INPUT_TEST
 bool tc2_vr_open(void){
     replay_input=getenv("TC2_REPLAY")!=NULL;
-    qoptions_load(options_path,&options);active_weapon_hand=options.left_handed?LEFT_HAND:RIGHT_HAND;
+    qoptions_load(options_path,&options);qvr_world_scale=options.world_scale/100.f;active_weapon_hand=options.left_handed?LEFT_HAND:RIGHT_HAND;
+    qvr_view_distance=options.view_distance/100.f;
+    fprintf(stderr,"[VR SCALE] %.6f reconstructed units/metre; world size %d%%; view distance %d cm\n",qvr_units_per_meter,options.world_scale,options.view_distance);
     fprintf(stderr,"[OPTIONS] laser %s; cover %s; default hand %s; trigger handoff enabled (left menu: options)\n",options.laser_enabled?"ON":"OFF",options.physical_crouch?"PHYSICAL":"GRIP",options.left_handed?"LEFT":"RIGHT");
     fprintf(stderr,"[OPTIONS] gun angle %+d deg\n",options.gun_pitch);
     if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO|SDL_INIT_EVENTS)!=0)goto fail;
@@ -405,7 +503,7 @@ bool tc2_vr_open(void){
     SDL_GL_SetAttribute(SDL_GL_RED_SIZE,8);SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE,8);SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,8);SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE,8);
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,0);SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER,1);
 #ifdef TCVR_PC
-    window=SDL_CreateWindow("Time Crisis II VR",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,1280,960,SDL_WINDOW_OPENGL|SDL_WINDOW_RESIZABLE);
+    window=SDL_CreateWindow("Time Crisis II VR",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,1280,960,SDL_WINDOW_OPENGL|SDL_WINDOW_RESIZABLE|(getenv("TCVR_TEST_HIDDEN")?SDL_WINDOW_HIDDEN:0));
 #else
     window=SDL_CreateWindow("Time Crisis II VR",0,0,1280,720,SDL_WINDOW_OPENGL|SDL_WINDOW_FULLSCREEN);
 #endif
@@ -538,7 +636,7 @@ graphics_ready:
 #ifndef TCVR_PC
     multiview=false; /* TC2 priority and gamma passes currently render each eye separately. */
 #endif
-    if(!qgun_init("models/player-gun.tcgun"))goto fail;
+    if(!qgun_init("models/namco-gun.tcgun")&&!qgun_init("models/player-gun.tcgun"))goto fail;
     if(!qgun_load_weapon(QGUN_MACHINE_GUN,"models/machine-gun.tcgun"))
         fprintf(stderr,"[GUN] Machine gun asset unavailable; using pistol fallback\n");
     if(!qui_init())goto fail;
@@ -571,7 +669,7 @@ static bool desktop_frame(void){
         if((float)w/h>4.f/3.f){p[0]*=(float)vw/w;}else{p[5]*=(float)vh/h;}
         hud_camera();qgl_target(0,0);qgl_eye(v,p);qtc2_draw(v,p,w,h,0);qgl_flush();
         if(options.laser_enabled&&aim_valid&&!paused){qgl_pointer(v3(.24f,-.24f,-.45f),v3((nx-.5f)*3.2f,(.5f-ny)*2.4f,-2.5f));qgl_flush();}
-        if(paused)qui_draw(v,p,v3(0,0,0),(Q4){0,0,0,1},options.laser_enabled,options.physical_crouch,options.left_handed,options.gun_pitch,options_saved);
+        if(paused)qui_draw(v,p,v3(0,0,0),(Q4){0,0,0,1},&options,options_page,qtc2_cabinet_side,options_saved);
         const char *capture_frame=getenv("TCVR_CAPTURE_FRAME");
         if(capture_frame&&++frame_number==strtoul(capture_frame,NULL,10)){FILE *f=fopen("capture.request","w");if(f)fclose(f);}
         if(!access("capture.request",F_OK)){capture_eye(0,w,h);unlink("capture.request");}
@@ -610,7 +708,9 @@ bool ss22_host_frame(void){
         bool head_tracked=tracking&&frame.shouldRender&&(vs.viewStateFlags&XR_VIEW_STATE_POSITION_TRACKED_BIT);
         sync_input(frame.predictedDisplayTime,head_tracked,(views[0].pose.position.y+views[1].pose.position.y)*.5f);
         parts[0]+=wall_ms()-stage_start;
-        float shot_age=recoil_started?(float)(SDL_GetTicks64()-recoil_started):-1;
+        uint64_t feedback_time=SDL_GetTicks64();
+        float shot_age=recoil_started?(float)(feedback_time-recoil_started):-1;
+        float tracer_alpha=qtracer_opacity(&tracer,feedback_time);
         float recoil=qgun_recoil(shot_age),flash=paused?0:qgun_flash(shot_age);
         XrCompositionLayerProjectionView pv[2]={{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW},{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};
         bool draw_frame=frame.shouldRender&&tracking;
@@ -634,12 +734,14 @@ bool ss22_host_frame(void){
             qgl_eye(v[i],p[i]);
             qtc2_draw(v[i],p[i],eye->w,eye->h,eye->fb[index]);
             if(options.laser_enabled&&focused&&aim_valid&&!paused)qgl_pointer(gun_origin,gun_hit);
+            else if(options.tracer_enabled&&focused&&gun_tracked&&!paused&&tracer_alpha>0)
+                qgl_tracer(tracer.origin,tracer.end,tracer_alpha);
             qgl_flush();
             parts[2]+=wall_ms()-stage_start;stage_start=wall_ms();
             if(focused&&gun_tracked)qgun_draw(v[i],p[i],gun_position,gun_rotation,recoil,trigger,flash);
             if(focused&&paused){
                 V3 head=mul(add(relative_position(views[0].pose.position),relative_position(views[1].pose.position)),.5f);
-                qui_draw(v[i],p[i],head,relative_rotation(views[0].pose.orientation),options.laser_enabled,options.physical_crouch,options.left_handed,options.gun_pitch,options_saved);
+                qui_draw(v[i],p[i],head,relative_rotation(views[0].pose.orientation),&options,options_page,qtc2_cabinet_side,options_saved);
             }
             capture_eye(i,eye->w,eye->h);
             parts[3]+=wall_ms()-stage_start;stage_start=wall_ms();
@@ -704,7 +806,7 @@ void ss22_input_rumble(uint16_t lo,uint16_t hi,uint32_t ms){
     xrApplyHapticFeedback(session,&info,(XrHapticBaseHeader*)&vibration);
 }
 #ifndef TCVR_INPUT_TEST
-void ss22_out_poll(uint16_t outputs){static uint16_t previous;uint16_t rise=outputs&~previous;previous=outputs;if(rise&2){recoil_started=SDL_GetTicks64();ss22_input_rumble(0,48000,45);}}
+void ss22_out_poll(uint16_t outputs){static uint16_t previous;uint16_t rise=outputs&~previous;previous=outputs;if(rise&2){shot_feedback(SDL_GetTicks64());ss22_input_rumble(0,48000,45);}}
 void ss22_out_close(void){}
 bool ss22_host_active(void){return active;}
 bool ss22_host_restart_requested(void){return false;}

@@ -4,6 +4,10 @@
 #include <string.h>
 static uint8_t *rom,*attr;static uint32_t *map;
 static tc2_built *frames[2],*b;static int slot;
+#ifndef TC2_BASELINE
+__declspec(dllexport) void tc2_fixture_scale(float scale){qvr_world_scale=scale;}
+__declspec(dllexport) void tc2_fixture_distance(float metres){qvr_view_distance=metres;}
+#endif
 void tc2_render_assets(const uint8_t **r,const uint32_t **m,const uint8_t **a){*r=rom;*m=map;*a=attr;}
 int tc2_depth_on(void){return 1;}
 float tc2_depth_keep(void){return .99f;}
@@ -49,4 +53,20 @@ __declspec(dllexport) int tc2_fixture_report(const char *path){
         for(int k=0;k<9;k++)fprintf(f,"%s%d",k?",":"",e->m[k]);fprintf(f,"]}");
     }
     fprintf(f,"]}");fclose(f);return 1;
+}
+/* Local, ROM-derived measurements; save only under ignored build/artifacts. */
+__declspec(dllexport) int tc2_fixture_geometry(const char *path){
+    FILE *f=fopen(path,"w");if(!f)return 0;
+    fprintf(f,"entry,model,polygon,vertex,layer,x,y,z,sx,sy,rhw,focal,cx,cy\n");
+    for(int j=0;j<b->npoly;j++){
+        const tc2_poly *p=&b->polys[j];if(p->entry<0||p->entry>=b->fs.list.count)continue;
+        const tc2_render_entry *e=&b->fs.list.e[p->entry];
+        for(int k=0;k<p->n;k++){
+            V3 v=qvr_tc2_vertex(b,p,k);
+            fprintf(f,"%d,%d,%d,%d,%d,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g\n",p->entry,p->model,j,k,qvr_tc2_layer(b,p),v.x,v.y,v.z,
+                p->pv[k].x+320-p->vp_size_x+p->vp_offset_x,p->pv[k].y+240-p->vp_size_y-p->vp_offset_y,
+                p->pv[k].p[0],e->vp_fov,320.f+e->vp_offset_x,240.f-e->vp_offset_y);
+        }
+    }
+    return fclose(f)==0;
 }

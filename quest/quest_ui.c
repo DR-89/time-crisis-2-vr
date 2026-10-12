@@ -5,13 +5,15 @@
 #include <stdio.h>
 #include <string.h>
 #include "quest_ui.h"
+#include "quest_options.h"
 #include "font_data.h"
 
 enum { WIDTH=640,HEIGHT=480 };
 static GLuint program,vao,vbo,texture;
 static GLint u_view,u_projection,u_texture;
 static int last_state=-1;
-static int last_pitch;
+static int last_pitch,last_scale,last_distance;
+static int last_y,last_z,last_player,last_boot;
 static uint8_t pixels[WIDTH*HEIGHT*4];
 
 static void text(int x,int y,const char *s,uint8_t r,uint8_t g,uint8_t b){
@@ -27,33 +29,55 @@ static void text(int x,int y,const char *s,uint8_t r,uint8_t g,uint8_t b){
         }
     }
 }
-static void panel(bool laser,bool physical_crouch,bool left_handed,int gun_pitch,bool saved){
+static void panel(const QOptions *options,int page,int boot_side,bool saved){
+    bool laser=options->laser_enabled,physical_crouch=options->physical_crouch,left_handed=options->left_handed;
+    int gun_pitch=options->gun_pitch,world_scale=options->world_scale,view_distance=options->view_distance;
     for(int y=0;y<HEIGHT;y++)for(int x=0;x<WIDTH;x++){
         uint8_t *p=pixels+(y*WIDTH+x)*4;bool border=x<2||x>=WIDTH-2||y<2||y>=HEIGHT-2;
         p[0]=border?54:12;p[1]=border?183:19;p[2]=border?207:29;p[3]=border?255:240;
     }
+    char label[40];
+    if(page){
+        text(24,20,"GUN FIT / PLAYER",181,207,220);
+        snprintf(label,sizeof label,"GUN UP: %+d MM",options->gun_offset_y_mm);text(24,64,label,255,255,255);
+        text(24,90,"RIGHT STICK UP / DOWN: ADJUST",181,207,220);
+        snprintf(label,sizeof label,"GUN BACK: %+d MM",options->gun_offset_z_mm);text(24,132,label,255,255,255);
+        text(24,158,"RIGHT STICK LEFT / RIGHT: ADJUST",181,207,220);
+        text(24,190,"LEFT CLICK: RESET BOTH OFFSETS",181,207,220);
+        text(24,222,"+UP RAISES / +BACK PULLS TOWARDS YOU",181,207,220);
+        snprintf(label,sizeof label,"PLAYER: P%d %s",options->player_side,options->player_side==2?"ROBERT BAXTER":"KEITH MARTIN");text(24,264,label,255,255,255);
+        text(24,290,"LEFT STICK LEFT: P1 / RIGHT: P2",181,207,220);
+        text(24,322,options->player_side!=boot_side?"RESTART APP TO CHANGE PLAYER":"PLAYER APPLIES AT APP START",255,202,110);
+        text(24,364,left_handed?"X LEFT: ADD CREDITS":"A RIGHT: ADD CREDITS",181,207,220);
+        text(24,426,"LEFT UP/DOWN: WORLD / OPTIONS",181,207,220);
+        text(24,454,saved?"LEFT MENU: RESUME":"SAVING FAILED",saved?170:255,saved?193:150,saved?206:150);
+        return;
+    }
     text(24,20,"PAUSE / OPTIONS",181,207,220);
     text(24,54,left_handed?"DEFAULT HAND: LEFT":"DEFAULT HAND: RIGHT",255,255,255);
     text(24,78,"RIGHT STICK CLICK: CHANGE DEFAULT",181,207,220);
-    text(24,102,"EITHER TRIGGER: SELECT HAND + FIRE",181,207,220);
-    char angle[40];snprintf(angle,sizeof angle,"GUN ANGLE: %+d DEG",gun_pitch);
-    text(24,140,angle,255,255,255);
-    text(24,164,"RIGHT STICK UP / DOWN: ADJUST",181,207,220);
-    text(24,188,"LEFT STICK CLICK: RESET TO 0",181,207,220);
-    text(24,224,"LASER:",255,255,255);text(160,224,laser?"ON":"OFF",laser?94:228,laser?226:235,laser?151:239);
-    text(336,224,left_handed?"Y: ON / OFF":"B: ON / OFF",181,207,220);
-    text(24,262,physical_crouch?"COVER: PHYSICAL DUCKING":"COVER: GRIP BUTTONS",255,255,255);
-    text(24,286,left_handed?"B RIGHT: CHANGE MODE":"Y LEFT: CHANGE MODE",181,207,220);
-    text(24,320,physical_crouch?"UPRIGHT: OUT / DUCK: COVER":"HOLD EITHER GRIP: LEAVE COVER",255,255,255);
-    if(physical_crouch){
-        text(24,344,left_handed?"A RIGHT: RESET UPRIGHT HEIGHT":"X LEFT: RESET UPRIGHT HEIGHT",181,207,220);
-        text(24,368,"STAND OR SIT UPRIGHT FIRST",181,207,220);
-    }else{
-        text(24,344,"RELEASE BOTH: COVER / RELOAD",181,207,220);
-        text(24,368,left_handed?"A RIGHT: RECENTER":"X LEFT: RECENTER",181,207,220);
+    snprintf(label,sizeof label,"GUN ANGLE: %+d DEG",gun_pitch);
+    text(24,110,label,255,255,255);
+    text(24,134,"RIGHT UP/DOWN: ANGLE | LEFT CLICK: 0",181,207,220);
+    snprintf(label,sizeof label,"WORLD SIZE: %d%%",world_scale);text(24,168,label,255,255,255);
+    text(24,192,"RIGHT STICK LEFT / RIGHT: ADJUST",181,207,220);
+    int knob=28+(world_scale-QOPTIONS_WORLD_SCALE_MIN)*583/(QOPTIONS_WORLD_SCALE_MAX-QOPTIONS_WORLD_SCALE_MIN);
+    for(int y=216;y<232;y++)for(int x=24;x<616;x++){
+        bool handle=x>=knob-4&&x<=knob+4;
+        if(!handle&&(y<221||y>226))continue;
+        uint8_t *p=pixels+(y*WIDTH+x)*4;
+        p[0]=handle?255:54;p[1]=handle?255:183;p[2]=handle?255:207;p[3]=255;
     }
-    text(24,404,left_handed?"X LEFT: ADD CREDITS":"A RIGHT: ADD CREDITS",181,207,220);
-    text(24,438,saved?"LEFT MENU: RESUME":"SAVING FAILED",saved?170:255,saved?193:150,saved?206:150);
+    snprintf(label,sizeof label,"VIEW DISTANCE: %d CM",view_distance);text(24,242,label,255,255,255);
+    text(24,266,"LEFT STICK LEFT / RIGHT: ADJUST",181,207,220);
+    snprintf(label,sizeof label,"AIM: %s",qoptions_aim_label(options));text(24,298,label,255,202,110);
+    text(336,298,left_handed?"Y: CHANGE":"B: CHANGE",181,207,220);
+    text(24,328,physical_crouch?"COVER: PHYSICAL DUCKING":"COVER: GRIP BUTTONS",255,255,255);
+    text(24,352,left_handed?"B RIGHT: CHANGE MODE":"Y LEFT: CHANGE MODE",181,207,220);
+    text(24,378,physical_crouch?"UPRIGHT: OUT / DUCK: COVER":"HOLD EITHER GRIP: LEAVE COVER",181,207,220);
+    text(24,402,left_handed?"A RIGHT: RECENTER / CALIBRATE":"X LEFT: RECENTER / CALIBRATE",181,207,220);
+    text(24,426,"LEFT UP/DOWN: GUN FIT / PLAYER",181,207,220);
+    text(24,454,saved?"LEFT MENU: RESUME":"SAVING FAILED",saved?170:255,saved?193:150,saved?206:150);
 }
 static GLuint shader(GLenum type,const char *source){
     GLuint s=glCreateShader(type);qgpu_shader_source(s,source);glCompileShader(s);GLint ok;glGetShaderiv(s,GL_COMPILE_STATUS,&ok);
@@ -69,12 +93,13 @@ bool qui_init(void){
     glGenVertexArrays(1,&vao);glGenBuffers(1,&vbo);glGenTextures(1,&texture);last_state=-1;
     return true;
 }
-void qui_draw(const float view[16],const float projection[16],V3 head,Q4 rotation,bool laser,bool physical_crouch,bool left_handed,int gun_pitch,bool saved){
+void qui_draw(const float view[16],const float projection[16],V3 head,Q4 rotation,const QOptions *options,int page,int boot_side,bool saved){
     if(!program)return;
     GLint bound,unit;glGetIntegerv(GL_ACTIVE_TEXTURE,&unit);glActiveTexture(GL_TEXTURE0);glGetIntegerv(GL_TEXTURE_BINDING_2D,&bound);glBindTexture(GL_TEXTURE_2D,texture);
-    int state=(physical_crouch?1:0)|(laser?2:0)|(saved?4:0)|(left_handed?8:0);
-    if(last_state!=state||last_pitch!=gun_pitch){
-        panel(laser,physical_crouch,left_handed,gun_pitch,saved);last_pitch=gun_pitch;
+    int state=(options->physical_crouch?1:0)|(options->laser_enabled?2:0)|(saved?4:0)|(options->left_handed?8:0)|(options->tracer_enabled?16:0)|(page?32:0);
+    if(last_state!=state||last_pitch!=options->gun_pitch||last_scale!=options->world_scale||last_distance!=options->view_distance||last_y!=options->gun_offset_y_mm||last_z!=options->gun_offset_z_mm||last_player!=options->player_side||last_boot!=boot_side){
+        panel(options,page,boot_side,saved);last_pitch=options->gun_pitch;last_scale=options->world_scale;last_distance=options->view_distance;
+        last_y=options->gun_offset_y_mm;last_z=options->gun_offset_z_mm;last_player=options->player_side;last_boot=boot_side;
         GLint row_length;glGetIntegerv(GL_UNPACK_ROW_LENGTH,&row_length);glPixelStorei(GL_UNPACK_ROW_LENGTH,0);
         glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,WIDTH,HEIGHT,0,GL_RGBA,GL_UNSIGNED_BYTE,pixels);glPixelStorei(GL_UNPACK_ROW_LENGTH,row_length);
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
