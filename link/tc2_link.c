@@ -289,6 +289,14 @@ static SOCKET discovery=INVALID_SOCKET;
 static int discovery=-1;
 #endif
 static uint64_t last_discovery;
+/* Unicast fallback for Find. Broadcast is dropped by some Wi-Fi access points
+ * and by the Steam Frame's Lepton container network, which forwards bound
+ * TCP/UDP ports but not limited broadcast. The finder also queries every
+ * address in its own /24 (network byte order local address; 0 = unknown). */
+static uint32_t sweep_local;
+static unsigned sweep_next;
+static uint64_t sweep_started;
+static int discovery_broadcast=1;
 static void session_message(TC2SessionState state,const char *message) {
     session_state.state=state; snprintf(session_state.message,sizeof session_state.message,"%s",message); session_state.revision++;
 }
@@ -365,7 +373,7 @@ static int discovery_open(int host) {
     if(bind(discovery,(struct sockaddr *)&addr,sizeof addr)){discovery_close();return 0;}
     return 1;
 }
-static void local_address(void) {
+static uint32_t local_ipv4(void) {
     /* A UDP route lookup sends no traffic. Manual entry remains available when
      * a machine has multiple interfaces; discovery uses the responding source. */
 #ifdef _WIN32
@@ -373,13 +381,33 @@ static void local_address(void) {
 #else
     int s=socket(AF_INET,SOCK_DGRAM,0);
 #endif
-    if((intptr_t)s<0)return;
-    struct sockaddr_in addr={0};socklen_t n=sizeof addr;
+    if((intptr_t)s<0)return 0;
+    struct sockaddr_in addr={0};socklen_t n=sizeof addr;uint32_t result=0;
     addr.sin_family=AF_INET;addr.sin_port=htons(TC2_PORT);addr.sin_addr.s_addr=htonl(0xffffffff);
     int one=1;setsockopt(s,SOL_SOCKET,SO_BROADCAST,(const char *)&one,sizeof one);
     if(connect(s,(struct sockaddr *)&addr,sizeof addr)==0 && getsockname(s,(struct sockaddr *)&addr,&n)==0)
-        inet_ntop(AF_INET,&addr.sin_addr,session_state.address,sizeof session_state.address);
+        result=addr.sin_addr.s_addr;
     close(s);
+    return result;
+}
+static void local_address(void) {
+    struct in_addr address;address.s_addr=local_ipv4();
+    if(address.s_addr)inet_ntop(AF_INET,&address,session_state.address,sizeof session_state.address);
+}
+static void discovery_sweep(const char *query,size_t size) {
+    /* About 254 tiny datagrams per pass, 32 per service tick, one pass every
+     * three seconds: a full /24 is covered in well under a second at 72 Hz. */
+    if(!sweep_local)return;
+    if(sweep_next>254) { if(service_now-sweep_started<3000)return; sweep_next=1; }
+    if(sweep_next==1)sweep_started=service_now;
+    uint32_t local=ntohl(sweep_local);
+    struct sockaddr_in dest={0};dest.sin_family=AF_INET;dest.sin_port=htons(TC2_PORT);
+    for(int sent_now=0;sent_now<32 && sweep_next<=254;sweep_next++) {
+        uint32_t target=(local&0xffffff00u)|sweep_next;
+        if(target==local)continue;
+        dest.sin_addr.s_addr=htonl(target);
+        sendto(discovery,query,(int)size,0,(struct sockaddr *)&dest,sizeof dest);sent_now++;
+    }
 }
 static int session_open(const char *ip) {
     tc2_link_leave();session_state.host=ip==NULL;side=ip?1:0;
@@ -410,7 +438,8 @@ int tc2_link_join(const char *ip) { return session_open(ip); }
 void tc2_link_find(void) {
     tc2_link_leave();
     if(!discovery_open(0)){session_error("Search unavailable - use Join by IP");return;}
-    last_discovery=0;connection_started=service_now;session_message(TC2_FINDING,"Searching local Wi-Fi...");
+    last_discovery=0;sweep_local=local_ipv4();sweep_next=1;sweep_started=0;
+    connection_started=service_now;session_message(TC2_FINDING,"Searching local Wi-Fi...");
 }
 void tc2_link_ready(void) {
     if(session_state.state!=TC2_LOBBY)return;
@@ -434,9 +463,10 @@ void tc2_link_service(uint64_t milliseconds) {
     static const char query[]="TC2VR_FIND_2",reply[]="TC2VR_HOST_2";
     if(session_state.state==TC2_FINDING && (!last_discovery || service_now-last_discovery>=1000)) {
         last_discovery=service_now;struct sockaddr_in dest={0};dest.sin_family=AF_INET;dest.sin_port=htons(TC2_PORT);dest.sin_addr.s_addr=htonl(INADDR_BROADCAST);
-        sendto(discovery,query,sizeof query,0,(struct sockaddr *)&dest,sizeof dest);
+        if(discovery_broadcast)sendto(discovery,query,sizeof query,0,(struct sockaddr *)&dest,sizeof dest);
         if(service_now-connection_started>5000 && !session_state.found_count)session_message(TC2_FINDING,"No host found - try Join by IP");
     }
+    if(session_state.state==TC2_FINDING)discovery_sweep(query,sizeof query);
     char message[32];struct sockaddr_in from={0};socklen_t size=sizeof from;
     int n=(int)recvfrom(discovery,message,sizeof message,0,(struct sockaddr *)&from,&size);
     if(session_state.state==TC2_WAITING && n==(int)sizeof query && !memcmp(message,query,sizeof query))

@@ -1,3 +1,4 @@
+#define _DEFAULT_SOURCE /* glibc hides clock_gettime/nanosleep under strict -std=c11 */
 #include <assert.h>
 #include <sys/wait.h>
 #include "../link/tc2_link.c"
@@ -22,7 +23,8 @@ int main(void){
         wait_state(TC2_LOBBY);assert(session_state.compatible&&!enabled);
         tc2_link_start();assert(session_state.state==TC2_LOBBY); /* cannot start unready */
         tc2_link_ready();uint64_t end=now_ms()+3000;
-        while(!session_state.peer_ready&&now_ms()<end)step();assert(session_state.peer_ready);
+        while(!session_state.peer_ready&&now_ms()<end)step();
+        assert(session_state.peer_ready);
         tc2_link_start();wait_state(TC2_PLAYING);assert(enabled&&side==0&&tc2_link_take_restart());
         tc2_link_device_reset();tc2_link_leave();assert(!enabled&&session_state.restart&&!regfile&&!txlen&&!incoming_len&&!outgoing_len);
         int status_code;waitpid(child,&status_code,0);assert(WIFEXITED(status_code)&&WEXITSTATUS(status_code)==0);
@@ -41,6 +43,23 @@ int main(void){
     assert(sendto(udp,reply,sizeof reply,0,(struct sockaddr *)&address,sizeof address)==sizeof reply);step();
     discovery_end=now_ms()+1000;while(!session_state.found_count&&now_ms()<discovery_end)step();
     assert(session_state.found_count==1&&!strcmp(session_state.found[0],"127.0.0.1"));close(udp);tc2_link_leave();
+    /* Unicast sweep alone finds a host in another process: broadcast disabled,
+     * the finder poses as 127.0.0.2 so the /24 pass reaches 127.0.0.1. */
+    {
+        pid_t host=fork();assert(host>=0);
+        if(!host){
+            tc2_link_service(now_ms());assert(tc2_link_host());
+            uint64_t end=now_ms()+4000;while(now_ms()<end)step();
+            tc2_link_leave();_exit(0);
+        }
+        struct timespec settle={0,200000000};nanosleep(&settle,0);
+        discovery_broadcast=0;tc2_link_service(now_ms());tc2_link_find();
+        inet_pton(AF_INET,"127.0.0.2",&sweep_local);
+        uint64_t end=now_ms()+3000;while(!session_state.found_count&&now_ms()<end)step();
+        assert(session_state.found_count==1&&!strcmp(session_state.found[0],"127.0.0.1"));
+        discovery_broadcast=1;tc2_link_leave();
+        int status_code;waitpid(host,&status_code,0);assert(WIFEXITED(status_code)&&WEXITSTATUS(status_code)==0);
+    }
     /* Untrusted peers cannot forward original records before negotiation. */
     int pair[2];assert(socketpair(AF_UNIX,SOCK_STREAM,0,pair)==0);peer=pair[0];nonblocking();managed=1;phase=3;
     const uint8_t game[]={0,2,0,0};assert(send(pair[1],game,sizeof game,0)==sizeof game);network_poll();
