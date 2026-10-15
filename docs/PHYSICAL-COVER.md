@@ -1,6 +1,6 @@
 # Physical cover at the arcade's own slide
 
-Current state of the physical cover mode (options: cover mode "PHYSICAL DUCKING"). Not yet worn on either headset.
+Current state of the physical cover mode (options: cover mode "PHYSICAL DUCKING"). Played on the Steam Frame before the rebase onto v0.3.0; not yet worn on Quest or PC.
 
 ## Behaviour
 
@@ -35,4 +35,4 @@ The production decoder reproduced this table from recorded camera structs of tho
 
 `python3 tests/test_cover_spot.py` (host, ASan/UBSan): decoding with pitch, yaw, turn and progress; ROM address mapping; rejection of non-cover, malformed, out-of-range and degenerate tables; the directional pedal with its hysteresis, wrong-direction and lost-tracking cases; and the painted SAFE atlas. `SAFE_ATLAS=out.ppm` writes the atlas for inspection. The existing input fixture (`tests/test_frame_profile.py`, with and without `--touch`) still covers the 20 cm fallback.
 
-Open: worn acceptance of the reach, the sign placement and the lean compensation; spots beyond Stage 1; the other ROM sets' addresses.
+Open: Quest and PC wear tests, the rebased build on the Frame, spots beyond Stage 1, and the other ROM sets' addresses. Turning spots keep the arcade's turn; a fade through the turn is the fallback if it proves uncomfortable.

@@ -32,7 +32,8 @@ After the arcade startup, press **A** for credits and then either **trigger** to
 ## Features
 
 - Native arcade MIPS and H8 code translated to C, with the original textured world rendered from tracked stereo viewpoints.
-- Standalone Quest and Windows PCVR builds, plus a normal desktop mode.
+- Standalone Quest and Windows PCVR builds, plus a normal desktop mode, and a standalone [Steam Frame](docs/STEAM_FRAME_VR.md) build (ROM-free, built from source).
+- [LAN play](docs/LAN-PLAY.md): two cabinets linked over the network, as in the arcade, between any of the headsets.
 - Shoot with either hand: pressing a trigger moves the weapon to that controller.
 - Grip-based cover or physical cover: lean or duck the way a SAFE sign points, with upright-height calibration.
 - Adjustable gun pitch from **-60 to +60 degrees**, plus saved **WORLD SIZE (25–400%)** and **VIEW DISTANCE (0–100 cm)**.
