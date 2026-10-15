@@ -176,7 +176,7 @@ PY'''
 
 
 def install(args):
-    if not re.fullmatch(r"[A-Za-z0-9_.@:-]+", args.host) or args.host.startswith("-"):
+    if args.host and (not re.fullmatch(r"[A-Za-z0-9_.@:-]+", args.host) or args.host.startswith("-")):
         fail("invalid SSH host")
     if args.host_key_alias and (not re.fullmatch(r"[A-Za-z0-9_.:-]+", args.host_key_alias) or args.host_key_alias.startswith("-")):
         fail("invalid host key alias")
@@ -185,26 +185,36 @@ def install(args):
     required = verify_apk()
     verify_rom(args.rom, required)
     if args.dry_run:
-        print("Would back up the existing title and Documents/TimeCrisis2VR, copy the APK and your ROM archive separately, and register TimeCrisis2VR on " + args.host + ".")
+        print("Would back up the existing title and Documents/TimeCrisis2VR, copy the APK and your ROM archive separately, and register TimeCrisis2VR on " + (args.host or "your Frame") + ".")
         return
     if not args.install:
         fail("add --install to write to a Frame; --dry-run performs local validation only")
-    if args.lock_script is None:
-        fail("set --lock-script to the installed Frame booking script")
-    lock = Path(args.lock_script).expanduser()
-    if not lock.is_file():
+    if not args.host:
+        fail("set --host steamos@<your Frame's address> (or FRAME_HOST)")
+    # Optional: a script that books a shared Frame (claim/release), so another
+    # tool cannot launch something mid-install.
+    lock = Path(args.lock_script).expanduser() if args.lock_script else None
+    if lock is not None and not lock.is_file():
         fail("Frame booking script not found: " + str(lock))
+    if args.identity and not Path(args.identity).expanduser().is_file():
+        fail("SSH identity not found: " + args.identity)
     ssh = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10"]
     scp = ["scp", "-q", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes"]
     if args.host_key_alias:
         ssh += ["-o", "HostKeyAlias=" + args.host_key_alias]
         scp += ["-o", "HostKeyAlias=" + args.host_key_alias]
+    if args.identity:
+        # The SteamOS Devkit Client's key, for example; other keys are not offered.
+        identity = ["-o", "IdentitiesOnly=yes", "-i", str(Path(args.identity).expanduser())]
+        ssh += identity
+        scp += identity
     ssh += [args.host]
     scp_host = args.host
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     holder = "timecrisis2-frame-install"
     remote = lambda command, capture=False: run(ssh + [command], capture=capture)
-    run([str(lock), "claim", holder, "Time Crisis II VR verified local bundle install", "10"])
+    if lock is not None:
+        run([str(lock), "claim", holder, "Time Crisis II VR verified local bundle install", "10"])
     try:
         busy = remote("podman ps --format '{{.Names}}'", capture=True)
         if any("lepton-steamlaunch-" in name or name == "lepton-dev" for name in busy.splitlines()):
@@ -244,7 +254,8 @@ chmod 777 "$HOME/Documents/TimeCrisis2VR"
         print("Installed and registered TimeCrisis2VR. Launch it from the Steam library.")
         print("Pre-install backup: /home/steamos/" + backup)
     finally:
-        run([str(lock), "release", holder])
+        if lock is not None:
+            run([str(lock), "release", holder])
 
 
 def main():
@@ -252,9 +263,10 @@ def main():
     parser.add_argument("--verify-only", action="store_true", help="verify the local bundle without device access")
     parser.add_argument("--dry-run", action="store_true", help="verify the ROM and report the installation plan")
     parser.add_argument("--install", action="store_true", help="perform the remote installation after verification")
-    parser.add_argument("--host", default=os.environ.get("FRAME_HOST", "steamos@frame.local"))
+    parser.add_argument("--host", default=os.environ.get("FRAME_HOST"), help="steamos@<Frame address>; SSH must be enabled on the Frame")
+    parser.add_argument("--identity", default=os.environ.get("FRAME_IDENTITY"), help="SSH private key to use, e.g. the SteamOS Devkit Client's devkit_rsa")
     parser.add_argument("--host-key-alias", default=os.environ.get("FRAME_HOST_KEY_ALIAS", ""))
-    parser.add_argument("--lock-script", default=os.environ.get("FRAME_LOCK_SCRIPT"))
+    parser.add_argument("--lock-script", default=os.environ.get("FRAME_LOCK_SCRIPT"), help="optional booking script for a shared Frame (claim/release)")
     parser.add_argument("--rom", type=Path, help="user-supplied Time Crisis II ZIP")
     args = parser.parse_args()
     verify_bundle()
