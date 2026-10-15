@@ -1,4 +1,4 @@
-"""Build a ROM-free Steam Frame ARM64 Android APK from local toolchains."""
+"""Build the Steam Frame (default) or Quest ARM64 Android APK from local macOS toolchains."""
 from pathlib import Path
 import argparse
 import hashlib
@@ -24,6 +24,31 @@ APP_NAME = "TimeCrisis2VR"
 SDL_SHA256 = "8b8d4aef2038533da814965220f88f77d60dfa0f32685f80ead65e501337da7f"
 OPENXR_SHA256 = "7e1b36141f9a4f1fa4a7e061936344fd9fcd36bce6c47eae2ad09812736167b6"
 ANDROID_NS = "http://schemas.android.com/apk/res/android"
+MANIFEST_SOURCE = ROOT / "quest" / "AndroidManifest-SteamFrame.xml"
+KEYSTORE_NAME = "steam-frame-debug.keystore"
+FLAVOR = "frame"
+BUNDLE_ROMS = False
+FLAVORS = {
+    "frame": {"build": BUILD, "output": OUTPUT, "package": PACKAGE, "manifest": MANIFEST_SOURCE,
+              "keystore": KEYSTORE_NAME},
+    "quest": {"build": ROOT / "build" / "quest-mac",
+              "output": ROOT / "artifacts" / "quest" / "TimeCrisis2VR-Quest-arm64.apk",
+              "package": "org.timecrisis2.arcadevr", "manifest": ROOT / "quest" / "AndroidManifest.xml",
+              "keystore": "quest-debug.keystore"},
+}
+
+
+def select_flavor(name, bundle_roms=False):
+    """Quest shares the native host, lobby and link; only packaging differs."""
+    global BUILD, OUTPUT, PACKAGE, MANIFEST_SOURCE, KEYSTORE_NAME, FLAVOR, BUNDLE_ROMS
+    if bundle_roms and name != "quest":
+        raise RuntimeError("--bundle-roms is only for private Quest builds; the Frame APK stays ROM-free")
+    flavor = FLAVORS[name]
+    BUILD, OUTPUT, PACKAGE = flavor["build"], flavor["output"], flavor["package"]
+    MANIFEST_SOURCE, KEYSTORE_NAME = flavor["manifest"], flavor["keystore"]
+    FLAVOR, BUNDLE_ROMS = name, bundle_roms
+    if bundle_roms:
+        OUTPUT = OUTPUT.with_name("TimeCrisis2VR-Quest-arm64-with-ROM.apk")
 
 
 def run(command, cwd=ROOT, env=None):
@@ -127,13 +152,15 @@ def prepare_native(args, sdk, java, tools, sdl, xr):
         "-DCMAKE_MAKE_PROGRAM=" + str(ninja),
         "-DCMAKE_TOOLCHAIN_FILE=" + str(ndk / "build/cmake/android.toolchain.cmake"),
         "-DANDROID_ABI=arm64-v8a", "-DANDROID_PLATFORM=android-29", "-DANDROID_STL=c++_static",
-        "-DCMAKE_BUILD_TYPE=Release", "-DTCVR_STEAM_FRAME=ON", "-DSDL_ROOT=" + str(sdl),
+        "-DCMAKE_BUILD_TYPE=Release", "-DTCVR_STEAM_FRAME=" + ("ON" if FLAVOR == "frame" else "OFF"),
+        "-DSDL_ROOT=" + str(sdl),
         "-DXR=" + str(xr),
     ], env=env)
     run([cmake, "--build", BUILD / "native", "--parallel", args.jobs], env=env)
     upstream_revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT / "upstream", text=True).strip()
     source_revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     native_receipt = {
+        "flavor": FLAVOR,
         "source_revision": source_revision,
         "upstream_revision": upstream_revision,
         "native_source_sha256": native_source_sha256(),
@@ -223,9 +250,22 @@ def manifest_22(path):
     return rows
 
 
-def write_frame_manifest(source, destination):
+def write_frame_manifest(source, destination, rom_free_quest=False):
     ET.register_namespace("android", ANDROID_NS)
     tree = ET.parse(source)
+    if rom_free_quest:
+        # As tools/build.py: the 2D setup activity launches and imports the ROM,
+        # then hands off to the VR-marked activity.
+        name = "{" + ANDROID_NS + "}name"
+        activities = {a.get(name): a for a in tree.getroot().find("application").findall("activity")}
+        main, setup = activities[".MainActivity"], activities[".LauncherActivity"]
+        for intent in main.findall("intent-filter"):
+            for category in list(intent.findall("category")):
+                if category.get(name) == "android.intent.category.LAUNCHER":
+                    intent.remove(category)
+        intent = ET.SubElement(setup, "intent-filter")
+        ET.SubElement(intent, "action", {name: "android.intent.action.MAIN"})
+        ET.SubElement(intent, "category", {name: "android.intent.category.LAUNCHER"})
     destination.parent.mkdir(parents=True, exist_ok=True)
     tree.write(destination, encoding="utf-8", xml_declaration=True)
     return tree
@@ -267,7 +307,8 @@ def validate_frame_apk_manifest(apk, aapt2, source_manifest):
         raise RuntimeError("Compiled Frame APK manifest lost the canonical android namespace prefix")
     for activity in application.findall("activity"):
         name = manifest_activity_name(activity, package)
-        if '"' + name + '"' not in xmltree:
+        # aapt2 keeps the manifest's own spelling; the Quest manifest uses relative names.
+        if not any('"' + spelling + '"' in xmltree for spelling in (name, android_attr(activity, "name"))):
             raise RuntimeError("Compiled Frame APK is missing manifest activity " + name)
 
     badging = capture([aapt2, "dump", "badging", apk])
@@ -309,6 +350,8 @@ def package(assets, sdk, java, tools):
         raise RuntimeError("Native source receipt is missing; run a normal Frame build first")
     native_receipt = json.loads(native_receipt_path.read_text(encoding="utf-8"))
     current_source_sha = native_source_sha256()
+    if native_receipt.get("flavor", "frame") != FLAVOR:
+        raise RuntimeError("Native libraries were built for another flavor; run a normal build")
     if native_receipt.get("native_source_sha256") != current_source_sha:
         raise RuntimeError("Native inputs changed since compilation; run a normal Frame build instead of package-only")
 
@@ -337,12 +380,13 @@ def package(assets, sdk, java, tools):
     apk_base = BUILD / "unaligned.apk"
     public_manifest = BUILD / "roms.sha256"
     public_manifest.write_text("".join(digest + "  " + name + "\n" for digest, name in rows), encoding="ascii")
-    manifest_source = ROOT / "quest" / "AndroidManifest-SteamFrame.xml"
-    manifest_out = BUILD / "AndroidManifest-SteamFrame.xml"
-    manifest_tree = write_frame_manifest(manifest_source, manifest_out)
+    manifest_source = MANIFEST_SOURCE
+    manifest_out = BUILD / manifest_source.name
+    manifest_tree = write_frame_manifest(manifest_source, manifest_out,
+                                         rom_free_quest=FLAVOR == "quest" and not BUNDLE_ROMS)
     manifest_package = manifest_tree.getroot().get("package")
     if manifest_package != PACKAGE:
-        raise RuntimeError("Frame manifest package ID changed unexpectedly: " + str(manifest_package))
+        raise RuntimeError("Manifest package ID changed unexpectedly: " + str(manifest_package))
 
     licenses = BUILD / "public-assets" / "licenses"
     public = BUILD / "public-assets"
@@ -364,9 +408,20 @@ def package(assets, sdk, java, tools):
     (public / "models.sha256").write_text(model_manifest, encoding="ascii")
     shutil.copy2(public_manifest, public / "roms.sha256")
     if (public / "roms").exists() or any(path.suffix.lower() == ".zip" for path in public.rglob("*")):
-        raise RuntimeError("ROM payload entered the public Frame APK staging directory")
+        raise RuntimeError("ROM payload entered the public APK staging directory")
+    if BUNDLE_ROMS:
+        # Private sideload only: the user's own verified chips, never published.
+        (public / "roms").mkdir()
+        for _, name in rows:
+            shutil.copy2(assets / "roms" / name, public / "roms" / name)
     if apk_base.exists(): apk_base.unlink()
-    run([build_tools / "aapt2", "link", "--manifest", manifest_out, "-I", android_jar, "-A", public, "-o", apk_base])
+    link = [build_tools / "aapt2", "link", "--manifest", manifest_out, "-I", android_jar, "-A", public]
+    if FLAVOR == "quest":
+        # The Quest manifest names its launcher icon and banner, as in tools/build.py.
+        resources = BUILD / "launcher-res.zip"
+        run([build_tools / "aapt2", "compile", "--dir", ROOT / "quest" / "res", "-o", resources])
+        link.append(resources)
+    run(link + ["-o", apk_base])
 
     package_libs = BUILD / "package-libs"
     if package_libs.exists(): shutil.rmtree(package_libs)
@@ -380,7 +435,7 @@ def package(assets, sdk, java, tools):
         run([strip, "--strip-unneeded", "-o", destination, source])
     with zipfile.ZipFile(apk_base, "a", zipfile.ZIP_DEFLATED) as apk:
         names = set(apk.namelist())
-        if any(name.startswith("assets/roms/") or name.endswith("timecrs2.zip") for name in names):
+        if not BUNDLE_ROMS and any(name.startswith("assets/roms/") or name.endswith("timecrs2.zip") for name in names):
             raise RuntimeError("A ROM file was staged in the ROM-free APK")
         for entry in sorted(dex.glob("*.dex")):
             apk.write(entry, entry.name)
@@ -389,7 +444,7 @@ def package(assets, sdk, java, tools):
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     run([build_tools / "zipalign", "-f", "-P", "16", "4", apk_base, OUTPUT])
 
-    key = Path.home() / ".config" / "timecrisis2vr" / "steam-frame-debug.keystore"
+    key = Path.home() / ".config" / "timecrisis2vr" / KEYSTORE_NAME
     key.parent.mkdir(parents=True, exist_ok=True)
     if not key.exists():
         run([java / "bin" / "keytool", "-genkeypair", "-keystore", key, "-storepass", "android", "-alias", "androiddebugkey", "-keypass", "android", "-keyalg", "RSA", "-keysize", "2048", "-validity", "10000", "-dname", "CN=Time Crisis II VR Frame,O=Android,C=US"])
@@ -397,7 +452,7 @@ def package(assets, sdk, java, tools):
     run(signer + ["sign", "--ks", key, "--ks-key-alias", "androiddebugkey", "--ks-pass", "pass:android", "--key-pass", "pass:android", "--v1-signing-enabled", "false", "--v2-signing-enabled", "true", "--v3-signing-enabled", "false", OUTPUT])
     run(signer + ["verify", "--verbose", OUTPUT])
     run([build_tools / "zipalign", "-c", "-P", "16", "4", OUTPUT])
-    validate_frame_apk_manifest(OUTPUT, build_tools / "aapt2", manifest_source)
+    validate_frame_apk_manifest(OUTPUT, build_tools / "aapt2", manifest_out)
 
     submodule = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT / "upstream", text=True).strip()
     root_revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
@@ -408,8 +463,8 @@ def package(assets, sdk, java, tools):
         "apk": OUTPUT.name, "sha256": sha256(OUTPUT), "bytes": OUTPUT.stat().st_size,
         "source_revision": root_revision, "upstream_revision": submodule,
         "native_source_sha256": current_source_sha, "source_tree_dirty": dirty,
-        "package": PACKAGE, "abi": "arm64-v8a", "version_name": version_name,
-        "version_code": int(version_code), "rom_bundled": False, "required_rom_chips": 22,
+        "flavor": FLAVOR, "package": PACKAGE, "abi": "arm64-v8a", "version_name": version_name,
+        "version_code": int(version_code), "rom_bundled": BUNDLE_ROMS, "required_rom_chips": 22,
         "rom_manifest_sha256": sha256(public_manifest), "hardware_tested": False,
         "toolchain": native_receipt["toolchain"], "dependencies": native_receipt["dependencies"],
         "sdl_frame_java": {
@@ -428,10 +483,13 @@ def main():
     parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--package-only", action="store_true", help="package already-built native code and prepared assets")
     parser.add_argument("--shared-tools", type=Path, help="reuse a verified local .tools cache without copying it")
+    parser.add_argument("--flavor", choices=sorted(FLAVORS), default="frame", help="frame (default) or quest")
+    parser.add_argument("--bundle-roms", action="store_true", help="Quest only: private APK containing your own ROM chips")
     args = parser.parse_args()
     if platform.system() != "Darwin":
         parser.error("The initial Frame build flavor currently targets macOS hosts")
     try:
+        select_flavor(args.flavor, args.bundle_roms)
         sdk = android_sdk()
         java = java_home()
         tools = tools_root(args.shared_tools)

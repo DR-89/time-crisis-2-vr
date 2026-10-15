@@ -54,6 +54,17 @@ python3 tools/steam_frame/bundle/install.py --dry-run --rom "$HOME/Downloads/tim
 
 The output APK at `artifacts/steam-frame/TimeCrisis2VR-SteamFrame-arm64.apk` includes the 22-chip hash manifest and weapon models, but no ROM chips or archive. The launcher imports a selected archive into persistent `Documents/TimeCrisis2VR`; the native process uses that same directory for extracted chips, configuration, logs and diagnostic captures. `--package-only` requires a source fingerprint receipt written by the native build and rejects stale libraries. The Frame signing key is retained at `~/.config/timecrisis2vr/steam-frame-debug.keystore`, outside disposable build caches.
 
+### Quest flavor on macOS
+
+The same script builds the Quest 3 APK (`org.timecrisis2.arcadevr`) with `--flavor quest`. It compiles the shared host without `TCVR_STEAM_FRAME`, so the LAN lobby, cabinet link and Touch bindings match the Frame build exactly; native inputs live under `build/quest-mac`. The default is ROM-free: the 2D setup activity launches first and imports your `timecrs2.zip`. `--bundle-roms` adds your own verified chips for a private sideload and must never be published.
+
+```sh
+python3 tools/build_frame.py --flavor quest --bundle-roms --rom "$HOME/Downloads/timecrs2.zip" --shared-tools /path/to/time-crisis-vr/.tools --jobs 2
+adb install -r artifacts/quest/TimeCrisis2VR-Quest-arm64-with-ROM.apk
+```
+
+The Quest key is `~/.config/timecrisis2vr/quest-debug.keystore`. An existing install signed with another key (for example the public v0.2.0 APK) must be uninstalled first.
+
 For an unattended diagnostic pass, put `force_render=1`, `capture_once=1`, `capture_after_ticks=600`, `exit_after_frames=3600`, and `exit_after_seconds=30` in `frame-probe.cfg` in the persistent game directory before launch. The Frame-only probe advances the arcade with neutral input even when normal focus or tracking is unavailable, then captures both eyes after 600 actual game updates. It exits at the first frame or time limit and logs separately when it times out without a paired capture. Requested capture ticks that cannot fit the configured bounds are disabled. This is an unattended rendering diagnostic, not proof of normal controller tracking or worn play.
 
 ## Validation
