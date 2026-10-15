@@ -6,6 +6,7 @@
 #include "tc2_host.h"
 #include "tc2_weapon.h"
 #include "tc2_link.h"
+#include "tc2_cover_spot.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <SDL2/SDL.h>
@@ -33,6 +34,11 @@ void tc2_window_frame(void) {
     }
     qvr_scene_prepare(tc2_built_latest_wait());
     if(rr_frame&&rr_frame%300==0)fprintf(stderr,"[PLAYER] frame %u: local slot %u route %u mode %u\n",rr_frame,qtc2_weapon_be32(tc2_ram+0x2cee28),qtc2_weapon_be32(tc2_ram+0x2f3fd4),qtc2_weapon_be32(tc2_ram+0x2f3fd0));
+    {   /* RAM read at vblank F describes the camera rendered at F+1: publish
+         * the previous read with the frame it belongs to. */
+        extern uint8_t tc2_data[0x2000000];static QCoverSpot pending;
+        qvr_set_cover_spot(&pending);qtc2_cover_spot(tc2_ram,sizeof tc2_ram,tc2_data,sizeof tc2_data,&pending);
+    }
     static uint64_t started;
     if(!started)started=SDL_GetPerformanceCounter();
     if(rr_frame && rr_frame%300==0)fprintf(stderr,"[TC2VR] frame %u elapsed %.3f s\n",rr_frame,(SDL_GetPerformanceCounter()-started)/(double)SDL_GetPerformanceFrequency());

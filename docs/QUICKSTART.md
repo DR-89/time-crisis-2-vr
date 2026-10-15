@@ -38,7 +38,7 @@ With the Steam Frame controller profile active, either trigger fires, either gri
 - **Hold either grip:** leave cover. **Release both:** hide and reload.
 - **A:** credits. **B:** cycle LASER / OFF / TRACER. **X:** recenter and calibrate upright height.
 - **Left menu button:** options. In options, right stick click changes the default hand; right stick up/down changes **GUN ANGLE**; left stick click resets the angle.
-- **Y in options:** switch physical ducking / grip cover. With physical ducking selected, calibrate upright using **X**, then duck to hide and stand back up to shoot.
+- **Y in options:** switch physical ducking / grip cover. With physical ducking selected, calibrate upright using **X**, then lean or duck the way the **SAFE** sign points to hide, and come back upright to shoot.
 - The arcade selects the machine gun automatically. Hold the trigger for automatic fire outside cover.
 
 These face buttons assume the default right hand. The saved left-hand layout uses **X** for credits, **Y** for aim mode, **A** for recenter and **B** for cover-mode selection. Trigger handoffs do not change the saved face-button layout.

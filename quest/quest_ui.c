@@ -67,7 +67,7 @@ static void panel(const QOptions *options,int page,int boot_side,bool frame_cont
     text(336,298,frame_controls?"RIGHT B: CHANGE":left_handed?"Y: CHANGE":"B: CHANGE",181,207,220);
     text(24,328,physical_crouch?"COVER: PHYSICAL DUCKING":"COVER: GRIP BUTTONS",255,255,255);
     text(24,352,frame_controls?"RIGHT X: CHANGE MODE":left_handed?"B RIGHT: CHANGE MODE":"Y LEFT: CHANGE MODE",181,207,220);
-    text(24,378,physical_crouch?"UPRIGHT: OUT / DUCK: COVER":"HOLD EITHER GRIP: LEAVE COVER",181,207,220);
+    text(24,378,physical_crouch?"FOLLOW THE SAFE SIGN TO HIDE":"HOLD EITHER GRIP: LEAVE COVER",181,207,220);
     text(24,402,frame_controls?"VIEW HOLD: 1S RECENTER, 3S +HEIGHT":left_handed?"A RIGHT: RECENTER / CALIBRATE":"X LEFT: RECENTER / CALIBRATE",181,207,220);
     text(24,426,"LEFT UP: GUN FIT / DOWN: LAN PLAY",181,207,220);
     text(24,454,saved?(frame_controls?"RIGHT MENU: RESUME / VIEW: BACK":"LEFT MENU: RESUME"):"SAVING FAILED",saved?170:255,saved?193:150,saved?206:150);

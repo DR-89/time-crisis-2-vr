@@ -28,6 +28,8 @@
 #include "quest_keyboard.h"
 #include "../link/tc2_link.h"
 #include "quest_cover.h"
+#include "tc2_cover_spot.h"
+#include "quest_safe.h"
 #include "quest_clock.h"
 #include "quest_refresh.h"
 #ifdef TCVR_STEAM_FRAME
@@ -87,6 +89,22 @@ static bool shot_pending,shot_needs_release,fire_output_down,options_saved=true;
 static int active_weapon_hand=RIGHT_HAND;
 static QOptions options;
 static QCover cover;
+/* Physical cover at the arcade's own slide: the spot published by the frame
+ * callback, the unshifted head position, and the shift that absorbs the
+ * player's lean while the arcade slides the camera the same way. */
+static QCoverSpot cover_spot;
+static V3 cover_head,cover_shift;
+static float cover_approach;
+static bool cover_spot_hidden;
+void qvr_set_cover_spot(const QCoverSpot *spot){
+    /* The decoder reports raw/16384 units; the scene shows them at the
+     * world-size and units-per-metre the player has set. */
+    QCoverSpot scaled=*spot;scaled.hide=mul(spot->hide,qvr_world_scale/qvr_units_per_meter);
+    if(scaled.valid&&(!cover_spot.valid||scaled.table!=cover_spot.table))
+        fprintf(stderr,"[COVER] spot %08X: hide right %+.3f up %+.3f forward %+.3f m, turn %+.1f deg; mark %.2f m\n",
+                scaled.table,scaled.hide.x,scaled.hide.y,-scaled.hide.z,scaled.turn_deg,qcover_reach(scaled.hide));
+    cover_spot=scaled;
+}
 static bool cover_calibration_pending=true;
 static const char *options_path="quest-options.cfg";
 static XrTime game_deadline;
@@ -539,7 +557,8 @@ static void adjust_view_distance(XrTime time){
 }
 static V3 vec(XrVector3f v){return v3(v.x,v.y,v.z);}
 static Q4 quat(XrQuaternionf q){return (Q4){q.x,q.y,q.z,q.w};}
-static V3 relative_position(XrVector3f p){return rotate(conjugate(origin_rotation),sub(vec(p),origin));}
+static V3 tracked_position(XrVector3f p){return rotate(conjugate(origin_rotation),sub(vec(p),origin));}
+static V3 relative_position(XrVector3f p){return add(tracked_position(p),cover_shift);}
 static Q4 relative_rotation(XrQuaternionf q){return product(conjugate(origin_rotation),quat(q));}
 
 static bool capture_eye(int eye,int w,int h){
@@ -687,6 +706,22 @@ static void lobby_service(void){
     if(change){paused=change<0;game_deadline=0;coin_frames=0;reset_fire_input();reset_pitch_input();ss22_input_neutral();tc2_audio_volume(paused?0:100);}
 }
 #endif
+static void cover_buzz(float amplitude){
+    XrHapticActionInfo info={XR_TYPE_HAPTIC_ACTION_INFO};info.action=haptic_action;
+    XrHapticVibration vibration={XR_TYPE_HAPTIC_VIBRATION};
+    vibration.duration=40000000;vibration.frequency=XR_FREQUENCY_UNSPECIFIED;vibration.amplitude=amplitude;
+    for(int hand=0;hand<HAND_COUNT;hand++){info.subactionPath=hand_paths[hand];(void)xrApplyHapticFeedback(session,&info,(XrHapticBaseHeader*)&vibration);}
+}
+/* While the arcade slides into cover, take back the lean that triggered it so
+ * the view lands on the arcade's hidden camera instead of overshooting it. */
+static void update_cover_shift(void){
+    cover_shift=v3(0,0,0);
+    if(!options.physical_crouch||!cover_spot.valid||!cover.calibrated||cover_spot.progress<=0)return;
+    float length=sqrtf(dot(cover_spot.hide,cover_spot.hide));
+    V3 direction=mul(cover_spot.hide,1/length),displacement=sub(cover_head,v3(0,cover.upright_y-origin.y,0));
+    float along=fminf(length,fmaxf(0,dot(displacement,direction)));
+    cover_shift=mul(direction,-along*cover_spot.progress);
+}
 static void sync_input(XrTime time,bool head_tracked,float head_y){
     static bool keyboard_was_modal;
     if(qkeyboard_modal()){keyboard_was_modal=true;reset_input_edges();lobby_nav_armed=lobby_fire_armed=false;ss22_input_neutral();return;}
@@ -733,7 +768,15 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
         fprintf(stderr,"[COVER] upright height %.3f m\n",head_y);
     }
     /* Cover must work even when the weapon controller is out of view. */
-    bool exposed=qcover_pedal(&cover,head_y,head_tracked);
+    bool exposed;
+    if(options.physical_crouch&&cover_spot.valid){
+        /* Upright point: the recentred spot at the calibrated head height. */
+        V3 displacement=sub(cover_head,v3(0,cover.upright_y-origin.y,0));
+        exposed=qcover_spot_pedal(&cover,cover_spot.hide,displacement,head_tracked,&cover_approach);
+        if(cover.calibrated&&head_tracked&&!paused&&cover.ducked!=cover_spot_hidden){
+            cover_spot_hidden=cover.ducked;cover_buzz(cover.ducked?.6f:.35f);
+        }
+    }else{exposed=qcover_pedal(&cover,head_y,head_tracked);cover_approach=0;cover_spot_hidden=cover.ducked;}
     if(!paused)pedal=options.physical_crouch?(!cover_calibration_pending&&exposed?1.f:0.f):fmaxf(axis(grip_action,hand_paths[LEFT_HAND]),axis(grip_action,hand_paths[RIGHT_HAND]));
     XrSpaceLocation locations[HAND_COUNT];bool tracked[HAND_COUNT]={false,false},edges[HAND_COUNT]={false,false},available[HAND_COUNT];
     XrActionStateFloat fire[HAND_COUNT];
@@ -964,6 +1007,7 @@ graphics_ready:
     if(!qgun_load_weapon(QGUN_MACHINE_GUN,"models/machine-gun.tcgun"))
         fprintf(stderr,"[GUN] Machine gun asset unavailable; using pistol fallback\n");
     if(!qui_init())goto fail;
+    if(!qsafe_init())fprintf(stderr,"[SAFE] signpost unavailable; physical cover still works\n");
     if(!tc2_gl_init())goto fail;
     void ss22_gl_set_gun_flash(int);ss22_gl_set_gun_flash(0);tc2_audio_open();
     active=true;fprintf(stderr,"[XR] Renderer initialized: %ux%u per eye; %s\n",eyes[0].w,eyes[0].h,glGetString(GL_RENDERER));return true;
@@ -1059,7 +1103,9 @@ bool ss22_host_frame(void){
         if(frame_probe.enabled&&frame_probe.force_render){trigger=pedal=0;coin_frames=0;aim_valid=gun_tracked=false;reset_input_edges();ss22_input_neutral();}
         else
 #endif
+        cover_head=mul(add(tracked_position(views[0].pose.position),tracked_position(views[1].pose.position)),.5f);
         sync_input(frame.predictedDisplayTime,head_tracked,(views[0].pose.position.y+views[1].pose.position.y)*.5f);
+        update_cover_shift();
         parts[0]+=wall_ms()-stage_start;
         uint64_t feedback_time=SDL_GetTicks64();
         float shot_age=recoil_started?(float)(feedback_time-recoil_started):-1;
@@ -1095,6 +1141,13 @@ bool ss22_host_frame(void){
             qgl_flush();
             parts[2]+=wall_ms()-stage_start;stage_start=wall_ms();
             if(focused&&gun_tracked)qgun_draw(v[i],p[i],gun_position,gun_rotation,recoil,trigger,flash);
+            if(focused&&!paused&&options.physical_crouch&&cover_spot.valid&&cover_spot.exposed&&!cover.ducked&&cover.calibrated&&head_tracked){
+                /* The mark is where the head must go; the sign stands half a
+                 * metre beyond it so it stays readable, arrow along the slide. */
+                float length=sqrtf(dot(cover_spot.hide,cover_spot.hide));V3 direction=mul(cover_spot.hide,1/length);
+                V3 mark=add(v3(0,cover.upright_y-origin.y,0),mul(direction,qcover_reach(cover_spot.hide)));
+                qsafe_draw(v[i],p[i],add(mark,v3(0,0,-.55f)),atan2f(direction.y,direction.x),cover_approach,(SDL_GetTicks64()/250)%2==0);
+            }
             if(focused&&paused){
                 V3 head=mul(add(relative_position(views[0].pose.position),relative_position(views[1].pose.position)),.5f);
                 qui_draw(v[i],p[i],head,relative_rotation(views[0].pose.orientation),&options,options_page,qtc2_cabinet_side,frame_profile_active,options_saved);
@@ -1189,7 +1242,7 @@ void ss22_host_close(void){
     if(frame_probe.owns_capture_marker)unlink("capture.request");
     fprintf(stderr,"[TC2VR] host close: graphics destruction begin\n");
 #endif
-    if(context&&gpu_ready){qui_shutdown();qgun_shutdown();qgl_shutdown();}
+    if(context&&gpu_ready){qsafe_shutdown();qui_shutdown();qgun_shutdown();qgl_shutdown();}
 #ifdef TCVR_STEAM_FRAME
     fprintf(stderr,"[TC2VR] host close: graphics destruction complete\n");
     fprintf(stderr,"[TC2VR] host close: OpenXR destruction begin\n");
