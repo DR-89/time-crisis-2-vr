@@ -42,4 +42,4 @@ set(TC2_SOURCES
   "${TC}/src/eng/c352.c" "${TC}/gen/tc2_sub.c" "${TC}/gen/tc2_io.c" ${LIFTED}
   "${ROOT}/quest/tc2_window.c" "${ROOT}/quest/tc2_gl.c" "${ROOT}/quest/tc2_cabinet.c"
   "${ROOT}/quest/quest_host.c" "${ROOT}/quest/quest_gl.c" "${ROOT}/quest/tc2_scene.c"
-  "${ROOT}/quest/quest_keyboard.c" "${ROOT}/quest/quest_openvr_keyboard.c" "${ROOT}/quest/quest_lobby.c" "${ROOT}/quest/quest_gun.c" "${ROOT}/quest/quest_options.c" "${ROOT}/quest/quest_cover.c" "${ROOT}/quest/quest_ui.c")
+  "${ROOT}/quest/quest_keyboard.c" "${ROOT}/quest/quest_openvr_keyboard.c" "${ROOT}/quest/quest_lobby.c" "${ROOT}/quest/quest_gun.c" "${ROOT}/quest/quest_options.c" "${ROOT}/quest/quest_cover.c" "${ROOT}/quest/quest_ui.c" "${ROOT}/quest/quest_safe.c")
