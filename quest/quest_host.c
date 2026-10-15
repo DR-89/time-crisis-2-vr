@@ -24,6 +24,9 @@
 #include "tc2_scene.h"
 #include "quest_gun.h"
 #include "quest_options.h"
+#include "quest_lobby.h"
+#include "quest_keyboard.h"
+#include "../link/tc2_link.h"
 #include "quest_cover.h"
 #include "quest_clock.h"
 #include "quest_refresh.h"
@@ -503,6 +506,19 @@ static void adjust_gun_pitch(XrTime time){
     if(direction!=pitch_direction){adjust_vertical(direction);pitch_direction=direction;pitch_repeat_time=time+400000000LL;}
     else if(time>=pitch_repeat_time){adjust_vertical(direction);pitch_repeat_time=time+100000000LL;}
 }
+static ButtonEdge lobby_accept,lobby_back,lobby_view;
+static bool lobby_nav_armed,lobby_fire_armed;
+/* Options pages: 0 options, 1 gun fit / player, 2 LAN play (the lobby).
+ * Left stick up steps forward, down steps back; the lobby is modal and its
+ * own Back returns to page 0. */
+enum { OPTIONS_PAGES=3,OPTIONS_LAN_PAGE=2 };
+static void show_options_page(int page){
+    options_page=(page%OPTIONS_PAGES+OPTIONS_PAGES)%OPTIONS_PAGES;reset_pitch_input();
+    if(options_page==OPTIONS_LAN_PAGE){
+        qlobby_show();lobby_nav_armed=lobby_fire_armed=false;
+        lobby_accept=lobby_back=lobby_view=(ButtonEdge){0};reset_fire_input();
+    }
+}
 static void adjust_view_distance(XrTime time){
     if(!paused){reset_distance_input();return;}
     XrActionStateGetInfo get={XR_TYPE_ACTION_STATE_GET_INFO};get.action=distance_action;
@@ -513,7 +529,7 @@ static void adjust_view_distance(XrTime time){
     float x=stick.currentState.x,y=stick.currentState.y;
     if(fabsf(y)<.25f)page_armed=true;
     if(fabsf(y)>=.65f&&fabsf(x)<.25f&&page_armed){
-        options_page=1-options_page;page_armed=false;reset_pitch_input();distance_armed=false;return;
+        show_options_page(options_page+(y>0?1:-1));page_armed=false;distance_armed=false;return;
     }
     if(fabsf(x)<.25f){distance_armed=true;distance_direction=0;distance_repeat_time=0;return;}
     if(!distance_armed||fabsf(x)<.65f||fabsf(x)<fabsf(stick.currentState.y))return;
@@ -553,14 +569,23 @@ static bool capture_eye(int eye,int w,int h){
 }
 
 static bool events(void){
+    qkeyboard_update();
     SDL_Event s;while(SDL_PollEvent(&s)){
+        if(qkeyboard_event(&s))continue;
         if(s.type==SDL_QUIT)quit=true;
 #ifdef TCVR_PC
         if(s.type==SDL_KEYDOWN&&!s.key.repeat){
+            if(qlobby_visible()){
+                switch(s.key.keysym.sym){
+                    case SDLK_UP:qlobby_input(QL_UP);break;case SDLK_DOWN:qlobby_input(QL_DOWN);break;
+                    case SDLK_LEFT:qlobby_input(QL_LEFT);break;case SDLK_RIGHT:qlobby_input(QL_RIGHT);break;
+                    case SDLK_RETURN:qlobby_input(QL_ACCEPT);break;case SDLK_ESCAPE:qlobby_input(QL_BACK);break;
+                }continue;
+            }
             if(s.key.keysym.sym==SDLK_ESCAPE){paused=!paused;reset_fire_input();reset_pitch_input();ss22_input_neutral();}
             if(s.key.keysym.sym==SDLK_c||s.key.keysym.sym==SDLK_5)coin_frames=48;
             if(s.key.keysym.sym==SDLK_l)cycle_aim_guide();
-            if(s.key.keysym.sym==SDLK_TAB&&paused){options_page=1-options_page;reset_pitch_input();}
+            if(s.key.keysym.sym==SDLK_TAB&&paused)show_options_page(options_page+1);
             if(s.key.keysym.sym==SDLK_r)recenter_requested=true;
             if(s.key.keysym.sym==SDLK_h&&paused)change_weapon_hand();
             if(s.key.keysym.sym==SDLK_UP&&paused)adjust_vertical(1);
@@ -622,12 +647,56 @@ static bool events(void){
 #endif
     return !quit&&(result==XR_EVENT_UNAVAILABLE||XR(result));
 }
+/* The lobby uses the existing right-stick and face/trigger actions on every
+ * platform. Release-to-arm prevents opening input from selecting a menu item. */
+static int lobby_direction=-1;
+static XrTime lobby_repeat;
+static bool lobby_input(XrTime time){
+    XrActionStateGetInfo get={XR_TYPE_ACTION_STATE_GET_INFO};get.action=pitch_action;
+    XrActionStateVector2f stick={XR_TYPE_ACTION_STATE_VECTOR2F};
+    int direction=-1;
+    if(XR_SUCCEEDED(xrGetActionStateVector2f(session,&get,&stick))&&stick.isActive&&isfinite(stick.currentState.x)&&isfinite(stick.currentState.y)){
+        float x=stick.currentState.x,y=stick.currentState.y;
+        if(fabsf(x)<.3f&&fabsf(y)<.3f){lobby_nav_armed=true;lobby_direction=-1;}
+        else if(fabsf(x)>fabsf(y)&&fabsf(x)>.65f)direction=x>0?QL_RIGHT:QL_LEFT;
+        else if(fabsf(y)>.65f)direction=y>0?QL_UP:QL_DOWN;
+    }
+    if(!qlobby_visible()){
+        /* Leaving the lobby returns to the first options page. */
+        if(options_page==OPTIONS_LAN_PAGE)options_page=0;
+        return false;
+    }
+    if(lobby_nav_armed&&direction>=0&&(direction!=lobby_direction||time>=lobby_repeat)){
+        qlobby_input((QLobbyKey)direction);lobby_repeat=time+(direction==lobby_direction?120000000LL:400000000LL);lobby_direction=direction;
+    }
+    bool accept=pressed(lower_action,hand_paths[RIGHT_HAND],&lobby_accept);
+    bool back=pressed(upper_action,hand_paths[RIGHT_HAND],&lobby_back);
+#ifdef TCVR_STEAM_FRAME
+    if(frame_profile_active&&pressed(view_action,hand_paths[LEFT_HAND],&lobby_view))back=true;
+#endif
+    float fire=fmaxf(axis(trigger_action,hand_paths[LEFT_HAND]),axis(trigger_action,hand_paths[RIGHT_HAND]));
+    if(fire<.2f)lobby_fire_armed=true;
+    if(fire>.55f&&lobby_fire_armed){accept=true;lobby_fire_armed=false;}
+    if(back)qlobby_input(QL_BACK);else if(accept)qlobby_input(QL_ACCEPT);
+    ss22_input_neutral();return true;
+}
+static bool linked_game(void){return tc2_link_session()->state==TC2_PLAYING;}
+#ifndef TCVR_INPUT_TEST
+static void lobby_service(void){
+    int change=qlobby_tick(SDL_GetTicks64());
+    if(change){paused=change<0;game_deadline=0;coin_frames=0;reset_fire_input();reset_pitch_input();ss22_input_neutral();tc2_audio_volume(paused?0:100);}
+}
+#endif
 static void sync_input(XrTime time,bool head_tracked,float head_y){
+    static bool keyboard_was_modal;
+    if(qkeyboard_modal()){keyboard_was_modal=true;reset_input_edges();lobby_nav_armed=lobby_fire_armed=false;ss22_input_neutral();return;}
+    if(keyboard_was_modal){keyboard_was_modal=false;reset_input_edges();lobby_accept=lobby_back=lobby_view=(ButtonEdge){0};lobby_nav_armed=lobby_fire_armed=false;ss22_input_neutral();return;}
     trigger=pedal=0;aim_valid=gun_tracked=false;
-    if(!focused){reset_input_edges();return;}
+    if(!focused){reset_input_edges();lobby_nav_armed=lobby_fire_armed=false;return;}
     XrActiveActionSet aset={action_set,XR_NULL_PATH};XrActionsSyncInfo sync={XR_TYPE_ACTIONS_SYNC_INFO};sync.countActiveActionSets=1;sync.activeActionSets=&aset;
-    if(!XR(xrSyncActions(session,&sync))){reset_input_edges();return;}
-    if(pressed(pause_action,XR_NULL_PATH,&pause_button)){paused=!paused;reset_fire_input();reset_pitch_input();game_deadline=0;tc2_audio_volume(paused?0:100);ss22_input_neutral();}
+    if(!XR(xrSyncActions(session,&sync))){reset_input_edges();lobby_nav_armed=lobby_fire_armed=false;return;}
+    if(pressed(pause_action,XR_NULL_PATH,&pause_button)){if(qlobby_visible()){qlobby_input(QL_BACK);return;}paused=!paused;reset_fire_input();reset_pitch_input();game_deadline=0;tc2_audio_volume(paused?0:100);ss22_input_neutral();}
+    if(lobby_input(time))return;
     bool change_hand=pressed(hand_action,XR_NULL_PATH,&hand_button);
     if(paused&&change_hand){change_weapon_hand();return;}
     adjust_gun_pitch(time);
@@ -908,6 +977,8 @@ static bool desktop_frame(void){
     static Uint64 deadline;static unsigned frame_number;bool fast=getenv("TCVR_FAST")!=NULL;
     for(;;){
         if(!events())return false;
+        lobby_service();
+        if(tc2_link_session()->restart)return true;
         int w,h,mx,my;SDL_GL_GetDrawableSize(window,&w,&h);int lw,lh;SDL_GetWindowSize(window,&lw,&lh);
         if(w<=0||h<=0||lw<=0||lh<=0){SDL_Delay(20);continue;}
         Uint32 mouse=SDL_GetMouseState(&mx,&my);focused=!!(SDL_GetWindowFlags(window)&SDL_WINDOW_INPUT_FOCUS);
@@ -931,7 +1002,7 @@ static bool desktop_frame(void){
         GLenum error=glGetError();if(error)fprintf(stderr,"[GL] desktop error 0x%x\n",error);
         SDL_GL_SwapWindow(window);
         if(!fast){Uint64 now=SDL_GetPerformanceCounter(),freq=SDL_GetPerformanceFrequency();if(!deadline||now>deadline+freq/4)deadline=now;deadline+=freq*1000/59906;while((now=SDL_GetPerformanceCounter())<deadline)SDL_Delay(1);}
-        if(!paused){ss22_input_update();return true;}
+        if(!paused||linked_game()){ss22_input_update();return true;}
     }
 }
 #endif
@@ -942,13 +1013,15 @@ bool ss22_host_frame(void){
     /* The original game runs at 59.906 Hz. Submit additional poses without advancing its CPU at headset refresh. */
     for(;;){
         if(!events())return false;
+        lobby_service();
+        if(tc2_link_session()->restart)return true;
 #ifdef TCVR_STEAM_FRAME
         bool probe_exit_after_frame=false;
 #endif
         if(!running){
             SDL_Delay(10);continue;
         }
-        if(game_deadline&&focused&&!paused&&last_tracking&&last_display_time>=game_deadline){
+        if(game_deadline&&(linked_game()||(focused&&!paused&&last_tracking))&&last_display_time>=game_deadline){
             if(qclock_take(&game_deadline,last_display_time)){
 #ifdef TCVR_STEAM_FRAME
                 frame_probe_game_tick();
@@ -1059,7 +1132,7 @@ bool ss22_host_frame(void){
 #ifdef TCVR_STEAM_FRAME
         probe_simulation=frame_probe.enabled&&frame_probe.force_render&&!paused;
 #endif
-        if(paused||((!focused||!tracking)&&!probe_simulation)){ss22_input_neutral();game_deadline=0;continue;}
+        if(!linked_game()&&(paused||((!focused||!tracking)&&!probe_simulation))){ss22_input_neutral();game_deadline=0;continue;}
         if(qclock_take(&game_deadline,frame.predictedDisplayTime)){
 #ifdef TCVR_STEAM_FRAME
             frame_probe_game_tick();
@@ -1109,6 +1182,8 @@ bool ss22_host_open_headless(void){return false;}
 bool ss22_host_pointer(float *x,float *y,bool *inside){*x=nx;*y=ny;*inside=aim_valid;return active;}
 void ss22_host_shot(const char *p){(void)p;}
 void ss22_host_close(void){
+    qkeyboard_shutdown();
+    tc2_link_leave();
     active=false;
 #ifdef TCVR_STEAM_FRAME
     if(frame_probe.owns_capture_marker)unlink("capture.request");

@@ -6,6 +6,9 @@
 extern int qtc2_cabinet_side;
 void qtc2_cabinet_configure(const char *options_path);
 void qtc2_cabinet_prepare_player(void);
+/* The cabinet ID the game reads now: a linked LAN game uses its link side
+ * (host red, joiner blue); otherwise the saved player side. */
+int qtc2_cabinet_active_side(void);
 /* US TSS3 Ver. B: the caller at 80012E8C reads this route immediately before
  * 80013058 initializes the two characters. Standalone input remains slot 0.
  * Change only a valid route in single-game modes, never a running frame. */

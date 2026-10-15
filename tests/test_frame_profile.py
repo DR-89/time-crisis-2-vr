@@ -1,6 +1,7 @@
 """Compile the production Steam Frame OpenXR input path against a mock runtime."""
 from pathlib import Path
 import os
+import sys
 import shutil
 import subprocess
 import tempfile
@@ -23,7 +24,7 @@ if not (SYSROOT / "usr/include/jni.h").is_file() or not (OPENXR / "openxr/openxr
     raise SystemExit("Pinned Android NDK or OpenXR headers are missing")
 
 includes = [
-    ROOT / "quest", ROOT / "quest/include", ROOT / "build/steam-frame/native/compat",
+    ROOT / "quest", ROOT / "link", ROOT / "quest/include", ROOT / "build/steam-frame/native/compat",
     ROOT / "upstream/tc2/src", ROOT / "upstream/tc2/src/eng", ROOT / "upstream/tc2/gen",
     ROOT / "upstream/tc2/include", SDL / "include", OPENXR,
     JDK / "include", JDK / "include/darwin",
@@ -34,10 +35,12 @@ with tempfile.TemporaryDirectory(prefix="tc2-frame-input-") as temp:
                "-Wno-unused-variable", "-Wno-missing-field-initializers", "-DTCVR",
                "-DTCVR_STEAM_FRAME", "-DSDL_MAIN_HANDLED", "-DXR_USE_PLATFORM_ANDROID",
                "-DXR_USE_GRAPHICS_API_OPENGL_ES", "-Dgettid=getpid"]
+    if "--touch" in sys.argv:command.remove("-DTCVR_STEAM_FRAME")
     command += ["-I" + str(path) for path in includes]
     command += ["-idirafter", str(SYSROOT / "usr/include"), "-idirafter",
                 str(SYSROOT / "usr/include/aarch64-linux-android")]
     command += [str(ROOT / "tests/handedness_fixture.c"), str(ROOT / "quest/quest_options.c"),
-                str(ROOT / "quest/quest_cover.c"), "-lm", "-o", str(executable)]
+                str(ROOT / "quest/quest_cover.c"), str(ROOT / "quest/quest_lobby.c"),
+                str(ROOT / "link/tc2_link.c"),str(ROOT / "tests/link_host_stubs.c"), "-lm", "-o", str(executable)]
     subprocess.run(command, check=True)
     subprocess.run([str(executable)], cwd=temp, check=True, timeout=15)

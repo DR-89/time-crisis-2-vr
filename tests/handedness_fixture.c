@@ -1,3 +1,5 @@
+static _Bool keyboard_modal_test;
+_Bool qkeyboard_modal(void){return keyboard_modal_test;}
 /* Exercise the real host input path against a deterministic OpenXR runtime.
  * Render/startup entry points are excluded; no headset is required. */
 #include <assert.h>
@@ -230,6 +232,16 @@ int main(void){
     assert(capture_eye(1,2,2)&&access("capture.request",F_OK)!=0&&!frame_probe.capture_once);
     assert(access("eye-0.ppm",F_OK)==0&&access("eye-1.ppm",F_OK)==0);
     unlink("eye-0.ppm");unlink("eye-1.ppm");frame_probe.enabled=false;
+    paused=true;stick_y=stick_x=distance_x=distance_y=0;options_page=1;tick();distance_y=1;tick();
+    assert(options_page==2&&qlobby_visible());distance_y=0;tick();
+    qlobby_input(QL_DOWN);qlobby_input(QL_DOWN);qlobby_input(QL_ACCEPT);assert(qlobby_editing());
+    qlobby_replace_text("192.168.1.42");
+    keyboard_modal_test=true;buttons[id(lower_action)][RIGHT_HAND]=true;triggers[RIGHT_HAND]=1;tick();
+    assert(qlobby_editing()&&tc2_link_session()->state==TC2_OFF);
+    keyboard_modal_test=false;tick();tick();assert(qlobby_editing()&&tc2_link_session()->state==TC2_OFF);
+    buttons[id(lower_action)][RIGHT_HAND]=false;triggers[RIGHT_HAND]=0;tick();
+    click(upper_action,RIGHT_HAND);assert(qlobby_visible()&&!qlobby_editing());
+    click(upper_action,RIGHT_HAND);qlobby_tick(0);assert(!qlobby_visible());
     puts("PASS: production Frame OpenXR action path; both profile bindings and Touch fallback, trigger/grip behavior, Menu/options mappings, View tap/hold timing, recenter/calibration and haptics; bounded tick-delayed paired capture; runtime-owned refresh policy");
     return 0;
 }
@@ -470,7 +482,20 @@ int main(void){
         memset(route_ram,0,sizeof route_ram);route_ram[0x2f3fd3]=1;route_ram[0x2f3fd0+i]=1;
         assert(!qtc2_route_select(route_ram,sizeof route_ram,2));
     }
-    puts("PASS: world-scale controls/persistence/physical poses; real host controls, gun pitch persistence/bounds/repeat/reset, model/muzzle/aim alignment in both hands, local-space correction, focus/action loss and existing input regressions");
+    /* LAN play is the third options page; leaving the lobby returns to page 0. */
+    paused=true;stick_x=stick_y=distance_x=distance_y=0;options_page=1;tick();
+    distance_y=1;tick();assert(options_page==2&&qlobby_visible());distance_y=0;tick();
+    qlobby_input(QL_DOWN);qlobby_input(QL_DOWN);qlobby_input(QL_ACCEPT);assert(qlobby_editing());
+    qlobby_replace_text("192.168.1.42");
+    keyboard_modal_test=true;buttons[id(lower_action)][RIGHT_HAND]=true;triggers[RIGHT_HAND]=1;tick();
+    assert(qlobby_editing()&&tc2_link_session()->state==TC2_OFF);
+    keyboard_modal_test=false;tick();tick();assert(qlobby_editing()&&tc2_link_session()->state==TC2_OFF);
+    buttons[id(lower_action)][RIGHT_HAND]=false;triggers[RIGHT_HAND]=0;tick();
+    click(upper_action,RIGHT_HAND);assert(qlobby_visible()&&!qlobby_editing());
+    click(upper_action,RIGHT_HAND);qlobby_tick(0);assert(!qlobby_visible());
+    tick();assert(options_page==0);
+    stick_x=1;tick();assert(!qlobby_visible());stick_x=0;tick();
+    puts("PASS: world-scale controls/persistence/physical poses; LAN page and lobby input; real host controls, gun pitch persistence/bounds/repeat/reset, model/muzzle/aim alignment in both hands, local-space correction, focus/action loss and existing input regressions");
     return 0;
 }
 #endif
