@@ -8,7 +8,7 @@ ROOT=Path(__file__).resolve().parents[1]
 compiler=ROOT/'.tools/llvm-mingw/llvm-mingw-20260922-ucrt-x86_64/bin/x86_64-w64-mingw32-clang.exe'
 with tempfile.TemporaryDirectory(prefix='tcvr-handedness-') as temp:
     exe=Path(temp)/'handedness.exe'
-    includes=['quest','quest/include','pc/vendor/glad/include','build/pc/compat',
+    includes=['link','quest','quest/include','pc/vendor/glad/include','build/pc/compat',
               'upstream/tc2/src','upstream/tc2/src/eng','upstream/tc2/gen',
               'upstream/tc2/include','.tools/openxr-pc/include']
     subprocess.run([str(compiler),'-std=c11','-O1','-g','-Wall','-Wextra',
@@ -17,5 +17,5 @@ with tempfile.TemporaryDirectory(prefix='tcvr-handedness-') as temp:
                     '-DXR_USE_GRAPHICS_API_OPENGL','-include',str(ROOT/'upstream/tc2/include/win_compat.h'),
                     *['-I'+str(ROOT/p) for p in includes],
                     str(ROOT/'tests/handedness_fixture.c'),str(ROOT/'quest/quest_options.c'),
-                    str(ROOT/'quest/quest_cover.c'),'-o',str(exe)],check=True)
+                    str(ROOT/'quest/quest_cover.c'),str(ROOT/'quest/quest_lobby.c'),str(ROOT/'link/tc2_link.c'),str(ROOT/'tests/link_host_stubs.c'),'-lws2_32','-o',str(exe)],check=True)
     subprocess.run([str(exe)],cwd=temp,check=True,timeout=15)

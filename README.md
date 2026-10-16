@@ -32,9 +32,10 @@ After the arcade startup, press **A** for credits and then either **trigger** to
 ## Features
 
 - Native arcade MIPS and H8 code translated to C, with the original textured world rendered from tracked stereo viewpoints.
-- Standalone Quest and Windows PCVR builds, plus a normal desktop mode.
+- Standalone Quest and Windows PCVR builds, plus a normal desktop mode, and a standalone [Steam Frame](docs/STEAM_FRAME_VR.md) build (ROM-free, built from source).
+- [LAN play](docs/LAN-PLAY.md): two cabinets linked over the network, as in the arcade, between any of the headsets.
 - Shoot with either hand: pressing a trigger moves the weapon to that controller.
-- Grip-based cover or physical ducking, with upright-height calibration.
+- Grip-based cover or physical cover: lean or duck the way a SAFE sign points, with upright-height calibration.
 - Adjustable gun pitch from **-60 to +60 degrees**, plus saved **WORLD SIZE (25–400%)** and **VIEW DISTANCE (0–100 cm)**.
 - Aim assistance cycles through **LASER / OFF / TRACER**. Tracer Squeeze flashes
   an orange ray for 65 ms on an accepted shot, using the existing surface hit.
@@ -88,7 +89,7 @@ distances stay in real metres. Target rays follow the rendered surfaces after
 either setting changes, including while paused. The calibration and settings
 need a Quest playtest to confirm the perceived size and comfort.
 
-For physical ducking, select that cover mode, stand or sit upright and use the recenter button. Duck to hide/reload, then return upright to leave cover. If the gun points too high, reduce **GUN ANGLE** in options.
+For physical ducking, select that cover mode, stand or sit upright and use the recenter button. At each cover spot a **SAFE** sign shows which way the arcade hides you: lean or duck about 35 cm that way to hide/reload, then come back upright to leave cover. Where the arcade does not supply a cover spot, ducking 20 cm hides you as before. If the gun points too high, reduce **GUN ANGLE** in options.
 
 **New in v0.3.0:** Tracer Squeeze, the Namco gun, grip-fit controls and experimental Robert-route selection accompany the calibrated world-size fix.
 On **GUN FIT / PLAYER**, positive **GUN UP** raises the gun and positive
