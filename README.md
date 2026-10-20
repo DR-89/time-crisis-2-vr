@@ -4,7 +4,7 @@ Play the **arcade version of Time Crisis II** in VR on **Meta Quest 3** or a **W
 
 Built on the native System 23 reconstruction in **[spacestate1/namco22-decompile](https://github.com/spacestate1/namco22-decompile)**, with the OpenXR host and controller features adapted from [Time Crisis VR](https://github.com/DR-89/time-crisis-vr). This port uses the arcade US TSS3 Ver. B game, not the PlayStation 2 version.
 
-**[Download v0.3.0](https://github.com/DR-89/time-crisis-2-vr/releases/tag/v0.3.0)** | [Quickstart](docs/QUICKSTART.md) | [PCVR setup](docs/PCVR.md) | [Development](docs/DEVELOPMENT.md)
+**[Download v0.3.3](https://github.com/DR-89/time-crisis-2-vr/releases/tag/v0.3.3)** | [Quickstart](docs/QUICKSTART.md) | [PCVR setup](docs/PCVR.md) | [Development](docs/DEVELOPMENT.md)
 
 ![Time Crisis II VR captured on Quest 3](docs/images/tc2-gameplay.jpg)
 
@@ -14,15 +14,15 @@ Built on the native System 23 reconstruction in **[spacestate1/namco22-decompile
 
 | Platform | Download | Start playing |
 | --- | --- | --- |
-| Quest 3 standalone | [TimeCrisis2VR-v0.3.0-quest3.apk](https://github.com/DR-89/time-crisis-2-vr/releases/download/v0.3.0/TimeCrisis2VR-v0.3.0-quest3.apk) | Sideload with SideQuest or ADB, then open **Time Crisis II VR (Test)** under Unknown sources. |
-| Windows x64 PCVR / desktop | [TimeCrisis2VR-v0.3.0-windows-x64.zip](https://github.com/DR-89/time-crisis-2-vr/releases/download/v0.3.0/TimeCrisis2VR-v0.3.0-windows-x64.zip) | Extract the entire ZIP. Connect your headset, then run **Play VR.cmd**. |
+| Quest 3 standalone | [TimeCrisis2VR-v0.3.3-quest3.apk](https://github.com/DR-89/time-crisis-2-vr/releases/download/v0.3.3/TimeCrisis2VR-v0.3.3-quest3.apk) | Sideload with SideQuest or ADB, then open **Time Crisis II VR (Test)** under Unknown sources. |
+| Windows x64 PCVR / desktop | [TimeCrisis2VR-v0.3.3-windows-x64.zip](https://github.com/DR-89/time-crisis-2-vr/releases/download/v0.3.3/TimeCrisis2VR-v0.3.3-windows-x64.zip) | Extract the entire ZIP. Connect your headset, then run **Play VR.cmd**. |
 
 The release packages include the game files, Namco pistol, fallback pistol and machine-gun models, so no separate ZIP import is needed. The APK uses package `org.timecrisis2.arcadevr` and installs alongside the original Time Crisis VR. Updating an existing test build preserves local settings and cabinet data.
 
 For ADB installation, enable Quest developer mode and accept USB debugging:
 
 ```powershell
-adb install -r TimeCrisis2VR-v0.3.0-quest3.apk
+adb install -r TimeCrisis2VR-v0.3.3-quest3.apk
 ```
 
 For PCVR, connect the headset through **Virtual Desktop**, Quest Link, or another OpenXR setup **before** launching. An ADB cable connection alone is not a PCVR connection. The active runtime must support OpenGL. Virtual Desktop was tested with Quest 3; other runtimes remain unverified for this port. **Play SteamVR.cmd** selects a standard SteamVR installation for this app. **Play Desktop.cmd** runs without a headset.
@@ -31,11 +31,13 @@ After the arcade startup, press **A** for credits and then either **trigger** to
 
 ## Features
 
+New in **v0.3.3**: saved per-eye resolution presets, default-on texture filtering with an immediate toggle, and Quest launcher icons/banners. See the [release notes](docs/RELEASE_NOTES_0.3.3.md).
+
 - Native arcade MIPS and H8 code translated to C, with the original textured world rendered from tracked stereo viewpoints.
 - Standalone Quest and Windows PCVR builds, plus a normal desktop mode.
 - Shoot with either hand: pressing a trigger moves the weapon to that controller.
 - Grip-based cover or physical ducking, with upright-height calibration.
-- Adjustable gun pitch from **-60 to +60 degrees**, plus saved **WORLD SIZE (25–400%)** and **VIEW DISTANCE (0–100 cm)**.
+- Adjustable gun pitch from **-60 to +60 degrees**, plus saved **WORLD SIZE (25â€“400%)** and **VIEW DISTANCE (0â€“100 cm)**.
 - Aim assistance cycles through **LASER / OFF / TRACER**. Tracer Squeeze flashes
   an orange ray for 65 ms on an accepted shot, using the existing surface hit.
 - Martoscar's Namco Arcade Gun, with saved vertical/depth grip offsets.
@@ -47,6 +49,10 @@ After the arcade startup, press **A** for credits and then either **trigger** to
 - Correct sRGB handling for arcade colors and refresh-rate selection from the runtime's supported rates.
 
 ## Controls
+
+**Render resolution:** open options with the **left menu button**, then use **left stick up/down** to find **GRAPHICS**. Move the **right stick left/right** to choose **Default**, **1280 x 1344**, **1680 x 1760**, **2550 x 2640**, **2940 x 3080** or **3360 x 3520** pixels per eye, matching the NFSU VR ports. Click the **left stick** to restore Default. Each change saves automatically; **fully close and restart the app** to apply it. The panel shows the active size and a restart reminder. Default preserves the previous resolution (runtime recommendation capped at 1440 pixels on the longer side on Quest, 2160 on PCVR). Unsupported presets fall back to Default. Higher resolutions require more GPU time and memory; the highest setting is not a performance recommendation. Texture filtering stays enabled by default and still switches immediately.
+
+**Texture filtering:** open the VR options with the **left menu button**, then squeeze and release the **left grip** to switch **TEXTURE FILTERING: ON / OFF**. It defaults to **ON**, including when upgrading an older settings file, and saves automatically. Changes apply immediately; no restart is needed. This control uses the physical left controller in either handedness layout. During gameplay, grips still operate cover. Filtering smooths world textures; HUD and text retain their existing sampling.
 
 The default hand determines the face-button layout. Trigger handoffs do not change that saved layout.
 
@@ -90,7 +96,7 @@ need a Quest playtest to confirm the perceived size and comfort.
 
 For physical ducking, select that cover mode, stand or sit upright and use the recenter button. Duck to hide/reload, then return upright to leave cover. If the gun points too high, reduce **GUN ANGLE** in options.
 
-**New in v0.3.0:** Tracer Squeeze, the Namco gun, grip-fit controls and experimental Robert-route selection accompany the calibrated world-size fix.
+**New in v0.3.3:** Tracer Squeeze, the Namco gun, grip-fit controls and experimental Robert-route selection accompany the calibrated world-size fix.
 On **GUN FIT / PLAYER**, positive **GUN UP** raises the gun and positive
 **GUN BACK** pulls it towards your hand, in 5 mm steps up to 200 mm each way.
 The offsets follow the controller and affect both the visible model and muzzle;
@@ -107,7 +113,7 @@ Desktop controls: mouse to aim, left mouse to shoot, right mouse or Space for co
 
 ## Tested status and limitations
 
-**v0.3.0 is experimental.** It promotes the calibrated world-scale and `0.2.0-feedback-test.1` changes to Quest and Windows release packages. The Namco model and options were exercised on Quest 3; the runtime confirmed 120 Hz during the test startup. Both P1 and Robert-route replays completed 28,201 frames with zero CPU traps, floating-point exceptions or unknown C435 commands. Neither a full Robert-route playthrough nor sustained 120 FPS is established.
+**v0.3.3 is experimental.** It adds resolution presets, optional texture filtering and Quest launcher artwork. The earlier v0.3.0 release introduced the calibrated world-scale and `0.2.0-feedback-test.1` changes. The Namco model and options were exercised on Quest 3; the runtime confirmed 120 Hz during the test startup. Both P1 and Robert-route replays completed 28,201 frames with zero CPU traps, floating-point exceptions or unknown C435 commands. Neither a full Robert-route playthrough nor sustained 120 FPS is established.
 
 - **Quest 3:** immersive VR and gameplay tested. Health/ammunition alignment and automatic machine-gun switching were confirmed in headset. The runtime has confirmed 120 Hz in standalone sessions; short samples do not establish uninterrupted 120 FPS throughout the game or thermal stability.
 - **Windows PCVR:** the earlier v0.2.0 was tested on Quest 3 through Virtual Desktop on 2026-10-10. The user confirmed VR and controls work and reported a successful playtest. The runtime confirmed **90 Hz**, **1980 x 2160 per eye**, on an **NVIDIA RTX 3050 Laptop GPU**. This is a short gameplay check, not a full-game performance benchmark.
@@ -137,6 +143,12 @@ python -X utf8 tools/build.py --rom "$env:USERPROFILE\Downloads\timecrs2.zip" --
 ```
 
 Set `JAVA_HOME` to your JDK before building Android. See [development instructions](docs/DEVELOPMENT.md) for SDK setup, tests and output paths. The preparer verifies all 22 required chip sizes and CRCs against the pinned upstream table. ROMs, signing keys and generated output are excluded from Git.
+
+## Support development
+
+If you enjoy this project and would like to support further development of my VR ports, you can support my work on Patreon:
+
+[https://www.patreon.com/c/OpenSourceDevDirk](https://www.patreon.com/c/OpenSourceDevDirk)
 
 ## Credits and licensing
 

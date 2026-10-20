@@ -43,10 +43,28 @@ static const char *fs_poly =
     "#version 300 es\nprecision highp float;precision highp int;out vec4 frag;\n"
     "uniform highp sampler2D t_rom, t_map, t_pal, t_sten, t_near, t_nearz;\n"
     "uniform int u_ex, u_scale, u_h, u_prio, u_pfade, u_ff, u_alpha, u_alpha_pen, u_near, u_depth;\n"
-    "uniform float u_keep;\n"
+    "uniform float u_keep; uniform int u_filter;\n"
     "uniform ivec3 u_pcol, u_fcol;\n"
     "in vec2 v_screen;in vec3 v_uvs; flat in vec4 v_par; flat in vec4 v_clip; flat in vec2 v_ext;\n"
     "uint b8(vec4 t, int c) { return uint(t[c] * 255.0 + 0.5); }\n"
+    /* Filter resolved colours, never palette indices. Each neighbour has its
+     * own map lookup so tile boundaries, flips and packed pens remain valid.
+     * Premultiplied interpolation prevents alpha-pen colour fringes. */
+    "vec4 texel(ivec2 uv, uint base, uint mask, uint shift, int fl) {\n"
+    "  uint tx=uint(uv.x),ty=uint(uv.y)+uint(v_par.z);\n"
+    "  uint id=((tx>>4u)&0xFFu)|((ty<<4u)&0x1FFF00u);\n"
+    "  vec4 m=texelFetch(t_map,ivec2(int(id&2047u),int(id>>11u)),0);\n"
+    "  uint mb=b8(m,2),tile=b8(m,0)|(b8(m,1)<<8u)|((mb&1u)<<16u),a=mb>>1u;\n"
+    "  if((a&1u)!=0u)ty=~ty; if((a&2u)!=0u)tx=~tx;\n"
+    "  if((a&4u)!=0u){uint t=tx;tx=ty;ty=t;}\n"
+    "  uint ri=((tile<<8u)|((ty<<4u)&0xF0u)|(tx&15u))&0x1FFFFFFu;\n"
+    "  uint pen=b8(texelFetch(t_rom,ivec2(int(ri&8191u),int(ri>>13u)),0),0);\n"
+    "  uint ci=base+((pen>>shift)&mask);\n"
+    "  vec3 rgb=texelFetch(t_pal,ivec2(int(ci&255u),int((ci>>8u)&127u)),0).rgb;\n"
+    "  bool ua=u_alpha!=255&&((fl&4)!=0||int(pen)==u_alpha_pen);\n"
+    "  float alpha=ua?float(u_alpha)/256.0:((fl&2)!=0?0.5:1.0);\n"
+    "  return vec4(rgb*alpha,alpha);\n"
+    "}\n"
     "void main() {\n"
     "  ivec2 px = ivec2(v_screen);\n"
     /* Screen overlays must not leak beyond the arcade viewport in VR. */
@@ -59,7 +77,6 @@ static const char *fs_poly =
     "    uint w = b8(s, 0) | (b8(s, 1) << 8u);\n"
     "    if (((w >> ((tx & 15u) ^ 15u)) & 1u) == 0u) discard;\n"
     "  }\n"
-    "  ty += uint(v_par.z);\n"
     "  float oz = gl_FragCoord.w;\n"                                      /* 1/z: what the software renderer interpolates */
     "  if (u_near != 0) {\n"                                              /* EXACT DEPTH pre-pass: the nearest opaque pixel, its object and band */
     "    if ((fl & 2) != 0 || (u_alpha != 255 && (fl & 4) != 0)) discard;\n"
@@ -74,31 +91,26 @@ static const char *fs_poly =
     "      if (ne != int(v_ext.x) && nb == int(v_ext.y) && oz < exp2((texelFetch(t_nearz, fp, 0).r - 0.5) * 256.0) * u_keep) discard;\n"
     "    }\n"
     "  }\n"
-    "  int cmode = int(v_par.y); uint pbase = uint(v_par.x); uint pmask = 0xFFu; uint pshift = 0u;\n"
-    "  if ((cmode & 4) != 0) { pbase += 0xECu + uint((cmode & 8) << 1); pmask = 3u; pshift = uint(2 * (~cmode & 3)); }\n"
-    "  else if ((cmode & 2) != 0) { pbase += 0xE0u + uint((cmode & 8) << 1); pmask = 15u; pshift = uint(4 * (~cmode & 1)); }\n"
-    "  uint id = ((tx >> 4u) & 0xFFu) | ((ty << 4u) & 0x1FFF00u);\n"   /* the tile map: tile number and its flips */
-    "  vec4 m = texelFetch(t_map, ivec2(int(id & 2047u), int(id >> 11u)), 0);\n"
-    "  uint mb = b8(m, 2); uint tile = b8(m, 0) | (b8(m, 1) << 8u) | ((mb & 1u) << 16u); uint a = mb >> 1u;\n"
-    "  if ((a & 1u) != 0u) ty = ~ty;\n"
-    "  if ((a & 2u) != 0u) tx = ~tx;\n"
-    "  if ((a & 4u) != 0u) { uint t = tx; tx = ty; ty = t; }\n"
-    "  uint ri = ((tile << 8u) | ((ty << 4u) & 0xF0u) | (tx & 0x0Fu)) & 0x1FFFFFFu;\n"
-    "  uint pen = b8(texelFetch(t_rom, ivec2(int(ri & 8191u), int(ri >> 13u)), 0), 0);\n"
     "  if (u_prio != 0) {\n"                                               /* the priority target: R text-or-7, G any polygon, A last was 7 */
     "    int pv = (fl >> 3) & 7;\n"
     "    frag = vec4(pv == 7 ? 1.0 : 0.0, pv != 0 ? 1.0 : 0.0, 0.0, pv == 7 ? 1.0 : 0.0); return;\n"
     "  }\n"
-    "  uint ci = pbase + ((pen >> pshift) & pmask);\n"
-    "  vec4 c = texelFetch(t_pal, ivec2(int(ci & 255u), int((ci >> 8u) & 127u)), 0);\n"
-    "  ivec3 col = ivec3(c.rgb * 255.0 + 0.5);\n"
+    "  int cmode=int(v_par.y); uint pbase=uint(v_par.x),pmask=255u,pshift=0u;\n"
+    "  if((cmode&4)!=0){pbase+=0xECu+uint((cmode&8)<<1);pmask=3u;pshift=uint(2*(~cmode&3));}\n"
+    "  else if((cmode&2)!=0){pbase+=0xE0u+uint((cmode&8)<<1);pmask=15u;pshift=uint(4*(~cmode&1));}\n"
+    "  vec4 c;\n"
+    /* Keep text, menu/HUD polygons and stencilled cutouts pixel-exact. */
+    "  if(u_filter!=0&&v_clip.w>0.5&&(fl&1)==0){\n"
+    "    vec2 uv=v_uvs.xy-vec2(0.5),f=fract(uv);ivec2 p=ivec2(floor(uv));\n"
+    "    c=mix(mix(texel(p,pbase,pmask,pshift,fl),texel(p+ivec2(1,0),pbase,pmask,pshift,fl),f.x),\n"
+    "          mix(texel(p+ivec2(0,1),pbase,pmask,pshift,fl),texel(p+ivec2(1,1),pbase,pmask,pshift,fl),f.x),f.y);\n"
+    "  }else c=texel(ivec2(v_uvs.xy),pbase,pmask,pshift,fl);\n"
+    "  ivec3 col=ivec3((c.a>0.0?c.rgb/c.a:vec3(0))*255.0+0.5);\n"
     "  int sh = clamp(int(v_uvs.z), 0, 63);\n"
     "  col = (col * sh) >> 6;\n"
     "  if (u_pfade != 0) col = (col * u_pcol) >> 8;\n"
     "  if (u_ff != 255) col = (col * u_ff + u_fcol * (256 - u_ff)) >> 8;\n"
-    "  bool ua = u_alpha != 255 && ((fl & 4) != 0 || int(pen) == u_alpha_pen);\n"
-    "  float al = ua ? float(u_alpha) / 256.0 : ((fl & 2) != 0 ? 0.5 : 1.0);\n"
-    "  frag = vec4(vec3(col) / 255.0, al);\n"
+    "  frag = vec4(vec3(col) / 255.0, c.a);\n"
     "}\n";
 static const char *vs_text =
     "#version 300 es\nprecision highp float;precision highp int;\n"
@@ -145,6 +157,9 @@ static const char *fs_gamma =
     "  frag = vec4(texelFetch(t_lut, ivec2(i.r, 0), 0).r, texelFetch(t_lut, ivec2(i.g, 0), 0).g, texelFetch(t_lut, ivec2(i.b, 0), 0).b, 1.0);\n"
     "}\n";
 static int ok, scale = 1, ex, fbw, fbh;                  /* ex: widescreen margin each side, in board pixels (0 = 4:3) */
+static int texture_filter=1;
+/* The saved VR-menu option applies immediately, including before GL startup. */
+void tc2_gl_set_filter(int enabled) { texture_filter=enabled!=0; }
 static GLuint vao;
 static int requested_w=640,requested_h=480;
 static int capture_w,capture_h;
@@ -262,8 +277,8 @@ int tc2_gl_init(void)
     if (!(prog_poly = program(vs_poly, fs_poly)) || !(prog_text = program(vs_text, fs_text)) || !(prog_gamma = program(vs_screen, fs_gamma))) return 0;
     ug[0] = glGetUniformLocation(prog_gamma, "t_src"); ug[1] = glGetUniformLocation(prog_gamma, "t_lut");
     static const char *pn[] = { "t_rom", "t_map", "t_pal", "t_sten", "u_scale", "u_h", "u_prio", "u_pfade", "u_ff", "u_alpha", "u_alpha_pen", "u_pcol", "u_fcol", "u_ex",
-                                "t_near", "t_nearz", "u_near", "u_depth", "u_keep" };
-    for (int i = 0; i < 19; i++) up[i] = glGetUniformLocation(prog_poly, pn[i]);
+                                "t_near", "t_nearz", "u_near", "u_depth", "u_keep", "u_filter" };
+    for (int i = 0; i < 20; i++) up[i] = glGetUniformLocation(prog_poly, pn[i]);
     static const char *tn[] = { "t_mix", "t_pal", "t_prio", "u_scale", "u_h", "u_pass", "u_fade", "u_ff", "u_alpha", "u_amask", "u_c12", "u_c13", "u_fcol", "u_ex", "t_band", "u_bars" };
     for (int i = 0; i < 16; i++) ut[i] = glGetUniformLocation(prog_text, tn[i]);
 
@@ -293,6 +308,7 @@ int tc2_gl_init(void)
     GLenum err = glGetError();
     if (err != GL_NO_ERROR) { fprintf(stderr, "[GPU] GL error %04X during setup: the software picture\n", err); return 0; }
     ok = 1;
+    fprintf(stderr,"[GPU] world texture filtering: %s\n",texture_filter?"palette-aware bilinear":"nearest");
     fprintf(stderr, "[GPU] the picture is drawn on the GPU (%s, GLSL %s), internal resolution %d x %d\n", (const char *)glGetString(GL_RENDERER), sl, fbw, fbh);
     return 1;
 }
@@ -326,7 +342,7 @@ static int fill_vertices(const tc2_built *b)
                 else {V3 pos=qvr_tc2_vertex(b,p,tri[j]);*o++=pos.x;*o++=pos.y;*o++=pos.z;*o++=1;}
                 *o++ = v->p[1] * w; *o++ = v->p[2] * w; *o++ = v->p[3] * w;
                 *o++ = (float)p->color_base; *o++ = (float)p->cmode; *o++ = (float)p->tbase; *o++ = flags;
-                *o++=sx;*o++=sy;*o++=!qvr_flat_view&&layer!=QTC2_WORLD;*o++=0;
+                *o++=sx;*o++=sy;*o++=!qvr_flat_view&&layer!=QTC2_WORLD;*o++=layer==QTC2_WORLD;
                 *o++ = (float)((p->entry & 0x3FFF) + 1); *o++ = (float)(p->zkey >> 21);
             }
         }
@@ -389,7 +405,7 @@ unsigned tc2_gl_draw(const tc2_built *b)
     vertex_count=fill_vertices(b);
     glBindBuffer(GL_ARRAY_BUFFER,vbo);glBufferData(GL_ARRAY_BUFFER,(GLsizeiptr)(vertex_count*VFLOATS*sizeof(float)),verts,GL_STREAM_DRAW);
     }
-    glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE); glDisable(GL_SCISSOR_TEST); 
+    glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE); glDisable(GL_SCISSOR_TEST);
     glViewport(0, 0, fbw, fbh);
     /* 1. the background */
     glBindFramebuffer(GL_FRAMEBUFFER, fbo_col);
@@ -427,6 +443,7 @@ unsigned tc2_gl_draw(const tc2_built *b)
         glUniform1i(up[14], 4); glUniform1i(up[15], 5); glUniform1i(up[16], 0);
         const int depth = tc2_depth_on() && fbo_near;
         glUniform1i(up[17], 0); glUniform1f(up[18], tc2_depth_keep());
+        glUniform1i(up[19],texture_filter);
         if (depth) {                                     /* EXACT DEPTH pre-pass: nearest opaque object / band / 1/z per pixel */
             bind_tex(4, 0); bind_tex(5, 0);
             glBindFramebuffer(GL_FRAMEBUFFER, fbo_near);

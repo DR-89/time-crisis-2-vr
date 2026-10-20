@@ -29,6 +29,37 @@ static void text(int x,int y,const char *s,uint8_t r,uint8_t g,uint8_t b){
         }
     }
 }
+static int boot_resolution,last_resolution;
+static unsigned active_width,active_height;
+void qui_set_resolution(int preset,unsigned width,unsigned height){
+    boot_resolution=preset;active_width=width;active_height=height;last_state=-1;
+}
+static void graphics_panel(const QOptions *options,bool saved){
+    char label[40];
+    text(24,20,"GRAPHICS",181,207,220);
+    text(24,54,"RENDER RESOLUTION / PER EYE",255,255,255);
+    for(int i=0;i<QRESOLUTION_COUNT;i++){
+        bool selected=i==options->resolution;
+        snprintf(label,sizeof label,"%c %s",selected?'>':' ',qresolution_labels[i]);
+        text(56,86+i*26,label,selected?255:181,selected?202:207,selected?110:220);
+    }
+    text(24,250,"RIGHT STICK LEFT / RIGHT: SELECT",181,207,220);
+    text(24,276,"LEFT CLICK: DEFAULT",181,207,220);
+    if(active_width&&active_height)snprintf(label,sizeof label,"ACTIVE: %u X %u",active_width,active_height);
+    else snprintf(label,sizeof label,"ACTIVE: DESKTOP WINDOW");
+    text(24,308,label,255,255,255);
+    text(24,338,options->texture_filtering?"TEXTURE FILTERING: ON":"TEXTURE FILTERING: OFF",255,202,110);
+    text(448,338,"LEFT GRIP",181,207,220);
+    const char *status="RESOLUTION APPLIES AT APP START";
+    if(options->resolution!=boot_resolution)status="RESTART APP TO APPLY RESOLUTION";
+    else if(boot_resolution>0&&boot_resolution<QRESOLUTION_COUNT&&active_width&&
+            (active_width!=qresolution_sizes[boot_resolution][0]||active_height!=qresolution_sizes[boot_resolution][1]))
+        status="PRESET UNSUPPORTED: USING DEFAULT";
+    text(24,366,status,255,202,110);
+    text(24,394,options->left_handed?"X LEFT: ADD CREDITS":"A RIGHT: ADD CREDITS",181,207,220);
+    text(24,426,"LEFT UP/DOWN: CHANGE PAGE",181,207,220);
+    text(24,454,saved?"LEFT MENU: RESUME":"SAVING FAILED",saved?170:255,saved?193:150,saved?206:150);
+}
 static void panel(const QOptions *options,int page,int boot_side,bool saved){
     bool laser=options->laser_enabled,physical_crouch=options->physical_crouch,left_handed=options->left_handed;
     int gun_pitch=options->gun_pitch,world_scale=options->world_scale,view_distance=options->view_distance;
@@ -37,8 +68,9 @@ static void panel(const QOptions *options,int page,int boot_side,bool saved){
         p[0]=border?54:12;p[1]=border?183:19;p[2]=border?207:29;p[3]=border?255:240;
     }
     char label[40];
-    if(page){
-        text(24,20,"GUN FIT / PLAYER",181,207,220);
+    if(page==QOPTIONS_PAGE_GRAPHICS){graphics_panel(options,saved);return;}
+    if(page==1){
+        text(24,20,"GUN FIT / PLAYER  2/3",181,207,220);
         snprintf(label,sizeof label,"GUN UP: %+d MM",options->gun_offset_y_mm);text(24,64,label,255,255,255);
         text(24,90,"RIGHT STICK UP / DOWN: ADJUST",181,207,220);
         snprintf(label,sizeof label,"GUN BACK: %+d MM",options->gun_offset_z_mm);text(24,132,label,255,255,255);
@@ -49,11 +81,12 @@ static void panel(const QOptions *options,int page,int boot_side,bool saved){
         text(24,290,"LEFT STICK LEFT: P1 / RIGHT: P2",181,207,220);
         text(24,322,options->player_side!=boot_side?"RESTART APP TO CHANGE PLAYER":"PLAYER APPLIES AT APP START",255,202,110);
         text(24,364,left_handed?"X LEFT: ADD CREDITS":"A RIGHT: ADD CREDITS",181,207,220);
-        text(24,426,"LEFT UP/DOWN: WORLD / OPTIONS",181,207,220);
+        text(24,394,options->texture_filtering?"TEXTURE FILTERING: ON":"TEXTURE FILTERING: OFF",255,202,110);text(448,394,"LEFT GRIP",181,207,220);
+        text(24,426,"LEFT UP/DOWN: CHANGE PAGE",181,207,220);
         text(24,454,saved?"LEFT MENU: RESUME":"SAVING FAILED",saved?170:255,saved?193:150,saved?206:150);
         return;
     }
-    text(24,20,"PAUSE / OPTIONS",181,207,220);
+    text(24,20,"WORLD / OPTIONS  1/3",181,207,220);
     text(24,54,left_handed?"DEFAULT HAND: LEFT":"DEFAULT HAND: RIGHT",255,255,255);
     text(24,78,"RIGHT STICK CLICK: CHANGE DEFAULT",181,207,220);
     snprintf(label,sizeof label,"GUN ANGLE: %+d DEG",gun_pitch);
@@ -74,9 +107,9 @@ static void panel(const QOptions *options,int page,int boot_side,bool saved){
     text(336,298,left_handed?"Y: CHANGE":"B: CHANGE",181,207,220);
     text(24,328,physical_crouch?"COVER: PHYSICAL DUCKING":"COVER: GRIP BUTTONS",255,255,255);
     text(24,352,left_handed?"B RIGHT: CHANGE MODE":"Y LEFT: CHANGE MODE",181,207,220);
-    text(24,378,physical_crouch?"UPRIGHT: OUT / DUCK: COVER":"HOLD EITHER GRIP: LEAVE COVER",181,207,220);
+    text(24,378,options->texture_filtering?"TEXTURE FILTERING: ON":"TEXTURE FILTERING: OFF",255,202,110);text(448,378,"LEFT GRIP",181,207,220);
     text(24,402,left_handed?"A RIGHT: RECENTER / CALIBRATE":"X LEFT: RECENTER / CALIBRATE",181,207,220);
-    text(24,426,"LEFT UP/DOWN: GUN FIT / PLAYER",181,207,220);
+    text(24,426,"LEFT UP/DOWN: CHANGE PAGE",181,207,220);
     text(24,454,saved?"LEFT MENU: RESUME":"SAVING FAILED",saved?170:255,saved?193:150,saved?206:150);
 }
 static GLuint shader(GLenum type,const char *source){
@@ -96,9 +129,9 @@ bool qui_init(void){
 void qui_draw(const float view[16],const float projection[16],V3 head,Q4 rotation,const QOptions *options,int page,int boot_side,bool saved){
     if(!program)return;
     GLint bound,unit;glGetIntegerv(GL_ACTIVE_TEXTURE,&unit);glActiveTexture(GL_TEXTURE0);glGetIntegerv(GL_TEXTURE_BINDING_2D,&bound);glBindTexture(GL_TEXTURE_2D,texture);
-    int state=(options->physical_crouch?1:0)|(options->laser_enabled?2:0)|(saved?4:0)|(options->left_handed?8:0)|(options->tracer_enabled?16:0)|(page?32:0);
-    if(last_state!=state||last_pitch!=options->gun_pitch||last_scale!=options->world_scale||last_distance!=options->view_distance||last_y!=options->gun_offset_y_mm||last_z!=options->gun_offset_z_mm||last_player!=options->player_side||last_boot!=boot_side){
-        panel(options,page,boot_side,saved);last_pitch=options->gun_pitch;last_scale=options->world_scale;last_distance=options->view_distance;
+    int state=(options->physical_crouch?1:0)|(options->laser_enabled?2:0)|(saved?4:0)|(options->left_handed?8:0)|(options->tracer_enabled?16:0)|(page<<8)|(options->texture_filtering?64:0);
+    if(last_state!=state||last_pitch!=options->gun_pitch||last_scale!=options->world_scale||last_distance!=options->view_distance||last_y!=options->gun_offset_y_mm||last_z!=options->gun_offset_z_mm||last_player!=options->player_side||last_boot!=boot_side||last_resolution!=options->resolution){
+        panel(options,page,boot_side,saved);last_resolution=options->resolution;last_pitch=options->gun_pitch;last_scale=options->world_scale;last_distance=options->view_distance;
         last_y=options->gun_offset_y_mm;last_z=options->gun_offset_z_mm;last_player=options->player_side;last_boot=boot_side;
         GLint row_length;glGetIntegerv(GL_UNPACK_ROW_LENGTH,&row_length);glPixelStorei(GL_UNPACK_ROW_LENGTH,0);
         glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,WIDTH,HEIGHT,0,GL_RGBA,GL_UNSIGNED_BYTE,pixels);glPixelStorei(GL_UNPACK_ROW_LENGTH,row_length);

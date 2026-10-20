@@ -15,3 +15,6 @@ const tc2_built *qvr_current_frame(void);
 V3 qvr_tc2_vertex(const tc2_built *b,const tc2_poly *p,int index);
 bool qvr_flat_camera(float *cx,float *cy,float *focal);
 bool qvr_aim(V3 origin,V3 direction,float *nx,float *ny,V3 *hit);
+
+/* World texture filtering; HUD/text and stencil masks retain point sampling. */
+void tc2_gl_set_filter(int enabled);

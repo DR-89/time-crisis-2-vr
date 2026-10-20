@@ -1,5 +1,11 @@
 # Time Crisis II VR - Windows v0.3.0
 
+**Render resolution:** open options with the **left menu button**, then use **left stick up/down** to find **GRAPHICS**. Move the **right stick left/right** to choose **Default**, **1280 x 1344**, **1680 x 1760**, **2550 x 2640**, **2940 x 3080** or **3360 x 3520** pixels per eye, matching the NFSU VR ports. Click the **left stick** to restore Default. Each change saves automatically; **fully close and restart the app** to apply it. The panel shows the active size and a restart reminder. Default preserves the previous resolution (runtime recommendation capped at 1440 pixels on the longer side on Quest, 2160 on PCVR). Unsupported presets fall back to Default. Higher resolutions require more GPU time and memory; the highest setting is not a performance recommendation. Texture filtering stays enabled by default and still switches immediately.
+
+Keyboard: **Tab** changes the options page; on **GRAPHICS**, **Left/Right** selects resolution and **Home** restores Default. Resolution presets affect OpenXR VR rendering; desktop mode continues to follow the window size.
+
+**Texture filtering:** texture filtering defaults to ON and is saved in `quest-options.cfg`. With options open, squeeze the **left grip**, or press **F** on the keyboard, to toggle it immediately. The left grip keeps its cover function during gameplay.
+
 Extract the entire Windows ZIP to a writable folder. Keep `TimeCrisis2VR.exe`, the OpenXR loader, `models/` and `extracted/` together; do not rename the game files. No separate ROM import is required for the release package.
 
 ## Start in VR
@@ -18,7 +24,7 @@ After the arcade startup, press **A** for credits and either trigger to start. E
 
 The machine gun is equipped automatically in scripted sections. Hold the trigger outside cover for automatic fire. The tracked weapon changes model, and shots have recoil and muzzle flash; the Namco gun uses whole-model recoil. The older pistol remains a fallback.
 
-**World scale:** in the first options page, right stick left/right adjusts WORLD SIZE (25–400%); left stick left/right adjusts VIEW DISTANCE (0–100 cm). Start with 100% / 0 cm.
+**World scale:** in the first options page, right stick left/right adjusts WORLD SIZE (25â€“400%); left stick left/right adjusts VIEW DISTANCE (0â€“100 cm). Start with 100% / 0 cm.
 
 **Gun fit / player:** left stick up/down switches pages. Right stick up/down adjusts height, right/left pulls the gun back/forward, and left click resets both offsets. Left stick left/right selects Keith/P1 or Robert/P2; fully restart the app to apply. Robert uses the original alternate route in standalone mode and remains experimental, with the original local HUD/input slot.
 
@@ -36,3 +42,9 @@ Keyboard controls while paused: Tab switches pages; arrows adjust the right-stic
 v0.3.0 retains the transition-mask, HUD placement and sparse-input replay fixes from v0.2.0. New P1 and Robert-route replays each reach 28,201 frames with no traps, FP exceptions or unknown C435 commands. The following image comparisons refer to v0.2.0: A corrected 28,201-frame replay finished with zero CPU traps, floating-point exceptions or unknown C435 commands. Ninety-three desktop comparison frames are pixel-identical after the transition fix, and selected transitions passed both-eye shader checks. A complete-game playthrough is still pending.
 
 Source, controls and attribution: [DR-89/time-crisis-2-vr](https://github.com/DR-89/time-crisis-2-vr). The arcade core comes from [spacestate1/namco22-decompile](https://github.com/spacestate1/namco22-decompile). See `NOTICE.md` and `licenses/` for license scope.
+
+## Support development
+
+If you enjoy this project and would like to support further development of my VR ports, you can support my work on Patreon:
+
+[https://www.patreon.com/c/OpenSourceDevDirk](https://www.patreon.com/c/OpenSourceDevDirk)

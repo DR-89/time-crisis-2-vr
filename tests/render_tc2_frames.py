@@ -11,16 +11,18 @@ p=argparse.ArgumentParser();p.add_argument('--frames',type=Path,default=ROOT/'bu
 p.add_argument('--select',default='*');p.add_argument('--flat',action='store_true');p.add_argument('--x',type=float,default=.12);p.add_argument('--y',type=float,default=.08);p.add_argument('--yaw',type=float,default=0);p.add_argument('--only-model',type=int)
 p.add_argument('--baseline',help='Render the renderer/scene sources from this local Git revision')
 p.add_argument('--verify-scale',action='store_true',help='Compare paused slider edits with a fresh geometry upload')
+p.add_argument('--verify-filter',action='store_true',help='ROM-free palette, tile-edge, alpha and filter continuity checks')
 p.add_argument('--geometry',action='store_true',help='Export local per-vertex calibration measurements')
 p.add_argument('--scale',type=float,default=1);p.add_argument('--distance',type=float,default=0,help='Scene clearance in metres')
 a=p.parse_args();out=ROOT/'build/tc2-render-test';out.mkdir(exist_ok=True);a.output.mkdir(parents=True,exist_ok=True)
 if a.verify_scale and a.baseline:p.error('--verify-scale requires current renderer sources')
+if a.verify_filter and (a.baseline or a.verify_scale):p.error('--verify-filter requires current sources without --verify-scale')
 if a.baseline and (a.scale!=1 or a.distance!=0):p.error('Custom calibration requires current renderer sources')
 if not .25<=a.scale<=4 or not 0<=a.distance<=1:p.error('Scale must be .25..4; distance 0..1 m')
 vswhere=Path(os.environ['ProgramFiles(x86)'])/'Microsoft Visual Studio/Installer/vswhere.exe'
 vs=Path(subprocess.check_output([str(vswhere),'-latest','-products','*','-requires','Microsoft.VisualStudio.Component.VC.Tools.x86.x64','-property','installationPath'],text=True).strip())
 angle=next((Path(os.environ['LOCALAPPDATA'])/'Programs/Microsoft VS Code').glob('*/libEGL.dll')).parent
-headers=ROOT/'.tools/android-sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/include'
+headers=Path(os.environ.get('ANDROID_SDK_ROOT',ROOT/'.tools/android-sdk'))/'ndk'/os.environ.get('ANDROID_NDK_VERSION','28.2.13676358')/'toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/include'
 for folder in ('GLES3','KHR'):shutil.copytree(headers/folder,out/'include'/folder,dirs_exist_ok=True)
 def run(lines):
     script=out/'compile.cmd';script.write_text('@echo off\ncall "'+str(vs/'VC/Auxiliary/Build/vcvars64.bat')+'" >nul\n'+'\n'.join(lines)+'\n')
@@ -47,11 +49,15 @@ w,h=960,720
 surface=bind(egl,'eglCreatePbufferSurface',P,P,P,P)(display,config,(I*5)(0x3057,w,0x3056,h,0x3038))
 context=bind(egl,'eglCreateContext',P,P,P,P,P)(display,config,None,(I*3)(0x3098,3,0x3038))
 current=bind(egl,'eglMakeCurrent',U,P,P,P,P);assert surface and context and current(display,surface,surface,context)
-assert bind(lib,'tc2_fixture_init',I,C.c_char_p)(str(a.frames/'assets.bin').encode())
+assert bind(lib,'tc2_fixture_init',I,C.c_char_p)(None if a.verify_filter else str(a.frames/'assets.bin').encode())
 load=bind(lib,'tc2_fixture_load',I,C.c_char_p,I);draw=bind(lib,'tc2_fixture_draw',I,I,I,F,F,F,P);report=bind(lib,'tc2_fixture_report',I,C.c_char_p)
 error=bind(gles,'glGetError',U);pixels=(C.c_ubyte*(w*h*3))();tiles=[]
 frames=sorted({frame for pattern in a.select.split(',') for frame in a.frames.glob('frame-'+pattern+'.bin')})
-assert frames,'No frame snapshots selected'
+if a.verify_filter:
+    from texture_filter_checks import verify
+    verify(lib,gles,bind,w,h,pixels,draw,error,a.output)
+    frames=[]
+else:assert frames,'No frame snapshots selected'
 scale_changes=0
 if not a.baseline:
     set_scale=bind(lib,'tc2_fixture_scale',None,F);set_distance=bind(lib,'tc2_fixture_distance',None,F)
