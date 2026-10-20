@@ -4,6 +4,8 @@
 #define TCVR_INPUT_TEST
 #include "../quest/quest_host.c"
 
+static bool applied_filter=true;static unsigned filter_calls;
+void tc2_gl_set_filter(int enabled){applied_filter=enabled!=0;filter_calls++;}
 static char paths[40][100];
 static unsigned path_count,action_count,space_count,binding_count;
 static XrActionSuggestedBinding suggested[20];
@@ -348,6 +350,76 @@ int main(void){
         memset(route_ram,0,sizeof route_ram);route_ram[0x2f3fd3]=1;route_ram[0x2f3fd0+i]=1;
         assert(!qtc2_route_select(route_ram,sizeof route_ram,2));
     }
+    /* Menu-only filtering, fixed physical left grip in either hand layout. */
+    memset(buttons,0,sizeof buttons);triggers[0]=triggers[1]=0;
+    stick_x=stick_y=distance_x=distance_y=0;connected[0]=connected[1]=true;
+    focused=true;paused=false;reset_input_edges();options.texture_filtering=true;
+    grips[0]=grips[1]=0;tick();
+    grips[0]=1;tick();assert(options.texture_filtering); /* Gameplay grip keeps cover role. */
+    click(pause_action,2);assert(paused&&options.texture_filtering);
+    tick();assert(options.texture_filtering); /* Held across opening: no toggle. */
+    grips[0]=0;tick();grips[0]=1;tick();assert(!options.texture_filtering&&!applied_filter);
+    unsigned calls=filter_calls;for(int j=0;j<10;j++)tick();assert(filter_calls==calls);
+    QOptions filtered;qoptions_load(options_path,&filtered);assert(!filtered.texture_filtering);
+    for(int hand=0;hand<2;hand++){
+        options.left_handed=hand;bool before=options.texture_filtering;
+        grips[0]=0;tick();grips[1]=1;tick();assert(options.texture_filtering==before);
+        grips[0]=.4f;tick();assert(options.texture_filtering==before);
+        grips[0]=.8f;tick();assert(options.texture_filtering!=before&&applied_filter==options.texture_filtering);
+        before=options.texture_filtering;
+        focused=false;tick();focused=true;tick();assert(options.texture_filtering==before);
+        connected[0]=false;tick();connected[0]=true;tick();assert(options.texture_filtering==before);
+        grips[0]=NAN;tick();grips[0]=1;tick();assert(options.texture_filtering==before);
+        grips[0]=0;tick();grips[0]=1;tick();assert(options.texture_filtering!=before);
+    }
+    puts("PASS: saved filtering default and live renderer application; menu-only left grip, both handedness layouts, one change per press, held-open/focus/disconnect/NaN guards");
     puts("PASS: world-scale controls/persistence/physical poses; real host controls, gun pitch persistence/bounds/repeat/reset, model/muzzle/aim alignment in both hands, local-space correction, focus/action loss and existing input regressions");
+    /* Traverse every page, require release across transitions, and select
+     * resolution without accidentally changing world/gun/player settings. */
+    focused=true;paused=true;connected[0]=connected[1]=true;options_page=0;
+    options.resolution=0;grips[0]=grips[1]=stick_x=stick_y=distance_x=distance_y=0;
+    reset_input_edges();tick();
+    for(int page=1;page<QOPTIONS_PAGE_COUNT;page++){
+        distance_y=1;tick();assert(options_page==page);
+        tick();assert(options_page==page);
+        distance_y=0;tick();
+    }
+    assert(options_page==QOPTIONS_PAGE_GRAPHICS);
+    int old_world=options.world_scale,old_pitch=options.gun_pitch,old_distance=options.view_distance;
+    for(int preset=1;preset<=QRESOLUTION_COUNT;preset++){
+        stick_x=1;tick();assert(options.resolution==preset%QRESOLUTION_COUNT);
+        sync_input(9999999999LL,true,1.7f);assert(options.resolution==preset%QRESOLUTION_COUNT);
+        stick_x=0;tick();
+    }
+    stick_x=-1;tick();assert(options.resolution==5);stick_x=0;tick();
+    QOptions selected;qoptions_load(options_path,&selected);assert(selected.resolution==5);
+    stick_y=1;distance_x=1;tick();assert(options.resolution==5);
+    assert(options.world_scale==old_world&&options.gun_pitch==old_pitch&&options.view_distance==old_distance);
+    stick_y=distance_x=0;tick();click(pitch_reset_action,2);assert(options.resolution==0);
+    stick_x=1;focused=false;tick();focused=true;tick();assert(options.resolution==0);
+    stick_x=0;tick();stick_x=1;tick();assert(options.resolution==1);
+    connected[1]=false;tick();connected[1]=true;tick();assert(options.resolution==1);
+    stick_x=NAN;tick();stick_x=1;tick();assert(options.resolution==1);
+    stick_x=0;tick();distance_y=1;tick();assert(options_page==0);
+    tick();assert(options_page==0);distance_y=0;tick();
+    distance_y=-1;tick();assert(options_page==QOPTIONS_PAGE_GRAPHICS);
+    distance_y=0;tick();click(pause_action,2);assert(!paused);
+    stick_x=1;tick();assert(options.resolution==1);
+    click(pause_action,2);assert(paused&&options.resolution==1);
+    stick_x=0;tick();stick_x=1;tick();assert(options.resolution==2);
+    /* The same helper drives actual OpenXR/GL swapchain dimensions. */
+    const uint32_t expected[6][2]={{1360,1440},{1280,1344},{1680,1760},{2550,2640},{2940,3080},{3360,3520}};
+    uint32_t w,h;
+    for(int preset=0;preset<6;preset++){
+        assert(qresolution_choose(preset,1360,1440,4096,4096,&w,&h));
+        assert(w==expected[preset][0]&&h==expected[preset][1]);
+    }
+    assert(!qresolution_choose(5,1360,1440,3360,3519,&w,&h)&&w==1360&&h==1440);
+    assert(!qresolution_choose(3,1360,1440,2549,2640,&w,&h)&&w==1360&&h==1440);
+    assert(qresolution_choose(3,1360,1440,2550,2640,&w,&h)&&w==2550&&h==2640);
+    assert(qresolution_choose(0,2000,2160,1800,1900,&w,&h)&&w==1800&&h==1900);
+    assert(!qresolution_choose(-1,1360,1440,4096,4096,&w,&h)&&w==1360&&h==1440);
+    assert(!qresolution_choose(6,1360,1440,4096,4096,&w,&h)&&w==1360&&h==1440);
+    puts("PASS: resolution page navigation, release/focus/disconnect guards, cycling/reset/persistence and runtime/GPU dimension limits");
     return 0;
 }

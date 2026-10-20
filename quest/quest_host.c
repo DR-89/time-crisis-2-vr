@@ -54,7 +54,7 @@ static bool running,quit,active,focused,paused,origin_set,recenter_requested;
 static bool multiview;
 typedef struct ButtonEdge { bool synced,was; } ButtonEdge;
 static ButtonEdge coin_button,recenter_button,pause_button,laser_button,cover_button,hand_button,pitch_reset_button;
-static bool pitch_armed,scale_armed;
+static bool pitch_armed,scale_armed,filter_armed;
 static int scale_direction;
 static XrTime scale_repeat_time;
 static int pitch_direction;
@@ -174,6 +174,7 @@ static void reset_fire_input(void){
 static void reset_pitch_input(void){pitch_armed=scale_armed=false;pitch_direction=scale_direction=0;pitch_repeat_time=scale_repeat_time=0;}
 static void reset_distance_input(void){page_armed=false;distance_armed=false;distance_direction=0;distance_repeat_time=0;}
 static void reset_input_edges(void){
+    filter_armed=false;
     coin_button=recenter_button=pause_button=laser_button=cover_button=hand_button=pitch_reset_button=(ButtonEdge){0};
     reset_pitch_input();
     reset_distance_input();
@@ -192,6 +193,21 @@ static void change_weapon_hand(void){
     select_weapon_hand(options.left_handed?LEFT_HAND:RIGHT_HAND);
     reset_input_edges();recoil_started=0;coin_frames=0;aim_valid=gun_tracked=false;ss22_input_neutral();
     fprintf(stderr,"[OPTIONS] weapon hand %s; saved %d\n",options.left_handed?"LEFT":"RIGHT",options_saved);
+}
+static void toggle_texture_filter(void){
+    options.texture_filtering=!options.texture_filtering;
+    tc2_gl_set_filter(options.texture_filtering);
+    options_saved=qoptions_save(options_path,&options);
+    fprintf(stderr,"[OPTIONS] texture filtering %s; saved %d\n",options.texture_filtering?"ON":"OFF",options_saved);
+}
+static void set_resolution(int preset){
+    if(preset<0||preset>=QRESOLUTION_COUNT||preset==options.resolution)return;
+    options.resolution=preset;options_saved=qoptions_save(options_path,&options);
+    fprintf(stderr,"[OPTIONS] resolution %s per eye; saved %d; restart to apply\n",qresolution_labels[preset],options_saved);
+}
+static void change_options_page(int direction){
+    options_page=(options_page+direction+QOPTIONS_PAGE_COUNT)%QOPTIONS_PAGE_COUNT;
+    reset_pitch_input();reset_distance_input();
 }
 static void set_gun_pitch(int value){
     if(value<QOPTIONS_GUN_PITCH_MIN)value=QOPTIONS_GUN_PITCH_MIN;
@@ -236,12 +252,19 @@ static void set_player_side(int side){
     fprintf(stderr,"[OPTIONS] P%d selected for next app start; current P%d\n",side,qtc2_cabinet_side);
 }
 static void adjust_horizontal(int direction){
-    if(options_page)set_gun_offset(false,options.gun_offset_z_mm+direction*QOPTIONS_GUN_OFFSET_STEP);
+    if(options_page==QOPTIONS_PAGE_GRAPHICS)set_resolution((options.resolution+direction+QRESOLUTION_COUNT)%QRESOLUTION_COUNT);
+    else if(options_page==1)set_gun_offset(false,options.gun_offset_z_mm+direction*QOPTIONS_GUN_OFFSET_STEP);
     else set_world_scale(options.world_scale+direction*QOPTIONS_WORLD_SCALE_STEP);
 }
 static void adjust_vertical(int direction){
-    if(options_page)set_gun_offset(true,options.gun_offset_y_mm+direction*QOPTIONS_GUN_OFFSET_STEP);
+    if(options_page==QOPTIONS_PAGE_GRAPHICS)return;
+    if(options_page==1)set_gun_offset(true,options.gun_offset_y_mm+direction*QOPTIONS_GUN_OFFSET_STEP);
     else set_gun_pitch(options.gun_pitch+direction);
+}
+static void reset_page_setting(void){
+    if(options_page==QOPTIONS_PAGE_GRAPHICS)set_resolution(0);
+    else if(options_page==1){set_gun_offset(true,0);set_gun_offset(false,0);}
+    else set_gun_pitch(0);
 }
 static void shot_feedback(uint64_t now){
     recoil_started=now;
@@ -305,16 +328,32 @@ static bool pressed(XrAction a,XrPath hand,ButtonEdge *button){
 }
 static bool axis_state(XrAction a,XrPath hand,XrActionStateFloat *s){XrActionStateGetInfo info={XR_TYPE_ACTION_STATE_GET_INFO};info.action=a;info.subactionPath=hand;*s=(XrActionStateFloat){XR_TYPE_ACTION_STATE_FLOAT};return XR_SUCCEEDED(xrGetActionStateFloat(session,&info,s))&&s->isActive;}
 static float axis(XrAction a,XrPath hand){XrActionStateFloat s;return axis_state(a,hand,&s)?s.currentState:0;}
+static void adjust_texture_filter(void){
+    XrActionStateFloat grip;
+    /* Require release after opening the menu, losing focus or reconnecting. */
+    if(!paused||!axis_state(grip_action,hand_paths[LEFT_HAND],&grip)||!isfinite(grip.currentState)){
+        filter_armed=false;return;
+    }
+    if(grip.currentState<.2f)filter_armed=true;
+    else if(grip.currentState>.55f&&filter_armed){filter_armed=false;toggle_texture_filter();}
+}
 static void adjust_gun_pitch(XrTime time){
     bool reset=pressed(pitch_reset_action,XR_NULL_PATH,&pitch_reset_button);
     if(!paused){reset_pitch_input();return;}
-    if(reset){if(options_page){set_gun_offset(true,0);set_gun_offset(false,0);}else set_gun_pitch(0);reset_pitch_input();return;}
+    if(reset){reset_page_setting();reset_pitch_input();return;}
     XrActionStateGetInfo get={XR_TYPE_ACTION_STATE_GET_INFO};get.action=pitch_action;
     XrActionStateVector2f stick={XR_TYPE_ACTION_STATE_VECTOR2F};
     if(XR_FAILED(xrGetActionStateVector2f(session,&get,&stick))||!stick.isActive||!isfinite(stick.currentState.x)||!isfinite(stick.currentState.y)){
         reset_pitch_input();return;
     }
     float x=stick.currentState.x,y=stick.currentState.y;
+    if(options_page==QOPTIONS_PAGE_GRAPHICS){
+        if(fabsf(x)<.25f)scale_armed=true;
+        else if(scale_armed&&fabsf(x)>=.65f&&fabsf(x)>fabsf(y)){
+            adjust_horizontal(x>0?1:-1);scale_armed=false;
+        }
+        return;
+    }
     if(fabsf(x)>fabsf(y))y=0;else x=0;
     if(fabsf(x)<.25f){scale_armed=true;scale_direction=0;scale_repeat_time=0;}
     else if(scale_armed&&fabsf(x)>=.65f){
@@ -338,8 +377,9 @@ static void adjust_view_distance(XrTime time){
     float x=stick.currentState.x,y=stick.currentState.y;
     if(fabsf(y)<.25f)page_armed=true;
     if(fabsf(y)>=.65f&&fabsf(x)<.25f&&page_armed){
-        options_page=1-options_page;page_armed=false;reset_pitch_input();distance_armed=false;return;
+        change_options_page(y>0?1:-1);return;
     }
+    if(options_page==QOPTIONS_PAGE_GRAPHICS)return;
     if(fabsf(x)<.25f){distance_armed=true;distance_direction=0;distance_repeat_time=0;return;}
     if(!distance_armed||fabsf(x)<.65f||fabsf(x)<fabsf(stick.currentState.y))return;
     int direction=x>0?1:-1;
@@ -365,20 +405,21 @@ static bool events(void){
         if(s.type==SDL_QUIT)quit=true;
 #ifdef TCVR_PC
         if(s.type==SDL_KEYDOWN&&!s.key.repeat){
-            if(s.key.keysym.sym==SDLK_ESCAPE){paused=!paused;reset_fire_input();reset_pitch_input();ss22_input_neutral();}
+            if(s.key.keysym.sym==SDLK_ESCAPE){paused=!paused;filter_armed=false;reset_fire_input();reset_pitch_input();reset_distance_input();ss22_input_neutral();}
             if(s.key.keysym.sym==SDLK_c||s.key.keysym.sym==SDLK_5)coin_frames=48;
             if(s.key.keysym.sym==SDLK_l)cycle_aim_guide();
-            if(s.key.keysym.sym==SDLK_TAB&&paused){options_page=1-options_page;reset_pitch_input();}
+            if(s.key.keysym.sym==SDLK_TAB&&paused){change_options_page(1);}
             if(s.key.keysym.sym==SDLK_r)recenter_requested=true;
+            if(s.key.keysym.sym==SDLK_f&&paused)toggle_texture_filter();
             if(s.key.keysym.sym==SDLK_h&&paused)change_weapon_hand();
             if(s.key.keysym.sym==SDLK_UP&&paused)adjust_vertical(1);
             if(s.key.keysym.sym==SDLK_DOWN&&paused)adjust_vertical(-1);
-            if(s.key.keysym.sym==SDLK_HOME&&paused){if(options_page){set_gun_offset(true,0);set_gun_offset(false,0);}else set_gun_pitch(0);}
+            if(s.key.keysym.sym==SDLK_HOME&&paused){reset_page_setting();}
             if(s.key.keysym.sym==SDLK_LEFT&&paused)adjust_horizontal(-1);
             if(s.key.keysym.sym==SDLK_RIGHT&&paused)adjust_horizontal(1);
-            if(s.key.keysym.sym==SDLK_END&&paused)set_world_scale(QOPTIONS_WORLD_SCALE_DEFAULT);
-            if(s.key.keysym.sym==SDLK_PAGEUP&&paused){if(options_page)set_player_side(2);else set_view_distance(options.view_distance+QOPTIONS_VIEW_DISTANCE_STEP);}
-            if(s.key.keysym.sym==SDLK_PAGEDOWN&&paused){if(options_page)set_player_side(1);else set_view_distance(options.view_distance-QOPTIONS_VIEW_DISTANCE_STEP);}
+            if(s.key.keysym.sym==SDLK_END&&paused&&options_page==0)set_world_scale(QOPTIONS_WORLD_SCALE_DEFAULT);
+            if(s.key.keysym.sym==SDLK_PAGEUP&&paused&&options_page!=QOPTIONS_PAGE_GRAPHICS){if(options_page)set_player_side(2);else set_view_distance(options.view_distance+QOPTIONS_VIEW_DISTANCE_STEP);}
+            if(s.key.keysym.sym==SDLK_PAGEDOWN&&paused&&options_page!=QOPTIONS_PAGE_GRAPHICS){if(options_page)set_player_side(1);else set_view_distance(options.view_distance-QOPTIONS_VIEW_DISTANCE_STEP);}
         }
 #endif
     }
@@ -414,7 +455,8 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
     if(!focused){reset_input_edges();return;}
     XrActiveActionSet aset={action_set,XR_NULL_PATH};XrActionsSyncInfo sync={XR_TYPE_ACTIONS_SYNC_INFO};sync.countActiveActionSets=1;sync.activeActionSets=&aset;
     if(!XR(xrSyncActions(session,&sync))){reset_input_edges();return;}
-    if(pressed(pause_action,XR_NULL_PATH,&pause_button)){paused=!paused;reset_fire_input();reset_pitch_input();game_deadline=0;tc2_audio_volume(paused?0:100);ss22_input_neutral();}
+    if(pressed(pause_action,XR_NULL_PATH,&pause_button)){paused=!paused;filter_armed=false;reset_fire_input();reset_pitch_input();reset_distance_input();game_deadline=0;tc2_audio_volume(paused?0:100);ss22_input_neutral();}
+    adjust_texture_filter();
     bool change_hand=pressed(hand_action,XR_NULL_PATH,&hand_button);
     if(paused&&change_hand){change_weapon_hand();return;}
     adjust_gun_pitch(time);
@@ -486,7 +528,7 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
 #ifndef TCVR_INPUT_TEST
 bool tc2_vr_open(void){
     replay_input=getenv("TC2_REPLAY")!=NULL;
-    qoptions_load(options_path,&options);qvr_world_scale=options.world_scale/100.f;active_weapon_hand=options.left_handed?LEFT_HAND:RIGHT_HAND;
+    qoptions_load(options_path,&options);tc2_gl_set_filter(options.texture_filtering);qvr_world_scale=options.world_scale/100.f;active_weapon_hand=options.left_handed?LEFT_HAND:RIGHT_HAND;
     qvr_view_distance=options.view_distance/100.f;
     fprintf(stderr,"[VR SCALE] %.6f reconstructed units/metre; world size %d%%; view distance %d cm\n",qvr_units_per_meter,options.world_scale,options.view_distance);
     fprintf(stderr,"[OPTIONS] laser %s; cover %s; default hand %s; trigger handoff enabled (left menu: options)\n",options.laser_enabled?"ON":"OFF",options.physical_crouch?"PHYSICAL":"GRIP",options.left_handed?"LEFT":"RIGHT");
@@ -613,6 +655,11 @@ bool tc2_vr_open(void){
     uint32_t view_count;REQUIRE(xrEnumerateViewConfigurationViews(instance,system,XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,0,&view_count,NULL));if(view_count!=2)goto fail;
     XrViewConfigurationView configs[2]={{XR_TYPE_VIEW_CONFIGURATION_VIEW},{XR_TYPE_VIEW_CONFIGURATION_VIEW}};
     REQUIRE(xrEnumerateViewConfigurationViews(instance,system,XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,2,&view_count,configs));
+    GLint texture_limit,renderbuffer_limit,viewport_limit[2];
+    glGetIntegerv(GL_MAX_TEXTURE_SIZE,&texture_limit);
+    glGetIntegerv(GL_MAX_RENDERBUFFER_SIZE,&renderbuffer_limit);
+    glGetIntegerv(GL_MAX_VIEWPORT_DIMS,viewport_limit);
+    uint32_t gpu_limit=(uint32_t)(texture_limit<renderbuffer_limit?texture_limit:renderbuffer_limit);
     for(int i=0;i<2;i++){
         struct Eye *eye=&eyes[i];eye->w=configs[i].recommendedImageRectWidth;eye->h=configs[i].recommendedImageRectHeight;
 #ifdef TCVR_PC
@@ -621,6 +668,13 @@ bool tc2_vr_open(void){
         float factor=fminf(1,1440.f/fmaxf(eye->w,eye->h));
 #endif
        eye->w=(uint32_t)(eye->w*factor);eye->h=(uint32_t)(eye->h*factor);
+        uint32_t max_w=configs[i].maxImageRectWidth,max_h=configs[i].maxImageRectHeight;
+        if(max_w>gpu_limit)max_w=gpu_limit;if(max_h>gpu_limit)max_h=gpu_limit;
+        if(max_w>(uint32_t)viewport_limit[0])max_w=(uint32_t)viewport_limit[0];
+        if(max_h>(uint32_t)viewport_limit[1])max_h=(uint32_t)viewport_limit[1];
+        if(!qresolution_choose(options.resolution,eye->w,eye->h,max_w,max_h,&eye->w,&eye->h))
+            fprintf(stderr,"[XR] resolution preset exceeds runtime/GPU limits; using default %ux%u\n",eye->w,eye->h);
+        if(!eye->w||!eye->h)goto fail;
         XrSwapchainCreateInfo cc={XR_TYPE_SWAPCHAIN_CREATE_INFO};cc.usageFlags=XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT|XR_SWAPCHAIN_USAGE_SAMPLED_BIT;cc.format=color_format;cc.sampleCount=1;cc.width=eye->w;cc.height=eye->h;cc.faceCount=1;cc.arraySize=1;cc.mipCount=1;
         REQUIRE(xrCreateSwapchain(session,&cc,&eye->chain));REQUIRE(xrEnumerateSwapchainImages(eye->chain,0,&eye->n,NULL));
         eye->images=calloc(eye->n,sizeof(*eye->images));eye->fb=calloc(eye->n,sizeof(GLuint));if(!eye->images||!eye->fb)goto fail;
@@ -640,6 +694,7 @@ graphics_ready:
     if(!qgun_load_weapon(QGUN_MACHINE_GUN,"models/machine-gun.tcgun"))
         fprintf(stderr,"[GUN] Machine gun asset unavailable; using pistol fallback\n");
     if(!qui_init())goto fail;
+    qui_set_resolution(options.resolution,eyes[0].w,eyes[0].h);
     if(!tc2_gl_init())goto fail;
     void ss22_gl_set_gun_flash(int);ss22_gl_set_gun_flash(0);tc2_audio_open();
     active=true;fprintf(stderr,"[XR] Renderer initialized: %ux%u per eye; %s\n",eyes[0].w,eyes[0].h,glGetString(GL_RENDERER));return true;
