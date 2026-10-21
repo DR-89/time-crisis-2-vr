@@ -55,7 +55,7 @@ def package(assets):
     dex=BUILD/'dex';dex.mkdir(exist_ok=True)
     run([JAVA/'java.exe','-cp',bt/'lib/d8.jar','com.android.tools.r8.D8','--lib',android,'--min-api','29','--output',dex,jar])
     licenses=assets/'licenses';licenses.mkdir(exist_ok=True)
-    for source,name in [(ROOT/'LICENSE','TimeCrisis2VR-LICENSE.txt'),(ROOT/'NOTICE.md','NOTICE.md'),(ROOT/'upstream/LICENSE','namco22-LICENSE.txt'),(ROOT/'.tools/sdl/SDL2-2.30.11/LICENSE.txt','SDL2-LICENSE.txt'),(ROOT/'.tools/openxr/META-INF/LICENSE','OpenXR-LICENSE.txt')]:
+    for source,name in [(ROOT/'quest/vendor/openvr/LICENSE','OpenVR-LICENSE.txt'),(ROOT/'LICENSE','TimeCrisis2VR-LICENSE.txt'),(ROOT/'NOTICE.md','NOTICE.md'),(ROOT/'upstream/LICENSE','namco22-LICENSE.txt'),(ROOT/'.tools/sdl/SDL2-2.30.11/LICENSE.txt','SDL2-LICENSE.txt'),(ROOT/'.tools/openxr/META-INF/LICENSE','OpenXR-LICENSE.txt')]:
         shutil.copy2(source,licenses/name)
     base=BUILD/'unaligned.apk'
     # Whitelist public assets into a fresh directory; stale build ROMs cannot leak.

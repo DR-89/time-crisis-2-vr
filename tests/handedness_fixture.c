@@ -1,3 +1,5 @@
+static _Bool keyboard_modal_test;
+_Bool qkeyboard_modal(void){return keyboard_modal_test;}
 /* Exercise the real host input path against a deterministic OpenXR runtime.
  * Render/startup entry points are excluded; no headset is required. */
 #include <assert.h>
@@ -232,6 +234,16 @@ int main(void){
     assert(capture_eye(1,2,2)&&access("capture.request",F_OK)!=0&&!frame_probe.capture_once);
     assert(access("eye-0.ppm",F_OK)==0&&access("eye-1.ppm",F_OK)==0);
     unlink("eye-0.ppm");unlink("eye-1.ppm");frame_probe.enabled=false;
+    paused=true;stick_y=stick_x=distance_x=distance_y=0;options_page=QOPTIONS_PAGE_GRAPHICS;tick();distance_y=1;tick();
+    assert(options_page==OPTIONS_LAN_PAGE&&qlobby_visible());distance_y=0;tick();
+    qlobby_input(QL_DOWN);qlobby_input(QL_DOWN);qlobby_input(QL_ACCEPT);assert(qlobby_editing());
+    qlobby_replace_text("192.168.1.42");
+    keyboard_modal_test=true;buttons[id(lower_action)][RIGHT_HAND]=true;triggers[RIGHT_HAND]=1;tick();
+    assert(qlobby_editing()&&tc2_link_session()->state==TC2_OFF);
+    keyboard_modal_test=false;tick();tick();assert(qlobby_editing()&&tc2_link_session()->state==TC2_OFF);
+    buttons[id(lower_action)][RIGHT_HAND]=false;triggers[RIGHT_HAND]=0;tick();
+    click(upper_action,RIGHT_HAND);assert(qlobby_visible()&&!qlobby_editing());
+    click(upper_action,RIGHT_HAND);qlobby_tick(0);assert(!qlobby_visible());
     puts("PASS: production Frame OpenXR action path; both profile bindings and Touch fallback, trigger/grip behavior, Menu/options mappings, View tap/hold timing, recenter/calibration and haptics; bounded tick-delayed paired capture; runtime-owned refresh policy");
     return 0;
 }
@@ -522,9 +534,14 @@ int main(void){
     stick_x=0;tick();stick_x=1;tick();assert(options.resolution==1);
     connected[1]=false;tick();connected[1]=true;tick();assert(options.resolution==1);
     stick_x=NAN;tick();stick_x=1;tick();assert(options.resolution==1);
-    stick_x=0;tick();distance_y=1;tick();assert(options_page==0);
-    tick();assert(options_page==0);distance_y=0;tick();
-    distance_y=-1;tick();assert(options_page==QOPTIONS_PAGE_GRAPHICS);
+    /* After Graphics comes LAN play; its Back returns to page 0, and down
+     * from page 0 wraps to LAN play. */
+    stick_x=0;tick();distance_y=1;tick();assert(options_page==OPTIONS_LAN_PAGE&&qlobby_visible());
+    distance_y=0;tick();click(upper_action,RIGHT_HAND);qlobby_tick(0);tick();assert(!qlobby_visible()&&options_page==0);
+    distance_y=-1;tick();assert(options_page==OPTIONS_LAN_PAGE&&qlobby_visible());
+    distance_y=0;tick();click(upper_action,RIGHT_HAND);qlobby_tick(0);tick();assert(options_page==0);
+    for(int k=0;k<2;k++){distance_y=1;tick();distance_y=0;tick();}
+    assert(options_page==QOPTIONS_PAGE_GRAPHICS);
     distance_y=0;tick();click(pause_action,2);assert(!paused);
     stick_x=1;tick();assert(options.resolution==1);
     click(pause_action,2);assert(paused&&options.resolution==1);
@@ -543,6 +560,20 @@ int main(void){
     assert(!qresolution_choose(-1,1360,1440,4096,4096,&w,&h)&&w==1360&&h==1440);
     assert(!qresolution_choose(6,1360,1440,4096,4096,&w,&h)&&w==1360&&h==1440);
     puts("PASS: resolution page navigation, release/focus/disconnect guards, cycling/reset/persistence and runtime/GPU dimension limits");
+    /* LAN play follows Graphics; leaving the lobby returns to page 0. */
+    paused=true;stick_x=stick_y=distance_x=distance_y=0;options_page=QOPTIONS_PAGE_GRAPHICS;tick();
+    distance_y=1;tick();assert(options_page==OPTIONS_LAN_PAGE&&qlobby_visible());distance_y=0;tick();
+    qlobby_input(QL_DOWN);qlobby_input(QL_DOWN);qlobby_input(QL_ACCEPT);assert(qlobby_editing());
+    qlobby_replace_text("192.168.1.42");
+    keyboard_modal_test=true;buttons[id(lower_action)][RIGHT_HAND]=true;triggers[RIGHT_HAND]=1;tick();
+    assert(qlobby_editing()&&tc2_link_session()->state==TC2_OFF);
+    keyboard_modal_test=false;tick();tick();assert(qlobby_editing()&&tc2_link_session()->state==TC2_OFF);
+    buttons[id(lower_action)][RIGHT_HAND]=false;triggers[RIGHT_HAND]=0;tick();
+    click(upper_action,RIGHT_HAND);assert(qlobby_visible()&&!qlobby_editing());
+    click(upper_action,RIGHT_HAND);qlobby_tick(0);assert(!qlobby_visible());
+    tick();assert(options_page==0);
+    stick_x=1;tick();assert(!qlobby_visible());stick_x=0;tick();
+    puts("PASS: LAN page and lobby input: page cycle, modal keyboard, Back to options");
     return 0;
 }
 #endif

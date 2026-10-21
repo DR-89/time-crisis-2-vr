@@ -6,7 +6,10 @@
 #include <string.h>
 #include "quest_ui.h"
 #include "quest_options.h"
-#include "font_data.h"
+#include "quest_panel.h"
+#include "quest_lobby.h"
+static unsigned last_lobby_revision;
+static bool last_lobby;
 
 enum { WIDTH=640,HEIGHT=480 };
 static GLuint program,vao,vbo,texture;
@@ -16,19 +19,7 @@ static int last_pitch,last_scale,last_distance;
 static int last_y,last_z,last_player,last_boot;
 static uint8_t pixels[WIDTH*HEIGHT*4];
 
-static void text(int x,int y,const char *s,uint8_t r,uint8_t g,uint8_t b){
-    for(;*s;s++,x+=16){
-        unsigned c=(unsigned char)*s;if(c<32||c>127)continue;
-        const uint8_t *glyph=builtin_font+(c-32)*128;
-        for(int row=0;row<16;row++)for(int col=0;col<16;col++){
-            int px=x+col,py=y+row;if(px<0||px>=WIDTH||py<0||py>=HEIGHT)continue;
-            uint8_t packed=glyph[row*8+col/2];int shade=col&1?packed&15:packed>>4;
-            if(shade==15)continue;
-            uint8_t *p=pixels+(py*WIDTH+px)*4;int a=15-shade;
-            p[0]=(r*a+p[0]*shade)/15;p[1]=(g*a+p[1]*shade)/15;p[2]=(b*a+p[2]*shade)/15;p[3]=255;
-        }
-    }
-}
+static void text(int x,int y,const char *s,uint8_t r,uint8_t g,uint8_t b){qpanel_text(pixels,x,y,s,r,g,b);}
 static int boot_resolution,last_resolution;
 static unsigned active_width,active_height;
 void qui_set_resolution(int preset,unsigned width,unsigned height){
@@ -132,8 +123,10 @@ void qui_draw(const float view[16],const float projection[16],V3 head,Q4 rotatio
     if(!program)return;
     GLint bound,unit;glGetIntegerv(GL_ACTIVE_TEXTURE,&unit);glActiveTexture(GL_TEXTURE0);glGetIntegerv(GL_TEXTURE_BINDING_2D,&bound);glBindTexture(GL_TEXTURE_2D,texture);
     int state=(options->physical_crouch?1:0)|(options->laser_enabled?2:0)|(saved?4:0)|(options->left_handed?8:0)|(options->tracer_enabled?16:0)|(page<<8)|(options->texture_filtering?64:0)|(frame_controls?128:0);
-    if(last_state!=state||last_pitch!=options->gun_pitch||last_scale!=options->world_scale||last_distance!=options->view_distance||last_y!=options->gun_offset_y_mm||last_z!=options->gun_offset_z_mm||last_player!=options->player_side||last_boot!=boot_side||last_resolution!=options->resolution){
-        panel(options,page,boot_side,frame_controls,saved);last_resolution=options->resolution;last_pitch=options->gun_pitch;last_scale=options->world_scale;last_distance=options->view_distance;
+    bool lobby=qlobby_visible(); unsigned lobby_revision=qlobby_revision();
+    if(last_state!=state||last_lobby!=lobby||(lobby&&last_lobby_revision!=lobby_revision)||last_pitch!=options->gun_pitch||last_scale!=options->world_scale||last_distance!=options->view_distance||last_y!=options->gun_offset_y_mm||last_z!=options->gun_offset_z_mm||last_player!=options->player_side||last_boot!=boot_side||last_resolution!=options->resolution){
+        if(lobby)qlobby_render(pixels);else panel(options,page,boot_side,frame_controls,saved);
+        last_lobby=lobby;last_lobby_revision=lobby_revision;last_resolution=options->resolution;last_pitch=options->gun_pitch;last_scale=options->world_scale;last_distance=options->view_distance;
         last_y=options->gun_offset_y_mm;last_z=options->gun_offset_z_mm;last_player=options->player_side;last_boot=boot_side;
         GLint row_length;glGetIntegerv(GL_UNPACK_ROW_LENGTH,&row_length);glPixelStorei(GL_UNPACK_ROW_LENGTH,0);
         glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,WIDTH,HEIGHT,0,GL_RGBA,GL_UNSIGNED_BYTE,pixels);glPixelStorei(GL_UNPACK_ROW_LENGTH,row_length);

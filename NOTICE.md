@@ -11,6 +11,10 @@ affiliated with or endorsed by Namco, Bandai Namco, or Meta.
   the submodule and APK's `assets/licenses/namco22-LICENSE.txt`.
 - **SDL 2.30.11:** zlib license; original notice included in the APK.
 - **Khronos OpenXR loader 1.1.43:** its original license notice is included in the APK.
+- **Valve OpenVR keyboard ABI header:** BSD-3-Clause, Copyright (c) 2015 Valve Corporation;
+  v2.5.1 commit `ae46a8dd0172580648c8922658a100439115d3eb`. Unmodified header and
+  license are in `quest/vendor/openvr`; the license accompanies APK/Windows packages.
+  No OpenVR runtime binary is bundled.
 - **Windows OpenGL loader:** generated with [glad 2.0.8](https://github.com/Dav1dde/glad);
   generated code and Khronos declarations retain their notices in `pc/vendor/glad`.
 - **Windows dependencies:** zlib 1.3.1, SDL 2.30.11, Khronos OpenXR 1.1.43,
@@ -46,3 +50,12 @@ The repository contains the port, build/import tools and a reference to upstream
 ROM archives, extracted ROMs, signing keys, generated build output and APKs are
 excluded from Git. Downloadable binaries are distributed separately as GitHub
 release assets at https://github.com/DR-89/time-crisis-2-vr/releases.
+
+## Cabinet-link research
+
+The port-owned `link/tc2_link.c` implements the original C139/C422 register and
+DMA boundary. Functional research references are MAME's Namco C139 device
+(Angelo Salese, BSD-3-Clause), [SailorSat's C139 work](https://github.com/mamedev/mame/pull/13421),
+and [MAME-TC2-Public at 5ff99b9](https://github.com/pocketjazzy/MAME-TC2-Public/commit/5ff99b9da5b528de1c5be484115ea3dc014efd3a).
+The adapter is an independent implementation; it does not incorporate that fork's
+ROM code patches, game RAM repairs, heartbeat fabrication or packet replay.

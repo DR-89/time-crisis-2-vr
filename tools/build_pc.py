@@ -35,7 +35,7 @@ def main():
     for name in ('LICENSE','NOTICE.md'):shutil.copy2(ROOT/name,package/name)
     licenses=package/'licenses';licenses.mkdir(exist_ok=True)
     for source,name in [(ROOT/'upstream/LICENSE','namco22.txt'),(ROOT/'.tools/sdl/SDL2-2.30.11/LICENSE.txt','SDL2.txt'),(ROOT/'.tools/zlib/zlib-1.3.1/LICENSE','zlib.txt')]:shutil.copy2(source,licenses/name)
-    for source,name in [(ROOT/'pc/licenses/OpenXR.txt','OpenXR.txt'),(ROOT/'pc/vendor/glad/LICENSE','glad.txt'),(toolchain.parent/'LICENSE.TXT','LLVM.txt')]:shutil.copy2(source,licenses/name)
+    for source,name in [(ROOT/'quest/vendor/openvr/LICENSE','OpenVR.txt'),(ROOT/'pc/licenses/OpenXR.txt','OpenXR.txt'),(ROOT/'pc/vendor/glad/LICENSE','glad.txt'),(toolchain.parent/'LICENSE.TXT','LLVM.txt')]:shutil.copy2(source,licenses/name)
     runtime_licenses=toolchain.parent/'x86_64-w64-mingw32/share/mingw32'
     for source in runtime_licenses.glob('COPYING*'):shutil.copy2(source,licenses/source.name)
     (package/'Play VR.cmd').write_text('@echo off\ncd /d "%~dp0"\nstart "" TimeCrisis2VR.exe\n')
