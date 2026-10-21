@@ -42,6 +42,33 @@ Outputs:
 
 The ROM preparer checks chip sizes and CRCs against the upstream table, records SHA-256 hashes in `build/rom-audit.json` and accepts equivalent filenames by matching content. ROMs, generated sources, keys and build output remain outside Git. APK signing uses the local `.tools/debug.keystore`; retain the same private key to update existing installations.
 
+## Steam Frame ARM64 Android flavor
+
+`tools/build_frame.py` is a separate Frame build that runs on macOS, x86_64 Linux or WSL2 (`tools/host_paths.py` picks the SDK, JDK and NDK host tools). `tools/bootstrap_frame.py` first fetches the pinned SDL 2.30.11 source and Khronos OpenXR 1.1.43 Android loader into `.tools` (or pass `--shared-tools` to reuse another verified cache); the build validates the SDL 2.30.11 and OpenXR 1.1.43 archive hashes, and targets `arm64-v8a` / Android API 29. The expected local SDK is platform 34, build-tools 35.0.0, NDK 27.2.12479018, and JDK 17. Pass the ROM explicitly with `--rom`; generated native inputs are kept under `build/steam-frame`.
+
+```sh
+python3 tools/bootstrap_frame.py
+python3 tools/build_frame.py --rom "$HOME/Downloads/timecrs2.zip" --jobs 4
+python3 tools/steam_frame/make_bundle.py
+python3 artifacts/steam-frame/bundle/install.py --verify-only
+python3 artifacts/steam-frame/bundle/install.py --dry-run --rom "$HOME/Downloads/timecrs2.zip"
+```
+
+The output APK at `artifacts/steam-frame/TimeCrisis2VR-SteamFrame-arm64.apk` includes the 22-chip hash manifest and weapon models, but no ROM chips or archive. The launcher imports a selected archive into persistent `Documents/TimeCrisis2VR`; the native process uses that same directory for extracted chips, configuration, logs and diagnostic captures. `--package-only` requires a source fingerprint receipt written by the native build and rejects stale libraries. The Frame signing key is retained at `~/.config/timecrisis2vr/steam-frame-debug.keystore`, outside disposable build caches.
+
+### Quest flavor
+
+The same script builds the Quest 3 APK (`org.timecrisis2.arcadevr`) with `--flavor quest`. It compiles the shared host without `TCVR_STEAM_FRAME`, so the LAN lobby, cabinet link and Touch bindings match the Frame build exactly; native inputs live under `build/quest-mac`. The default is ROM-free: the 2D setup activity launches first and imports your `timecrs2.zip`. `--bundle-roms` adds your own verified chips for a private sideload and must never be published.
+
+```sh
+python3 tools/build_frame.py --flavor quest --bundle-roms --rom "$HOME/Downloads/timecrs2.zip" --jobs 4
+adb install -r artifacts/quest/TimeCrisis2VR-Quest-arm64-with-ROM.apk
+```
+
+The Quest key is `~/.config/timecrisis2vr/quest-debug.keystore`. An existing install signed with another key (for example a release APK) must be uninstalled first.
+
+For an unattended diagnostic pass, put `force_render=1`, `capture_once=1`, `capture_after_ticks=600`, `exit_after_frames=3600`, and `exit_after_seconds=30` in `frame-probe.cfg` in the persistent game directory before launch. The Frame-only probe advances the arcade with neutral input even when normal focus or tracking is unavailable, then captures both eyes after 600 actual game updates. It exits at the first frame or time limit and logs separately when it times out without a paired capture. Requested capture ticks that cannot fit the configured bounds are disabled. This is an unattended rendering diagnostic, not proof of normal controller tracking or worn play.
+
 ## Validation
 
 ```powershell
@@ -53,6 +80,8 @@ python -X utf8 tests/test_pc.py
 ```
 
 The input fixture compiles the real host input code with a mock OpenXR runtime. It checks both hands, trigger handoffs, grip cover, pitch, saved layouts, tracking/focus loss and sparse replay preservation. The APK verifier checks all chip hashes, all three weapon assets and Namco attribution, ARM64 libraries, the immersive entry point, DEX and the package hash. Packaging additionally verifies the signature and 16 KiB ZIP alignment.
+
+`tests/test_frame_profile.py` also compiles the production host input path with `TCVR_STEAM_FRAME` against a mock runtime, checking both profile bindings, Touch fallback, Frame control semantics, View hold timing and haptics. `tests/test_frame_storage.py` compiles and runs the production Java ROM importer/storage adapter against synthetic 22-chip archives; `tests/test_frame_dimensions.py` checks the 2160-per-eye target cap and runtime limits. `tests/test_frame_bundle.py` exercises the ROM-free installer verifier and dry-run without touching a device.
 
 `tests/tc2_scene_fixture.c` covers projection, aiming, HUD and mask classification. Compile it with `quest/tc2_scene.c` and the Quest / upstream TCII include paths. `tests/tc2_weapon_fixture.c` covers the arcade weapon-state decoder. The production GLES fixtures use MSVC, Pillow and ANGLE DLLs from VS Code; see [transition validation](TRANSITIONS.md) and [weapon validation](WEAPONS.md). Automated checks complement headset testing.
 

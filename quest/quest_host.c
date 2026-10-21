@@ -24,9 +24,17 @@
 #include "tc2_scene.h"
 #include "quest_gun.h"
 #include "quest_options.h"
+#include "quest_lobby.h"
+#include "quest_keyboard.h"
+#include "../link/tc2_link.h"
 #include "quest_cover.h"
+#include "tc2_cover_spot.h"
+#include "quest_safe.h"
 #include "quest_clock.h"
 #include "quest_refresh.h"
+#ifdef TCVR_STEAM_FRAME
+#include "quest_frame.h"
+#endif
 #include "quest_ui.h"
 #include "quest_tracer.h"
 #include "tc2_cabinet.h"
@@ -49,6 +57,18 @@ static XrPath hand_paths[HAND_COUNT];
 static XrSpace local_space,aim_spaces[HAND_COUNT];
 static XrActionSet action_set;
 static XrAction aim_action,trigger_action,grip_action,lower_action,upper_action,pause_action,haptic_action,hand_action,pitch_action,pitch_reset_action;
+#ifdef TCVR_STEAM_FRAME
+static XrAction view_action,cover_mode_action;
+static XrPath frame_profile_path,touch_profile_path;
+static bool frame_profile_supported,frame_profile_active,recenter_calibration_requested;
+typedef struct ViewHold { bool synced,down,ignored,did_recenter,did_calibrate;XrTime down_since; } ViewHold;
+static ViewHold view_hold;
+typedef struct FrameProbe { bool enabled,force_render,capture_once,owns_capture_marker;unsigned max_frames,max_seconds,capture_after_ticks,frames,game_ticks;uint64_t started_ms; } FrameProbe;
+static FrameProbe frame_probe;
+static unsigned frame_probe_captured_eyes;
+#else
+static bool frame_profile_active;
+#endif
 static XrSessionState state;
 static bool running,quit,active,focused,paused,origin_set,recenter_requested;
 static bool multiview;
@@ -69,6 +89,22 @@ static bool shot_pending,shot_needs_release,fire_output_down,options_saved=true;
 static int active_weapon_hand=RIGHT_HAND;
 static QOptions options;
 static QCover cover;
+/* Physical cover at the arcade's own slide: the spot published by the frame
+ * callback, the unshifted head position, and the shift that absorbs the
+ * player's lean while the arcade slides the camera the same way. */
+static QCoverSpot cover_spot;
+static V3 cover_head,cover_shift;
+static float cover_approach;
+static bool cover_spot_hidden;
+void qvr_set_cover_spot(const QCoverSpot *spot){
+    /* The decoder reports raw/16384 units; the scene shows them at the
+     * world-size and units-per-metre the player has set. */
+    QCoverSpot scaled=*spot;scaled.hide=mul(spot->hide,qvr_world_scale/qvr_units_per_meter);
+    if(scaled.valid&&(!cover_spot.valid||scaled.table!=cover_spot.table))
+        fprintf(stderr,"[COVER] spot %08X: hide right %+.3f up %+.3f forward %+.3f m, turn %+.1f deg; mark %.2f m\n",
+                scaled.table,scaled.hide.x,scaled.hide.y,-scaled.hide.z,scaled.turn_deg,qcover_reach(scaled.hide));
+    cover_spot=scaled;
+}
 static bool cover_calibration_pending=true;
 static const char *options_path="quest-options.cfg";
 static XrTime game_deadline;
@@ -109,6 +145,9 @@ static double cpu_ms(void){
 #endif
 }
 static double wall_ms(void){return SDL_GetPerformanceCounter()*1000.0/SDL_GetPerformanceFrequency();}
+#ifdef TCVR_STEAM_FRAME
+static uint64_t frame_probe_now_ms(void){struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return (uint64_t)t.tv_sec*1000+t.tv_nsec/1000000;}
+#endif
 
 static bool xr_ok(XrResult result,const char *operation) {
     if(XR_SUCCEEDED(result))return true;
@@ -120,12 +159,20 @@ static bool xr_ok(XrResult result,const char *operation) {
 #define XR(call) xr_ok((call),#call)
 #define REQUIRE(call) do { if(!XR(call))goto fail; } while(0)
 static void display_rate_request(void){
+#ifdef TCVR_STEAM_FRAME
+    /* SteamVR owns the Frame display mode; follow predictedDisplayPeriod. */
+    return;
+#else
     if(!request_rate||preferred_rate<=0)return;
     rate_attempts++;
     XrResult result=request_rate(session,preferred_rate);
     fprintf(stderr,"[XR] display request %.0f Hz attempt %u: %s\n",preferred_rate,rate_attempts,XR(result)?"accepted (not yet confirmed)":"rejected");
+#endif
 }
 static void display_rate_check(XrTime now){
+#ifdef TCVR_STEAM_FRAME
+    (void)now;
+#else
     if(!focused||!get_rate||preferred_rate<=0||rate_attempts>3)return;
     if(!rate_check_time){rate_check_time=now+2000000000LL;return;}
     if(now<rate_check_time)return;
@@ -137,6 +184,7 @@ static void display_rate_check(XrTime now){
     if(rate_attempts<3)display_rate_request();
     else{fprintf(stderr,"[XR] runtime retained its display rate; no further requests this focus session\n");rate_attempts=4;}
     rate_check_time=now+2000000000LL;
+#endif
 }
 static void performance_start(void){
 #ifndef TCVR_PC
@@ -150,7 +198,12 @@ static void performance_start(void){
         XR(set_performance(session,XR_PERF_SETTINGS_DOMAIN_GPU_EXT,XR_PERF_SETTINGS_LEVEL_SUSTAINED_HIGH_EXT));
     }
     rate_attempts=0;rate_check_time=0;display_rate_request();
-    float actual=0;if(get_rate&&XR(get_rate(session,&actual)))fprintf(stderr,"[XR] display requested %.0f Hz, current %.0f Hz\n",preferred_rate,actual);
+    float actual=0;
+#ifdef TCVR_STEAM_FRAME
+    if(get_rate&&XR(get_rate(session,&actual)))fprintf(stderr,"[XR] Frame follows runtime display rate %.0f Hz\n",actual);
+#else
+    if(get_rate&&XR(get_rate(session,&actual)))fprintf(stderr,"[XR] display requested %.0f Hz, current %.0f Hz\n",preferred_rate,actual);
+#endif
 }
 static void frame_profile(uint64_t start,XrDuration period,bool visible){
     static double sum,maximum;static unsigned count,over;
@@ -166,6 +219,61 @@ static void frame_profile(uint64_t start,XrDuration period,bool visible){
     }
 }
 static XrPath path(const char *s){XrPath p=0;xrStringToPath(instance,s,&p);return p;}
+#ifdef TCVR_STEAM_FRAME
+static void frame_probe_load(void){
+    FILE *file=fopen("frame-probe.cfg","r");if(!file)return;
+    bool has_limit=false;frame_probe.max_frames=3600;frame_probe.max_seconds=30;frame_probe.capture_after_ticks=600;
+    char line[128],key[64];int value;
+    while(fgets(line,sizeof line,file)){
+        if(sscanf(line," %63[^=]=%d",key,&value)!=2)continue;
+        if(!strcmp(key,"force_render"))frame_probe.force_render=value!=0;
+        else if(!strcmp(key,"capture_once"))frame_probe.capture_once=value!=0;
+        else if(!strcmp(key,"exit_after_frames")){has_limit=true;if(value<1)value=1;if(value>3600)value=3600;frame_probe.max_frames=(unsigned)value;}
+        else if(!strcmp(key,"exit_after_seconds")){has_limit=true;if(value<1)value=1;if(value>120)value=120;frame_probe.max_seconds=(unsigned)value;}
+        else if(!strcmp(key,"capture_after_ticks")){if(value<0)value=0;if(value>3600)value=3600;frame_probe.capture_after_ticks=(unsigned)value;}
+    }
+    fclose(file);unlink("frame-probe.cfg");
+    frame_probe.enabled=frame_probe.force_render||frame_probe.capture_once||has_limit;
+    if(!frame_probe.enabled)return;
+    if(frame_probe.capture_once){
+        unsigned frame_bound=frame_probe.max_frames/2, time_bound=frame_probe.max_seconds*30;
+        unsigned bound=frame_bound<time_bound?frame_bound:time_bound;
+        if(frame_probe.capture_after_ticks>bound){
+            fprintf(stderr,"[vr] Frame probe capture tick %u cannot fit the configured bounds (conservative maximum %u); capture disabled\n",
+                frame_probe.capture_after_ticks,bound);
+            frame_probe.capture_once=false;
+        }
+    }
+    frame_probe.started_ms=frame_probe_now_ms();
+    fprintf(stderr,"[vr] one-shot Frame probe enabled: force_render=%d capture_once=%d capture_after_ticks=%u max_frames=%u max_seconds=%u\n",
+        frame_probe.force_render,frame_probe.capture_once,frame_probe.capture_after_ticks,frame_probe.max_frames,frame_probe.max_seconds);
+}
+static void frame_probe_views(void){
+    const float half_fov=.72f;
+    origin=v3(0,0,0);origin_rotation=(Q4){0,0,0,1};origin_set=true;recenter_requested=false;
+    for(int eye=0;eye<2;eye++){
+        views[eye]=(XrView){XR_TYPE_VIEW};views[eye].pose.orientation.w=1;
+        views[eye].pose.position=(XrVector3f){eye?.032f:-.032f,1.65f,0};
+        views[eye].fov=(XrFovf){-half_fov,half_fov,half_fov,-half_fov};
+    }
+}
+static void frame_probe_finish(const char *reason){
+    fprintf(stderr,"[vr] one-shot Frame probe exited (%s) after %u XR frame steps and %u arcade updates\n",
+        reason,frame_probe.frames,frame_probe.game_ticks);
+    if(frame_probe.capture_once)fprintf(stderr,"[vr] Frame probe exited without paired eye capture at tick %u/%u\n",
+        frame_probe.game_ticks,frame_probe.capture_after_ticks);
+    if(frame_probe.owns_capture_marker)unlink("capture.request");
+    frame_probe.enabled=false;quit=true;
+}
+static void frame_probe_game_tick(void){
+    if(!frame_probe.enabled||!frame_probe.force_render||paused)return;
+    frame_probe.game_ticks++;
+    if(frame_probe.capture_once&&frame_probe.game_ticks>=frame_probe.capture_after_ticks&&access("capture.request",F_OK)!=0){
+        FILE *marker=fopen("capture.request","w");
+        if(marker){fclose(marker);frame_probe.owns_capture_marker=true;fprintf(stderr,"[vr] Frame probe capture armed at arcade tick %u\n",frame_probe.game_ticks);}
+    }
+}
+#endif
 static int weapon_hand(void){return active_weapon_hand;}
 static void reset_fire_input(void){
     tracer.active=false;
@@ -176,6 +284,9 @@ static void reset_distance_input(void){page_armed=false;distance_armed=false;dis
 static void reset_input_edges(void){
     filter_armed=false;
     coin_button=recenter_button=pause_button=laser_button=cover_button=hand_button=pitch_reset_button=(ButtonEdge){0};
+#ifdef TCVR_STEAM_FRAME
+    view_hold=(ViewHold){0};
+#endif
     reset_pitch_input();
     reset_distance_input();
     reset_fire_input();
@@ -205,9 +316,33 @@ static void set_resolution(int preset){
     options.resolution=preset;options_saved=qoptions_save(options_path,&options);
     fprintf(stderr,"[OPTIONS] resolution %s per eye; saved %d; restart to apply\n",qresolution_labels[preset],options_saved);
 }
+static ButtonEdge lobby_accept,lobby_back,lobby_view;
+static bool lobby_nav_armed,lobby_fire_armed;
+/* LAN play follows the option pages; its lobby is modal and its own Back
+ * returns to the first page. */
+enum { OPTIONS_LAN_PAGE=QOPTIONS_PAGE_COUNT,OPTIONS_PAGES=QOPTIONS_PAGE_COUNT+1 };
+/* Opened from the arcade's SOLO/LINKED choice: leaving the lobby resumes play. */
+static bool lan_from_arcade;
+static void show_lan_page(void){
+    options_page=OPTIONS_LAN_PAGE;qlobby_show();lobby_nav_armed=lobby_fire_armed=false;
+    lobby_accept=lobby_back=lobby_view=(ButtonEdge){0};reset_fire_input();
+}
 static void change_options_page(int direction){
-    options_page=(options_page+direction+QOPTIONS_PAGE_COUNT)%QOPTIONS_PAGE_COUNT;
+    options_page=(options_page+direction+OPTIONS_PAGES)%OPTIONS_PAGES;
     reset_pitch_input();reset_distance_input();
+    if(options_page==OPTIONS_LAN_PAGE)show_lan_page();
+}
+void qvr_open_lan_from_arcade(void){
+    if(paused||qlobby_visible())return;
+    paused=true;lan_from_arcade=true;game_deadline=0;reset_pitch_input();reset_distance_input();
+    ss22_input_neutral();tc2_audio_volume(0);show_lan_page();
+}
+/* The lobby has closed: back to the first options page, or straight back to
+ * the game when the arcade's mode screen opened it. */
+static void lan_page_closed(void){
+    if(qlobby_visible()||options_page!=OPTIONS_LAN_PAGE)return;
+    options_page=0;
+    if(lan_from_arcade){lan_from_arcade=false;paused=false;game_deadline=0;reset_fire_input();tc2_audio_volume(100);}
 }
 static void set_gun_pitch(int value){
     if(value<QOPTIONS_GUN_PITCH_MIN)value=QOPTIONS_GUN_PITCH_MIN;
@@ -292,6 +427,37 @@ static bool actions_init(void){
        !action(&pitch_reset_action,"gun_angle_reset","Reset gun angle in options",XR_ACTION_TYPE_BOOLEAN_INPUT,false)||
        !action(&distance_action,"view_distance","Adjust view distance in options",XR_ACTION_TYPE_VECTOR2F_INPUT,false)||
        !action(&haptic_action,"recoil","Gun recoil",XR_ACTION_TYPE_VIBRATION_OUTPUT,true))return false;
+#ifdef TCVR_STEAM_FRAME
+    if(!action(&view_action,"view_recenter","Hold View to recenter or calibrate",XR_ACTION_TYPE_BOOLEAN_INPUT,true)||
+       !action(&cover_mode_action,"cover_mode","Change cover mode in options",XR_ACTION_TYPE_BOOLEAN_INPUT,false))return false;
+    frame_profile_path=path("/interaction_profiles/valve/frame_controller_valve");
+    touch_profile_path=path("/interaction_profiles/oculus/touch_controller");
+    if(frame_profile_supported){
+        XrActionSuggestedBinding frame[]={
+            {aim_action,path("/user/hand/left/input/aim/pose")},
+            {aim_action,path("/user/hand/right/input/aim/pose")},
+            {trigger_action,path("/user/hand/left/input/trigger/value")},
+            {trigger_action,path("/user/hand/right/input/trigger/value")},
+            {grip_action,path("/user/hand/left/input/squeeze/value")},
+            {grip_action,path("/user/hand/right/input/squeeze/value")},
+            {lower_action,path("/user/hand/right/input/a/click")},
+            {upper_action,path("/user/hand/right/input/b/click")},
+            {cover_mode_action,path("/user/hand/right/input/x/click")},
+            {pause_action,path("/user/hand/right/input/menu/click")},
+            {view_action,path("/user/hand/left/input/view/click")},
+            {hand_action,path("/user/hand/right/input/thumbstick/click")},
+            {pitch_action,path("/user/hand/right/input/thumbstick")},
+            {pitch_reset_action,path("/user/hand/left/input/thumbstick/click")},
+            {distance_action,path("/user/hand/left/input/thumbstick")},
+            {haptic_action,path("/user/hand/left/output/haptic")},
+            {haptic_action,path("/user/hand/right/output/haptic")}};
+        XrInteractionProfileSuggestedBinding frame_suggest={XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING};
+        frame_suggest.interactionProfile=frame_profile_path;
+        frame_suggest.countSuggestedBindings=(uint32_t)(sizeof frame/sizeof frame[0]);
+        frame_suggest.suggestedBindings=frame;
+        if(!XR(xrSuggestInteractionProfileBindings(instance,&frame_suggest)))return false;
+    }
+#endif
     XrActionSuggestedBinding bindings[]={
         {aim_action,path("/user/hand/left/input/aim/pose")},
         {aim_action,path("/user/hand/right/input/aim/pose")},
@@ -311,7 +477,12 @@ static bool actions_init(void){
         {haptic_action,path("/user/hand/left/output/haptic")},
         {haptic_action,path("/user/hand/right/output/haptic")}};
     XrInteractionProfileSuggestedBinding suggest={XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING};
-    suggest.interactionProfile=path("/interaction_profiles/oculus/touch_controller");suggest.countSuggestedBindings=sizeof(bindings)/sizeof(bindings[0]);suggest.suggestedBindings=bindings;
+#ifdef TCVR_STEAM_FRAME
+    suggest.interactionProfile=touch_profile_path;
+#else
+    suggest.interactionProfile=path("/interaction_profiles/oculus/touch_controller");
+#endif
+    suggest.countSuggestedBindings=sizeof(bindings)/sizeof(bindings[0]);suggest.suggestedBindings=bindings;
     if(!XR(xrSuggestInteractionProfileBindings(instance,&suggest)))return false;
     XrSessionActionSetsAttachInfo attach={XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO};attach.countActionSets=1;attach.actionSets=&action_set;
     if(!XR(xrAttachSessionActionSets(session,&attach)))return false;
@@ -319,6 +490,55 @@ static bool actions_init(void){
     for(int i=0;i<HAND_COUNT;i++){space.subactionPath=hand_paths[i];if(!XR(xrCreateActionSpace(session,&space,&aim_spaces[i])))return false;}
     return true;
 }
+#ifdef TCVR_STEAM_FRAME
+static void update_frame_profile(void){
+    if(!session)return;
+    XrInteractionProfileState current={XR_TYPE_INTERACTION_PROFILE_STATE};
+    if(XR_SUCCEEDED(xrGetCurrentInteractionProfile(session,hand_paths[RIGHT_HAND],&current))){
+        bool frame=frame_profile_supported&&current.interactionProfile==frame_profile_path;
+        if(frame!=frame_profile_active){
+            frame_profile_active=frame;reset_input_edges();
+            fprintf(stderr,"[XR] controller profile %s\n",frame?"Steam Frame":"Touch fallback");
+        }
+    }
+}
+static void frame_view_haptic(float amplitude,XrDuration duration){
+    XrHapticActionInfo info={XR_TYPE_HAPTIC_ACTION_INFO};info.action=haptic_action;
+    XrHapticVibration vibration={XR_TYPE_HAPTIC_VIBRATION};
+    vibration.duration=duration;vibration.frequency=XR_FREQUENCY_UNSPECIFIED;vibration.amplitude=amplitude;
+    for(int hand=0;hand<HAND_COUNT;hand++){
+        info.subactionPath=hand_paths[hand];
+        (void)xrApplyHapticFeedback(session,&info,(XrHapticBaseHeader*)&vibration);
+    }
+}
+static void frame_view_button(XrTime time){
+    XrActionStateGetInfo get={XR_TYPE_ACTION_STATE_GET_INFO};get.action=view_action;get.subactionPath=hand_paths[LEFT_HAND];
+    XrActionStateBoolean current={XR_TYPE_ACTION_STATE_BOOLEAN};
+    if(XR_FAILED(xrGetActionStateBoolean(session,&get,&current))||!current.isActive){view_hold=(ViewHold){0};return;}
+    bool down=current.currentState;
+    if(!view_hold.synced){view_hold.synced=true;view_hold.down=down;view_hold.ignored=down;view_hold.down_since=down?time:0;return;}
+    if(down&&!view_hold.down){view_hold.down=true;view_hold.ignored=false;view_hold.did_recenter=false;view_hold.did_calibrate=false;view_hold.down_since=time;}
+    if(down&&view_hold.down&&!view_hold.ignored){
+        XrTime held=time-view_hold.down_since;
+        if(held>=1000000000LL&&!view_hold.did_recenter){
+            recenter_requested=true;view_hold.did_recenter=true;frame_view_haptic(.6f,80000000LL);
+            fprintf(stderr,"[XR] View hold: recenter requested\n");
+        }
+        if(held>=3000000000LL&&!view_hold.did_calibrate){
+            recenter_requested=true;recenter_calibration_requested=true;cover_calibration_pending=true;view_hold.did_calibrate=true;
+            frame_view_haptic(.6f,80000000LL);
+            fprintf(stderr,"[XR] View hold: upright height calibration requested\n");
+        }
+    }
+    if(!down&&view_hold.down){
+        if(!view_hold.ignored&&!view_hold.did_recenter&&paused){
+            paused=false;reset_fire_input();reset_pitch_input();game_deadline=0;tc2_audio_volume(100);ss22_input_neutral();
+            fprintf(stderr,"[XR] View tap: resume\n");
+        }
+        view_hold.down=false;view_hold.ignored=false;view_hold.did_recenter=false;view_hold.did_calibrate=false;view_hold.down_since=0;
+    }
+}
+#endif
 /* Fresh edges only: a held button across focus/tracking loss cannot change a setting. */
 static bool pressed(XrAction a,XrPath hand,ButtonEdge *button){
     XrActionStateGetInfo info={XR_TYPE_ACTION_STATE_GET_INFO};info.action=a;info.subactionPath=hand;
@@ -388,23 +608,50 @@ static void adjust_view_distance(XrTime time){
 }
 static V3 vec(XrVector3f v){return v3(v.x,v.y,v.z);}
 static Q4 quat(XrQuaternionf q){return (Q4){q.x,q.y,q.z,q.w};}
-static V3 relative_position(XrVector3f p){return rotate(conjugate(origin_rotation),sub(vec(p),origin));}
+static V3 tracked_position(XrVector3f p){return rotate(conjugate(origin_rotation),sub(vec(p),origin));}
+static V3 relative_position(XrVector3f p){return add(tracked_position(p),cover_shift);}
 static Q4 relative_rotation(XrQuaternionf q){return product(conjugate(origin_rotation),quat(q));}
 
-static void capture_eye(int eye,int w,int h){
-    if(access("capture.request",F_OK))return;
-    unsigned char *pixels=malloc((size_t)w*h*4);if(!pixels)return;
+static bool capture_eye(int eye,int w,int h){
+    if(access("capture.request",F_OK))return false;
+#ifdef TCVR_STEAM_FRAME
+    if(frame_probe.enabled&&frame_probe.capture_once&&eye==0)frame_probe_captured_eyes=0;
+#endif
+    unsigned char *pixels=malloc((size_t)w*h*4);if(!pixels)return false;
     glPixelStorei(GL_PACK_ALIGNMENT,1);glReadPixels(0,0,w,h,GL_RGBA,GL_UNSIGNED_BYTE,pixels);
     char name[32];snprintf(name,sizeof name,"eye-%d.ppm",eye);FILE *f=fopen(name,"wb");
-    if(f){fprintf(f,"P6\n%d %d\n255\n",w,h);for(int y=h-1;y>=0;y--)for(int x=0;x<w;x++)fwrite(pixels+((size_t)y*w+x)*4,1,3,f);fclose(f);fprintf(stderr,"[XR] captured %s\n",name);}
-    free(pixels);if(eye==1)unlink("capture.request");
+    bool saved=false;
+    if(f){
+        saved=fprintf(f,"P6\n%d %d\n255\n",w,h)>0;
+        for(int y=h-1;y>=0&&saved;y--)for(int x=0;x<w;x++)if(fwrite(pixels+((size_t)y*w+x)*4,1,3,f)!=3){saved=false;break;}
+        if(fclose(f))saved=false;
+        if(saved)fprintf(stderr,"[XR] captured %s\n",name);else fprintf(stderr,"[XR] failed to finish %s\n",name);
+    }
+    free(pixels);
+#ifdef TCVR_STEAM_FRAME
+    if(frame_probe.enabled&&frame_probe.capture_once){
+        if(saved)frame_probe_captured_eyes|=1u<<(unsigned)eye;
+        if(frame_probe_captured_eyes==3u){unlink("capture.request");frame_probe.capture_once=false;}
+    }else
+#endif
+    if(eye==1)unlink("capture.request");
+    return saved;
 }
 
 static bool events(void){
+    qkeyboard_update();
     SDL_Event s;while(SDL_PollEvent(&s)){
+        if(qkeyboard_event(&s))continue;
         if(s.type==SDL_QUIT)quit=true;
 #ifdef TCVR_PC
         if(s.type==SDL_KEYDOWN&&!s.key.repeat){
+            if(qlobby_visible()){
+                switch(s.key.keysym.sym){
+                    case SDLK_UP:qlobby_input(QL_UP);break;case SDLK_DOWN:qlobby_input(QL_DOWN);break;
+                    case SDLK_LEFT:qlobby_input(QL_LEFT);break;case SDLK_RIGHT:qlobby_input(QL_RIGHT);break;
+                    case SDLK_RETURN:qlobby_input(QL_ACCEPT);break;case SDLK_ESCAPE:qlobby_input(QL_BACK);break;
+                }continue;
+            }
             if(s.key.keysym.sym==SDLK_ESCAPE){paused=!paused;filter_armed=false;reset_fire_input();reset_pitch_input();reset_distance_input();ss22_input_neutral();}
             if(s.key.keysym.sym==SDLK_c||s.key.keysym.sym==SDLK_5)coin_frames=48;
             if(s.key.keysym.sym==SDLK_l)cycle_aim_guide();
@@ -431,13 +678,28 @@ static bool events(void){
         if(e.type==XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED){
             XrEventDataSessionStateChanged *change=(void*)&e;state=change->state;
             fprintf(stderr,"[XR] session state %d\n",state);
-            if(state==XR_SESSION_STATE_READY){XrSessionBeginInfo b={XR_TYPE_SESSION_BEGIN_INFO};b.primaryViewConfigurationType=XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;if(!XR(xrBeginSession(session,&b)))return false;running=true;game_deadline=0;performance_start();}
+            if(state==XR_SESSION_STATE_READY){XrSessionBeginInfo b={XR_TYPE_SESSION_BEGIN_INFO};b.primaryViewConfigurationType=XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;if(!XR(xrBeginSession(session,&b)))return false;running=true;game_deadline=0;performance_start();
+#ifdef TCVR_STEAM_FRAME
+                update_frame_profile();
+#endif
+            }
             if(state==XR_SESSION_STATE_STOPPING){if(running)xrEndSession(session);running=false;game_deadline=0;}
             if(state==XR_SESSION_STATE_EXITING||state==XR_SESSION_STATE_LOSS_PENDING)quit=true;
             bool focus=state==XR_SESSION_STATE_FOCUSED;
-            if(focused!=focus){focused=focus;reset_input_edges();game_deadline=0;ss22_input_neutral();tc2_audio_volume(focus&&!paused?100:0);if(focus){rate_attempts=0;rate_check_time=0;}}
+            if(focused!=focus){focused=focus;reset_input_edges();game_deadline=0;ss22_input_neutral();tc2_audio_volume(focus&&!paused?100:0);
+#ifndef TCVR_STEAM_FRAME
+                if(focus){rate_attempts=0;rate_check_time=0;}
+#endif
+            }
         }else if(e.type==XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING)quit=true;
-        else if(e.type==XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING){recenter_requested=true;}
+        else if(e.type==XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING){recenter_requested=true;
+#ifdef TCVR_STEAM_FRAME
+            recenter_calibration_requested=true;
+#endif
+        }
+#ifdef TCVR_STEAM_FRAME
+        else if(e.type==XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED)update_frame_profile();
+#endif
         else if(e.type==XR_TYPE_EVENT_DATA_DISPLAY_REFRESH_RATE_CHANGED_FB){
             XrEventDataDisplayRefreshRateChangedFB *rate=(void*)&e;game_deadline=0;
             fprintf(stderr,"[XR] display changed %.0f -> %.0f Hz\n",rate->fromDisplayRefreshRate,rate->toDisplayRefreshRate);
@@ -448,19 +710,95 @@ static bool events(void){
         }
         e=(XrEventDataBuffer){XR_TYPE_EVENT_DATA_BUFFER};
     }
+#ifdef TCVR_STEAM_FRAME
+    if(frame_probe.enabled&&frame_probe_now_ms()-frame_probe.started_ms>=frame_probe.max_seconds*1000ULL){
+        fprintf(stderr,"[vr] one-shot Frame probe reached its %u second deadline\n",frame_probe.max_seconds);
+        frame_probe_finish("time limit");
+    }
+#endif
     return !quit&&(result==XR_EVENT_UNAVAILABLE||XR(result));
 }
+/* The lobby uses the existing right-stick and face/trigger actions on every
+ * platform. Release-to-arm prevents opening input from selecting a menu item. */
+static int lobby_direction=-1;
+static XrTime lobby_repeat;
+static bool lobby_input(XrTime time){
+    XrActionStateGetInfo get={XR_TYPE_ACTION_STATE_GET_INFO};get.action=pitch_action;
+    XrActionStateVector2f stick={XR_TYPE_ACTION_STATE_VECTOR2F};
+    int direction=-1;
+    if(XR_SUCCEEDED(xrGetActionStateVector2f(session,&get,&stick))&&stick.isActive&&isfinite(stick.currentState.x)&&isfinite(stick.currentState.y)){
+        float x=stick.currentState.x,y=stick.currentState.y;
+        if(fabsf(x)<.3f&&fabsf(y)<.3f){lobby_nav_armed=true;lobby_direction=-1;}
+        else if(fabsf(x)>fabsf(y)&&fabsf(x)>.65f)direction=x>0?QL_RIGHT:QL_LEFT;
+        else if(fabsf(y)>.65f)direction=y>0?QL_UP:QL_DOWN;
+    }
+    if(!qlobby_visible()){lan_page_closed();return false;}
+    if(lobby_nav_armed&&direction>=0&&(direction!=lobby_direction||time>=lobby_repeat)){
+        qlobby_input((QLobbyKey)direction);lobby_repeat=time+(direction==lobby_direction?120000000LL:400000000LL);lobby_direction=direction;
+    }
+    bool accept=pressed(lower_action,hand_paths[RIGHT_HAND],&lobby_accept);
+    bool back=pressed(upper_action,hand_paths[RIGHT_HAND],&lobby_back);
+#ifdef TCVR_STEAM_FRAME
+    if(frame_profile_active&&pressed(view_action,hand_paths[LEFT_HAND],&lobby_view))back=true;
+#endif
+    float fire=fmaxf(axis(trigger_action,hand_paths[LEFT_HAND]),axis(trigger_action,hand_paths[RIGHT_HAND]));
+    if(fire<.2f)lobby_fire_armed=true;
+    if(fire>.55f&&lobby_fire_armed){accept=true;lobby_fire_armed=false;}
+    if(back)qlobby_input(QL_BACK);else if(accept)qlobby_input(QL_ACCEPT);
+    ss22_input_neutral();return true;
+}
+static bool linked_game(void){return tc2_link_session()->state==TC2_PLAYING;}
+#ifndef TCVR_INPUT_TEST
+static void lobby_service(void){
+    int change=qlobby_tick(SDL_GetTicks64());
+    if(change){paused=change<0;game_deadline=0;coin_frames=0;reset_fire_input();reset_pitch_input();ss22_input_neutral();tc2_audio_volume(paused?0:100);}
+}
+#endif
+static void cover_buzz(float amplitude){
+    XrHapticActionInfo info={XR_TYPE_HAPTIC_ACTION_INFO};info.action=haptic_action;
+    XrHapticVibration vibration={XR_TYPE_HAPTIC_VIBRATION};
+    vibration.duration=40000000;vibration.frequency=XR_FREQUENCY_UNSPECIFIED;vibration.amplitude=amplitude;
+    for(int hand=0;hand<HAND_COUNT;hand++){info.subactionPath=hand_paths[hand];(void)xrApplyHapticFeedback(session,&info,(XrHapticBaseHeader*)&vibration);}
+}
+/* While the arcade slides into cover, take back the lean that triggered it so
+ * the view lands on the arcade's hidden camera instead of overshooting it. */
+static void update_cover_shift(void){
+    cover_shift=v3(0,0,0);
+    if(!options.physical_crouch||!cover_spot.valid||!cover.calibrated||cover_spot.progress<=0)return;
+    float length=sqrtf(dot(cover_spot.hide,cover_spot.hide));
+    V3 direction=mul(cover_spot.hide,1/length),displacement=sub(cover_head,v3(0,cover.upright_y-origin.y,0));
+    float along=fminf(length,fmaxf(0,dot(displacement,direction)));
+    cover_shift=mul(direction,-along*cover_spot.progress);
+}
 static void sync_input(XrTime time,bool head_tracked,float head_y){
+    static bool keyboard_was_modal;
+    if(qkeyboard_modal()){keyboard_was_modal=true;reset_input_edges();lobby_nav_armed=lobby_fire_armed=false;ss22_input_neutral();return;}
+    if(keyboard_was_modal){keyboard_was_modal=false;reset_input_edges();lobby_accept=lobby_back=lobby_view=(ButtonEdge){0};lobby_nav_armed=lobby_fire_armed=false;ss22_input_neutral();return;}
     trigger=pedal=0;aim_valid=gun_tracked=false;
-    if(!focused){reset_input_edges();return;}
+    if(!focused){reset_input_edges();lobby_nav_armed=lobby_fire_armed=false;return;}
     XrActiveActionSet aset={action_set,XR_NULL_PATH};XrActionsSyncInfo sync={XR_TYPE_ACTIONS_SYNC_INFO};sync.countActiveActionSets=1;sync.activeActionSets=&aset;
-    if(!XR(xrSyncActions(session,&sync))){reset_input_edges();return;}
-    if(pressed(pause_action,XR_NULL_PATH,&pause_button)){paused=!paused;filter_armed=false;reset_fire_input();reset_pitch_input();reset_distance_input();game_deadline=0;tc2_audio_volume(paused?0:100);ss22_input_neutral();}
+    if(!XR(xrSyncActions(session,&sync))){reset_input_edges();lobby_nav_armed=lobby_fire_armed=false;return;}
+    if(pressed(pause_action,XR_NULL_PATH,&pause_button)){if(qlobby_visible()){qlobby_input(QL_BACK);return;}paused=!paused;filter_armed=false;reset_fire_input();reset_pitch_input();reset_distance_input();game_deadline=0;tc2_audio_volume(paused?0:100);ss22_input_neutral();}
+    if(lobby_input(time))return;
     adjust_texture_filter();
     bool change_hand=pressed(hand_action,XR_NULL_PATH,&hand_button);
     if(paused&&change_hand){change_weapon_hand();return;}
     adjust_gun_pitch(time);
     adjust_view_distance(time);
+#ifdef TCVR_STEAM_FRAME
+    if(frame_profile_active){
+        frame_view_button(time);
+        if(pressed(lower_action,hand_paths[RIGHT_HAND],&coin_button))coin_frames=48;
+        if(pressed(upper_action,hand_paths[RIGHT_HAND],&laser_button))cycle_aim_guide();
+        if(paused&&pressed(cover_mode_action,XR_NULL_PATH,&cover_button)){
+            options.physical_crouch=!options.physical_crouch;options_saved=qoptions_save(options_path,&options);
+            if(options.physical_crouch)cover_calibration_pending=true;
+            fprintf(stderr,"[OPTIONS] cover %s; saved %d\n",options.physical_crouch?"PHYSICAL":"GRIP",options_saved);
+        }
+    }else
+#endif
+    {
+    /* Touch roles follow the saved layout, including on Steam Frame fallback. */
     /* Face-button roles follow the saved layout, even during trigger handoffs. */
     int controls=options.left_handed?LEFT_HAND:RIGHT_HAND;XrPath weapon=hand_paths[controls],other=hand_paths[1-controls];
     if(pressed(lower_action,weapon,&coin_button))coin_frames=48;
@@ -472,13 +810,22 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
         if(options.physical_crouch)cover_calibration_pending=true;
         fprintf(stderr,"[OPTIONS] cover %s; saved %d\n",options.physical_crouch?"PHYSICAL":"GRIP",options_saved);
     }
+    }
     if(!origin_set)return;
     if(cover_calibration_pending&&head_tracked){
         qcover_calibrate(&cover,head_y);cover_calibration_pending=false;
         fprintf(stderr,"[COVER] upright height %.3f m\n",head_y);
     }
     /* Cover must work even when the weapon controller is out of view. */
-    bool exposed=qcover_pedal(&cover,head_y,head_tracked);
+    bool exposed;
+    if(options.physical_crouch&&cover_spot.valid){
+        /* Upright point: the recentred spot at the calibrated head height. */
+        V3 displacement=sub(cover_head,v3(0,cover.upright_y-origin.y,0));
+        exposed=qcover_spot_pedal(&cover,cover_spot.hide,displacement,head_tracked,&cover_approach);
+        if(cover.calibrated&&head_tracked&&!paused&&cover.ducked!=cover_spot_hidden){
+            cover_spot_hidden=cover.ducked;cover_buzz(cover.ducked?.6f:.35f);
+        }
+    }else{exposed=qcover_pedal(&cover,head_y,head_tracked);cover_approach=0;cover_spot_hidden=cover.ducked;}
     if(!paused)pedal=options.physical_crouch?(!cover_calibration_pending&&exposed?1.f:0.f):fmaxf(axis(grip_action,hand_paths[LEFT_HAND]),axis(grip_action,hand_paths[RIGHT_HAND]));
     XrSpaceLocation locations[HAND_COUNT];bool tracked[HAND_COUNT]={false,false},edges[HAND_COUNT]={false,false},available[HAND_COUNT];
     XrActionStateFloat fire[HAND_COUNT];
@@ -531,6 +878,9 @@ bool tc2_vr_open(void){
     qoptions_load(options_path,&options);tc2_gl_set_filter(options.texture_filtering);qvr_world_scale=options.world_scale/100.f;active_weapon_hand=options.left_handed?LEFT_HAND:RIGHT_HAND;
     qvr_view_distance=options.view_distance/100.f;
     fprintf(stderr,"[VR SCALE] %.6f reconstructed units/metre; world size %d%%; view distance %d cm\n",qvr_units_per_meter,options.world_scale,options.view_distance);
+#ifdef TCVR_STEAM_FRAME
+    frame_probe_load();
+#endif
     fprintf(stderr,"[OPTIONS] laser %s; cover %s; default hand %s; trigger handoff enabled (left menu: options)\n",options.laser_enabled?"ON":"OFF",options.physical_crouch?"PHYSICAL":"GRIP",options.left_handed?"LEFT":"RIGHT");
     fprintf(stderr,"[OPTIONS] gun angle %+d deg\n",options.gun_pitch);
     if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO|SDL_INIT_EVENTS)!=0)goto fail;
@@ -564,7 +914,7 @@ bool tc2_vr_open(void){
     REQUIRE(xrGetInstanceProcAddr(XR_NULL_HANDLE,"xrInitializeLoaderKHR",(PFN_xrVoidFunction*)&init));
     XrLoaderInitInfoAndroidKHR loader={XR_TYPE_LOADER_INIT_INFO_ANDROID_KHR};loader.applicationVM=vm;loader.applicationContext=activity;
     REQUIRE(init((XrLoaderInitInfoBaseHeaderKHR*)&loader));
-    const char *extensions[5]={XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME,XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME};
+    const char *extensions[6]={XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME,XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME};
     uint32_t extension_count=2;
 #endif
     const char *optional[]={XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME,
@@ -582,6 +932,12 @@ bool tc2_vr_open(void){
     if(XR_SUCCEEDED(enumeration))for(int k=0;k<3;k++)for(uint32_t j=0;j<available_count;j++)if(!strcmp(optional[k],available[j].extensionName)){
         extensions[extension_count++]=optional[k];enabled[k]=true;break;
     }
+#ifdef TCVR_STEAM_FRAME
+    if(XR_SUCCEEDED(enumeration))for(uint32_t j=0;j<available_count;j++)if(!strcmp("XR_VALVE_frame_controller_interaction",available[j].extensionName)){
+        extensions[extension_count++]="XR_VALVE_frame_controller_interaction";frame_profile_supported=true;break;
+    }
+    fprintf(stderr,"[XR] Steam Frame controller profile %s\n",frame_profile_supported?"available":"unavailable; Touch fallback only");
+#endif
     free(available);if(!XR(enumeration))goto fail;
 #ifndef TCVR_PC
     XrInstanceCreateInfoAndroidKHR android={XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR};android.applicationVM=vm;android.applicationActivity=activity;
@@ -631,14 +987,20 @@ bool tc2_vr_open(void){
         if(XR(enumerate_rates(session,0,&count,NULL))&&count){
             float *rates=calloc(count,sizeof *rates);
             if(rates&&XR(enumerate_rates(session,count,&count,rates))){
-                /* Multiview and shared sprite images leave more headroom for
-                 * 120 Hz. A private override permits other benchmarks. */
+                /* SteamVR owns Frame's display mode; other Android/PC builds
+                 * retain their existing 120 Hz request policy. */
+#ifndef TCVR_STEAM_FRAME
                 float wanted=120;FILE *config=fopen("refresh-rate.txt","r");if(config){if(fscanf(config,"%f",&wanted)!=1)wanted=120;fclose(config);}
+#endif
                 fprintf(stderr,"[XR] supported refresh rates:");
                 for(uint32_t j=0;j<count;j++)fprintf(stderr," %.0f",rates[j]);
+#ifdef TCVR_STEAM_FRAME
+                fprintf(stderr," Hz; Frame follows SteamVR's selected display mode\n");
+#else
                 preferred_rate=qrefresh_choose(rates,count,wanted);
                 fprintf(stderr," Hz\n");
                 fprintf(stderr,"[XR] display preference %.0f Hz; supported selection %.0f Hz\n",wanted,preferred_rate);
+#endif
             }
             free(rates);
         }
@@ -662,12 +1024,22 @@ bool tc2_vr_open(void){
     uint32_t gpu_limit=(uint32_t)(texture_limit<renderbuffer_limit?texture_limit:renderbuffer_limit);
     for(int i=0;i<2;i++){
         struct Eye *eye=&eyes[i];eye->w=configs[i].recommendedImageRectWidth;eye->h=configs[i].recommendedImageRectHeight;
-#ifdef TCVR_PC
+#ifdef TCVR_STEAM_FRAME
+        int target=2160;FILE *display=fopen("frame-display.cfg","r");
+        if(display){char line[128];while(fgets(line,sizeof line,display)){int value;if(sscanf(line,"eye_resolution=%d",&value)==1)target=value;}fclose(display);}
+        qframe_eye_dimensions(eye->w,eye->h,configs[i].maxImageRectWidth,configs[i].maxImageRectHeight,target,&eye->w,&eye->h);
+        fprintf(stderr,"[vr] eye %d recommended %ux%u runtime max %ux%u target max %d actual %ux%u\n",
+            i,configs[i].recommendedImageRectWidth,configs[i].recommendedImageRectHeight,
+            configs[i].maxImageRectWidth,configs[i].maxImageRectHeight,
+            target<512?512:target>2160?2160:target,eye->w,eye->h);
+#elif defined(TCVR_PC)
         float factor=fminf(1,2160.f/fmaxf(eye->w,eye->h));
 #else
         float factor=fminf(1,1440.f/fmaxf(eye->w,eye->h));
 #endif
-       eye->w=(uint32_t)(eye->w*factor);eye->h=(uint32_t)(eye->h*factor);
+#ifndef TCVR_STEAM_FRAME
+        eye->w=(uint32_t)(eye->w*factor);eye->h=(uint32_t)(eye->h*factor);
+#endif
         uint32_t max_w=configs[i].maxImageRectWidth,max_h=configs[i].maxImageRectHeight;
         if(max_w>gpu_limit)max_w=gpu_limit;if(max_h>gpu_limit)max_h=gpu_limit;
         if(max_w>(uint32_t)viewport_limit[0])max_w=(uint32_t)viewport_limit[0];
@@ -685,7 +1057,9 @@ bool tc2_vr_open(void){
         for(uint32_t j=0;j<eye->n;j++){glBindFramebuffer(GL_FRAMEBUFFER,eye->fb[j]);glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,eye->images[j].image,0);glFramebufferRenderbuffer(GL_FRAMEBUFFER,GL_DEPTH_ATTACHMENT,GL_RENDERBUFFER,eye->depth);if(glCheckFramebufferStatus(GL_FRAMEBUFFER)!=GL_FRAMEBUFFER_COMPLETE)goto fail;}
         views[i]=(XrView){XR_TYPE_VIEW};
     }
+#ifdef TCVR_PC
 graphics_ready:
+#endif
     if(!qgl_init())goto fail;
 #ifndef TCVR_PC
     multiview=false; /* TC2 priority and gamma passes currently render each eye separately. */
@@ -695,6 +1069,7 @@ graphics_ready:
         fprintf(stderr,"[GUN] Machine gun asset unavailable; using pistol fallback\n");
     if(!qui_init())goto fail;
     qui_set_resolution(options.resolution,eyes[0].w,eyes[0].h);
+    if(!qsafe_init())fprintf(stderr,"[SAFE] signpost unavailable; physical cover still works\n");
     if(!tc2_gl_init())goto fail;
     void ss22_gl_set_gun_flash(int);ss22_gl_set_gun_flash(0);tc2_audio_open();
     active=true;fprintf(stderr,"[XR] Renderer initialized: %ux%u per eye; %s\n",eyes[0].w,eyes[0].h,glGetString(GL_RENDERER));return true;
@@ -708,6 +1083,8 @@ static bool desktop_frame(void){
     static Uint64 deadline;static unsigned frame_number;bool fast=getenv("TCVR_FAST")!=NULL;
     for(;;){
         if(!events())return false;
+        lobby_service();lan_page_closed();
+        if(tc2_link_session()->restart)return true;
         int w,h,mx,my;SDL_GL_GetDrawableSize(window,&w,&h);int lw,lh;SDL_GetWindowSize(window,&lw,&lh);
         if(w<=0||h<=0||lw<=0||lh<=0){SDL_Delay(20);continue;}
         Uint32 mouse=SDL_GetMouseState(&mx,&my);focused=!!(SDL_GetWindowFlags(window)&SDL_WINDOW_INPUT_FOCUS);
@@ -724,14 +1101,14 @@ static bool desktop_frame(void){
         if((float)w/h>4.f/3.f){p[0]*=(float)vw/w;}else{p[5]*=(float)vh/h;}
         hud_camera();qgl_target(0,0);qgl_eye(v,p);qtc2_draw(v,p,w,h,0);qgl_flush();
         if(options.laser_enabled&&aim_valid&&!paused){qgl_pointer(v3(.24f,-.24f,-.45f),v3((nx-.5f)*3.2f,(.5f-ny)*2.4f,-2.5f));qgl_flush();}
-        if(paused)qui_draw(v,p,v3(0,0,0),(Q4){0,0,0,1},&options,options_page,qtc2_cabinet_side,options_saved);
+        if(paused)qui_draw(v,p,v3(0,0,0),(Q4){0,0,0,1},&options,options_page,qtc2_cabinet_side,frame_profile_active,options_saved);
         const char *capture_frame=getenv("TCVR_CAPTURE_FRAME");
         if(capture_frame&&++frame_number==strtoul(capture_frame,NULL,10)){FILE *f=fopen("capture.request","w");if(f)fclose(f);}
         if(!access("capture.request",F_OK)){capture_eye(0,w,h);unlink("capture.request");}
         GLenum error=glGetError();if(error)fprintf(stderr,"[GL] desktop error 0x%x\n",error);
         SDL_GL_SwapWindow(window);
         if(!fast){Uint64 now=SDL_GetPerformanceCounter(),freq=SDL_GetPerformanceFrequency();if(!deadline||now>deadline+freq/4)deadline=now;deadline+=freq*1000/59906;while((now=SDL_GetPerformanceCounter())<deadline)SDL_Delay(1);}
-        if(!paused){ss22_input_update();return true;}
+        if(!paused||linked_game()){ss22_input_update();return true;}
     }
 }
 #endif
@@ -742,11 +1119,26 @@ bool ss22_host_frame(void){
     /* The original game runs at 59.906 Hz. Submit additional poses without advancing its CPU at headset refresh. */
     for(;;){
         if(!events())return false;
-        if(!running){SDL_Delay(10);continue;}
-        if(game_deadline&&focused&&!paused&&last_tracking&&last_display_time>=game_deadline){
-            if(qclock_take(&game_deadline,last_display_time)){ss22_input_update();return true;}
+        lobby_service();
+        if(tc2_link_session()->restart)return true;
+#ifdef TCVR_STEAM_FRAME
+        bool probe_exit_after_frame=false;
+#endif
+        if(!running){
+            SDL_Delay(10);continue;
+        }
+        if(game_deadline&&(linked_game()||(focused&&!paused&&last_tracking))&&last_display_time>=game_deadline){
+            if(qclock_take(&game_deadline,last_display_time)){
+#ifdef TCVR_STEAM_FRAME
+                frame_probe_game_tick();
+#endif
+                ss22_input_update();return true;
+            }
         }
         XrFrameWaitInfo wi={XR_TYPE_FRAME_WAIT_INFO};XrFrameState frame={XR_TYPE_FRAME_STATE};if(!XR(xrWaitFrame(session,&wi,&frame)))return false;
+#ifdef TCVR_STEAM_FRAME
+        if(frame_probe.enabled){frame_probe.frames++;probe_exit_after_frame=frame_probe.frames>=frame_probe.max_frames;}
+#endif
         display_rate_check(frame.predictedDisplayTime);
         uint64_t render_start=SDL_GetPerformanceCounter();
         double cpu_start=cpu_ms(),stage_start=wall_ms(),parts[6]={0};
@@ -755,13 +1147,27 @@ bool ss22_host_frame(void){
         bool located=XR(xrLocateViews(session,&li,&vs,2,&n,views));
         XrViewStateFlags valid=XR_VIEW_STATE_ORIENTATION_VALID_BIT|XR_VIEW_STATE_POSITION_VALID_BIT;
         bool tracking=located&&n==2&&(vs.viewStateFlags&valid)==valid;
+#ifdef TCVR_STEAM_FRAME
+        if(frame_probe.enabled&&frame_probe.force_render&&(!focused||!frame.shouldRender||!tracking)){frame_probe_views();tracking=true;}
+#endif
         last_display_time=frame.predictedDisplayTime;last_tracking=tracking;
         if(tracking&&(!origin_set||recenter_requested)){
             origin=mul(add(vec(views[0].pose.position),vec(views[1].pose.position)),.5f);origin_rotation=yaw_only(quat(views[0].pose.orientation));origin_set=true;recenter_requested=false;
+#ifdef TCVR_STEAM_FRAME
+            if(!frame_profile_active||recenter_calibration_requested)cover_calibration_pending=true;
+            recenter_calibration_requested=false;
+#else
             cover_calibration_pending=true;
+#endif
         }
         bool head_tracked=tracking&&frame.shouldRender&&(vs.viewStateFlags&XR_VIEW_STATE_POSITION_TRACKED_BIT);
+#ifdef TCVR_STEAM_FRAME
+        if(frame_probe.enabled&&frame_probe.force_render){trigger=pedal=0;coin_frames=0;aim_valid=gun_tracked=false;reset_input_edges();ss22_input_neutral();}
+        else
+#endif
+        cover_head=mul(add(tracked_position(views[0].pose.position),tracked_position(views[1].pose.position)),.5f);
         sync_input(frame.predictedDisplayTime,head_tracked,(views[0].pose.position.y+views[1].pose.position.y)*.5f);
+        update_cover_shift();
         parts[0]+=wall_ms()-stage_start;
         uint64_t feedback_time=SDL_GetTicks64();
         float shot_age=recoil_started?(float)(feedback_time-recoil_started):-1;
@@ -769,6 +1175,9 @@ bool ss22_host_frame(void){
         float recoil=qgun_recoil(shot_age),flash=paused?0:qgun_flash(shot_age);
         XrCompositionLayerProjectionView pv[2]={{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW},{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};
         bool draw_frame=frame.shouldRender&&tracking;
+#ifdef TCVR_STEAM_FRAME
+        draw_frame=draw_frame||(frame_probe.enabled&&frame_probe.force_render);
+#endif
         bool frame_ok=true;
         float v[2][16],p[2][16];
         for(int i=0;i<2;i++){
@@ -794,9 +1203,16 @@ bool ss22_host_frame(void){
             qgl_flush();
             parts[2]+=wall_ms()-stage_start;stage_start=wall_ms();
             if(focused&&gun_tracked)qgun_draw(v[i],p[i],gun_position,gun_rotation,recoil,trigger,flash);
+            if(focused&&!paused&&options.physical_crouch&&cover_spot.valid&&cover_spot.exposed&&!cover.ducked&&cover.calibrated&&head_tracked){
+                /* The mark is where the head must go; the sign stands half a
+                 * metre beyond it so it stays readable, arrow along the slide. */
+                float length=sqrtf(dot(cover_spot.hide,cover_spot.hide));V3 direction=mul(cover_spot.hide,1/length);
+                V3 mark=add(v3(0,cover.upright_y-origin.y,0),mul(direction,qcover_reach(cover_spot.hide)));
+                qsafe_draw(v[i],p[i],add(mark,v3(0,0,-.55f)),atan2f(direction.y,direction.x),cover_approach,(SDL_GetTicks64()/250)%2==0);
+            }
             if(focused&&paused){
                 V3 head=mul(add(relative_position(views[0].pose.position),relative_position(views[1].pose.position)),.5f);
-                qui_draw(v[i],p[i],head,relative_rotation(views[0].pose.orientation),&options,options_page,qtc2_cabinet_side,options_saved);
+                qui_draw(v[i],p[i],head,relative_rotation(views[0].pose.orientation),&options,options_page,qtc2_cabinet_side,frame_profile_active,options_saved);
             }
             capture_eye(i,eye->w,eye->h);
             parts[3]+=wall_ms()-stage_start;stage_start=wall_ms();
@@ -817,15 +1233,27 @@ bool ss22_host_frame(void){
         }
         XrCompositionLayerProjection layer={XR_TYPE_COMPOSITION_LAYER_PROJECTION};layer.space=local_space;layer.viewCount=2;layer.views=pv;
         const XrCompositionLayerBaseHeader *layers[]={(const XrCompositionLayerBaseHeader*)&layer};
-        XrFrameEndInfo end={XR_TYPE_FRAME_END_INFO};end.displayTime=frame.predictedDisplayTime;end.environmentBlendMode=XR_ENVIRONMENT_BLEND_MODE_OPAQUE;end.layerCount=draw_frame&&frame_ok?1:0;end.layers=layers;
+        XrFrameEndInfo end={XR_TYPE_FRAME_END_INFO};end.displayTime=frame.predictedDisplayTime;end.environmentBlendMode=XR_ENVIRONMENT_BLEND_MODE_OPAQUE;end.layerCount=frame.shouldRender&&tracking&&frame_ok?1:0;end.layers=layers;
         stage_start=wall_ms();
         if(!XR(xrEndFrame(session,&end))||!frame_ok)return false;
         parts[5]+=wall_ms()-stage_start;
+#ifdef TCVR_STEAM_FRAME
+        if(probe_exit_after_frame){frame_probe_finish("frame limit");return false;}
+#endif
         if(draw_frame&&focused&&!paused){for(int j=0;j<6;j++)profile_parts[j]+=parts[j];profile_thread+=cpu_ms()-cpu_start;}
         else{memset(profile_parts,0,sizeof profile_parts);profile_thread=0;}
         frame_profile(render_start,frame.predictedDisplayPeriod,draw_frame&&focused&&!paused);
-        if(!focused||paused||!tracking){ss22_input_neutral();game_deadline=0;continue;}
-        if(qclock_take(&game_deadline,frame.predictedDisplayTime)){ss22_input_update();return true;}
+        bool probe_simulation=false;
+#ifdef TCVR_STEAM_FRAME
+        probe_simulation=frame_probe.enabled&&frame_probe.force_render&&!paused;
+#endif
+        if(!linked_game()&&(paused||((!focused||!tracking)&&!probe_simulation))){ss22_input_neutral();game_deadline=0;continue;}
+        if(qclock_take(&game_deadline,frame.predictedDisplayTime)){
+#ifdef TCVR_STEAM_FRAME
+            frame_probe_game_tick();
+#endif
+            ss22_input_update();return true;
+        }
     }
 }
 #endif
@@ -869,13 +1297,30 @@ bool ss22_host_open_headless(void){return false;}
 bool ss22_host_pointer(float *x,float *y,bool *inside){*x=nx;*y=ny;*inside=aim_valid;return active;}
 void ss22_host_shot(const char *p){(void)p;}
 void ss22_host_close(void){
+    qkeyboard_shutdown();
+    tc2_link_leave();
     active=false;
-    if(context&&gpu_ready){qui_shutdown();qgun_shutdown();qgl_shutdown();}
+#ifdef TCVR_STEAM_FRAME
+    if(frame_probe.owns_capture_marker)unlink("capture.request");
+    fprintf(stderr,"[TC2VR] host close: graphics destruction begin\n");
+#endif
+    if(context&&gpu_ready){qsafe_shutdown();qui_shutdown();qgun_shutdown();qgl_shutdown();}
+#ifdef TCVR_STEAM_FRAME
+    fprintf(stderr,"[TC2VR] host close: graphics destruction complete\n");
+    fprintf(stderr,"[TC2VR] host close: OpenXR destruction begin\n");
+#endif
     for(int i=0;i<2;i++){if(context&&gpu_ready&&eyes[i].fb)glDeleteFramebuffers(eyes[i].n,eyes[i].fb);if(context&&gpu_ready)glDeleteRenderbuffers(1,&eyes[i].depth);if(eyes[i].chain)xrDestroySwapchain(eyes[i].chain);free(eyes[i].images);free(eyes[i].fb);memset(&eyes[i],0,sizeof eyes[i]);}
     for(int i=0;i<HAND_COUNT;i++){if(aim_spaces[i])xrDestroySpace(aim_spaces[i]);aim_spaces[i]=0;}
     if(local_space)xrDestroySpace(local_space);
     if(session)xrDestroySession(session);if(action_set)xrDestroyActionSet(action_set);if(instance)xrDestroyInstance(instance);
     local_space=0;session=0;action_set=0;instance=0;running=false;
+#ifdef TCVR_STEAM_FRAME
+    fprintf(stderr,"[TC2VR] host close: OpenXR destruction complete\n");
+    fprintf(stderr,"[TC2VR] host close: SDL destruction begin\n");
+#endif
     if(context)SDL_GL_DeleteContext(context);context=NULL;gpu_ready=false;if(window)SDL_DestroyWindow(window);window=NULL;SDL_Quit();
+#ifdef TCVR_STEAM_FRAME
+    fprintf(stderr,"[TC2VR] host close: SDL_Quit complete\n");
+#endif
 }
 #endif

@@ -1,6 +1,7 @@
 package org.timecrisis2.arcadevr;
 import org.libsdl.app.SDLActivity;
 import android.os.Bundle;
+import org.timecrisis2.frame.FrameStorage;
 import java.io.*;
 import java.security.MessageDigest;
 
@@ -8,6 +9,12 @@ public final class MainActivity extends SDLActivity {
     @Override protected String[] getLibraries() { return new String[]{"SDL2", "openxr_loader", "main"}; }
     @Override public void onCreate(Bundle state) {
         try {
+            if ("org.timecrisis2.frame".equals(getPackageName())) {
+                FrameStorage.prepareRoms(FrameStorage.ROOT, RomInstaller.manifest(getAssets().open("roms.sha256")));
+                installAssets("models");
+                super.onCreate(state);
+                return;
+            }
             // The bundled APK launches this VR activity directly, just as the
             // original working Quest build did. Prepare assets before SDL starts.
             if(!RomInstaller.ready(new File(getFilesDir(),"extracted"),RomInstaller.manifest(getAssets().open("roms.sha256"))))
@@ -18,8 +25,10 @@ public final class MainActivity extends SDLActivity {
         super.onCreate(state);
     }
     private void installAssets(String category) throws Exception {
-        File dir=new File(getFilesDir(),category.equals("roms")?"extracted":category);
-        if(!dir.isDirectory()&&!dir.mkdirs())throw new IOException("Cannot create ROM directory");
+        boolean frame = "org.timecrisis2.frame".equals(getPackageName());
+        File root = frame ? FrameStorage.ROOT : getFilesDir();
+        File dir=new File(root,category.equals("roms")?"extracted":category);
+        if(!dir.isDirectory()&&!dir.mkdirs())throw new IOException("Cannot create asset directory: " + dir);
         // Every asset is checked before use, including after an APK update.
         try(BufferedReader reader=new BufferedReader(new InputStreamReader(getAssets().open(category+".sha256")))) {
             String line;

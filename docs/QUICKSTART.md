@@ -2,7 +2,7 @@
 
 **v0.3.3:** left menu opens options; left stick up/down selects **GRAPHICS**. Right stick left/right selects a per-eye resolution; fully restart the app to apply it. Left grip toggles texture filtering immediately (default ON). Launcher icons and banners are included.
 
-Download **v0.3.3** from the [release page](https://github.com/DR-89/time-crisis-2-vr/releases/tag/v0.3.3). Both packages include the game files and animated weapons.
+Download **v0.3.3** from the [release page](https://github.com/DR-89/time-crisis-2-vr/releases/tag/v0.3.3). Both packages include the game files and animated weapons. Steam Frame builds are separate and ROM-free; see below.
 
 ## Quest 3
 
@@ -20,14 +20,28 @@ Download **v0.3.3** from the [release page](https://github.com/DR-89/time-crisis
 
 See [PCVR setup](PCVR.md) for runtime and troubleshooting details.
 
+## Steam Frame
+
+The Steam Frame build is a standalone ARM64 Android/OpenXR app that SteamOS runs through Lepton, package `org.timecrisis2.frame`. The APK and installer bundle contain no ROM: the installer copies your own `timecrs2.zip` to the Frame, and the app checks all 22 chips by SHA-256 before using it. There is no prebuilt release yet; build it on macOS:
+
+```sh
+python3 tools/bootstrap_frame.py
+python3 tools/build_frame.py --rom "$HOME/Downloads/timecrs2.zip" --jobs 4
+python3 tools/steam_frame/make_bundle.py
+python3 artifacts/steam-frame/bundle/install.py --install --rom "$HOME/Downloads/timecrs2.zip" --host steamos@YOUR_FRAME_ADDRESS
+```
+
+Then launch **TimeCrisis2VR** from the Steam library. See [Steam Frame](STEAM_FRAME_VR.md) for requirements, controls and status.
+
 ## Playing
 
 - **Either trigger:** move the weapon to that hand and shoot.
 - **Hold either grip:** leave cover. **Release both:** hide and reload.
 - **A:** credits. **B:** cycle LASER / OFF / TRACER. **X:** recenter and calibrate upright height.
 - **Left menu button:** options. In options, right stick click changes the default hand; right stick up/down changes **GUN ANGLE**; left stick click resets the angle.
-- **Y in options:** switch physical ducking / grip cover. With physical ducking selected, calibrate upright using **X**, then duck to hide and stand back up to shoot.
+- **Y in options:** switch physical ducking / grip cover. With physical ducking selected, calibrate upright using **X**, then lean or duck the way the **SAFE** sign points to hide, and come back upright to shoot.
 - The arcade selects the machine gun automatically. Hold the trigger for automatic fire outside cover.
+- **LAN play:** after inserting credits, shoot **SOLO/LINKED** on the arcade's mode screen (or move the left stick up through the options pages to **LAN PLAY**). One player hosts, the other uses **Find a Game** (or **Join by IP**); both select Ready and the host starts. See [LAN play](LAN-PLAY.md).
 
 These face buttons assume the default right hand. The saved left-hand layout uses **X** for credits, **Y** for aim mode, **A** for recenter and **B** for cover-mode selection. Trigger handoffs do not change the saved face-button layout.
 

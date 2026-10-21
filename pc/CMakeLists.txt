@@ -25,9 +25,9 @@ add_executable(main pc_main.c pc_gl_context.c vendor/glad/src/gl.c ${TC2_SOURCES
 
 target_compile_definitions(main PRIVATE TCVR TCVR_PC SDL_MAIN_HANDLED XR_USE_PLATFORM_WIN32 XR_USE_GRAPHICS_API_OPENGL)
 target_compile_options(main PRIVATE -O2 -fno-strict-aliasing -fwrapv -Wall -Wno-unused-function -Wno-unused-variable -Wno-misleading-indentation -include "${TC}/include/win_compat.h")
-target_include_directories(main PRIVATE "${ROOT}/quest" "${ROOT}/quest/include" vendor/glad/include "${ROOT}/.tools/zlib/zlib-1.3.1" "${CMAKE_BINARY_DIR}/zlib" "${CMAKE_BINARY_DIR}/compat" "${TC}/gen" "${TC}/include" "${TC}/src" "${TC}/src/eng" "${XR}/include")
+target_include_directories(main PRIVATE ${TC2_EXTRA_INCLUDES} "${ROOT}/quest" "${ROOT}/quest/include" vendor/glad/include "${ROOT}/.tools/zlib/zlib-1.3.1" "${CMAKE_BINARY_DIR}/zlib" "${CMAKE_BINARY_DIR}/compat" "${TC}/gen" "${TC}/include" "${TC}/src" "${TC}/src/eng" "${XR}/include")
 add_library(openxr_loader UNKNOWN IMPORTED)
 set_target_properties(openxr_loader PROPERTIES IMPORTED_LOCATION "${XR}/native/x64/release/lib/openxr_loader.lib")
-target_link_libraries(main SDL2-static openxr_loader zlibstatic opengl32 winpthread)
+target_link_libraries(main SDL2-static openxr_loader zlibstatic opengl32 winpthread ws2_32)
 set_target_properties(main PROPERTIES OUTPUT_NAME TimeCrisis2VR)
 target_link_options(main PRIVATE -static "-Wl,--stack,67108864")
