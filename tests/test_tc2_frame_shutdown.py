@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory(prefix="tc2-frame-shutdown-") as tmp:
         str(ROOT / "tests/tc2_shutdown_overlay_fixture.c"),
         str(ROOT / "quest/quest_main.c"),
         str(ROOT / "quest/tc2_window.c"),
-        "-Wl,-dead_strip", "-o", str(exe),
+        ("-Wl,-dead_strip" if sys.platform == "darwin" else "-Wl,--gc-sections"), "-lm", "-o", str(exe),
     ]
     subprocess.run(command, check=True)
     subprocess.run([str(exe)], check=True, cwd=tmp)

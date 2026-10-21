@@ -1,10 +1,9 @@
-"""Build the Steam Frame (default) or Quest ARM64 Android APK from local macOS toolchains."""
+"""Build the Steam Frame (default) or Quest ARM64 Android APK on macOS or x86_64 Linux (WSL2 on Windows)."""
 from pathlib import Path
 import argparse
 import hashlib
 import json
 import os
-import platform
 import re
 import shutil
 import subprocess
@@ -13,6 +12,7 @@ import tempfile
 import zipfile
 import xml.etree.ElementTree as ET
 
+import host_paths
 import prepare_tc2
 import patch_sdl_frame
 
@@ -68,31 +68,11 @@ def find_executable(name):
 
 
 def android_sdk():
-    configured = os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME")
-    if configured:
-        return Path(configured).expanduser()
-    return Path.home() / "Library" / "Android" / "sdk"
+    return host_paths.android_sdk()
 
 
 def java_home():
-    configured = os.environ.get("JAVA_HOME")
-    candidates = [Path(configured).expanduser()] if configured else []
-    candidates += [
-        Path("/Applications/Android Studio.app/Contents/jbr/Contents/Home"),
-        Path("/Applications/Android Studio Preview.app/Contents/jbr/Contents/Home"),
-        Path("/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"),
-        Path("/usr/local/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"),
-    ]
-    for candidate in candidates:
-        if (candidate / "bin" / "java").is_file() and (candidate / "bin" / "javac").is_file():
-            return candidate
-    for command in ("javac", "java"):
-        located = shutil.which(command)
-        if located:
-            candidate = Path(located).resolve().parent.parent
-            if (candidate / "bin" / "java").is_file() and (candidate / "bin" / "javac").is_file():
-                return candidate
-    raise RuntimeError("JDK 17 is required; set JAVA_HOME or install Android Studio with its JBR")
+    return host_paths.java_home()
 
 
 def tools_root(argument):
@@ -107,8 +87,7 @@ def verify_inputs(sdk, java, tools, ndk, build_tools):
         sdk / "platforms" / "android-34" / "android.jar",
         build_tools / "aapt2", build_tools / "zipalign", build_tools / "lib" / "d8.jar",
         build_tools / "lib" / "apksigner.jar", ndk / "build" / "cmake" / "android.toolchain.cmake",
-        ndk / "toolchains" / "llvm" / "prebuilt" / "darwin-x86_64" / "bin" / "clang",
-        ndk / "toolchains" / "llvm" / "prebuilt" / "darwin-x86_64" / "bin" / "llvm-strip",
+        host_paths.ndk_tool(ndk, "clang"), host_paths.ndk_tool(ndk, "llvm-strip"),
         java / "bin" / "java", java / "bin" / "javac", java / "bin" / "jar", java / "bin" / "keytool",
         sdl / "CMakeLists.txt", sdl / "LICENSE.txt",
         xr / "openxr_loader" / "libs" / "android.arm64-v8a" / "libopenxr_loader.so",
@@ -335,7 +314,7 @@ def package(assets, sdk, java, tools):
     build_tools = sdk / "build-tools" / "35.0.0"
     android_jar = sdk / "platforms" / "android-34" / "android.jar"
     ndk = sdk / "ndk" / "27.2.12479018"
-    strip = ndk / "toolchains" / "llvm" / "prebuilt" / "darwin-x86_64" / "bin" / "llvm-strip"
+    strip = host_paths.ndk_tool(ndk, "llvm-strip")
     sdl = tools / "sdl" / "SDL2-2.30.11"
     xr_root = tools / "openxr"
     xr = xr_root / "prefab" / "modules"
@@ -486,8 +465,10 @@ def main():
     parser.add_argument("--flavor", choices=sorted(FLAVORS), default="frame", help="frame (default) or quest")
     parser.add_argument("--bundle-roms", action="store_true", help="Quest only: private APK containing your own ROM chips")
     args = parser.parse_args()
-    if platform.system() != "Darwin":
-        parser.error("The initial Frame build flavor currently targets macOS hosts")
+    try:
+        host_paths.ndk_host()
+    except RuntimeError as error:
+        parser.error(str(error))
     try:
         select_flavor(args.flavor, args.bundle_roms)
         sdk = android_sdk()

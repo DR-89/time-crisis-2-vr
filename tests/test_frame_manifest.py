@@ -10,8 +10,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import build_frame
 
-SDK = Path(os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME") or
-           Path.home() / "Library" / "Android" / "sdk").expanduser()
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+import host_paths
+SDK = host_paths.android_sdk()
 BUILD_TOOLS = SDK / "build-tools" / "35.0.0"
 AAPT2 = BUILD_TOOLS / "aapt2"
 ANDROID_JAR = SDK / "platforms" / "android-34" / "android.jar"

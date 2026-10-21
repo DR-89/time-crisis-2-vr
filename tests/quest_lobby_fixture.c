@@ -20,7 +20,8 @@ static uint8_t pixels[640*480*4];
 static void capture(const char *dir,const char *name){
     qlobby_render(pixels);char path[1024];snprintf(path,sizeof path,"%s/%s.ppm",dir,name);
     FILE *f=fopen(path,"wb");assert(f);fprintf(f,"P6\n640 480\n255\n");
-    for(int i=0;i<640*480;i++)fwrite(pixels+i*4,1,3,f);fclose(f);
+    for(int i=0;i<640*480;i++)fwrite(pixels+i*4,1,3,f);
+    fclose(f);
 }
 int main(int argc,char **argv){
     assert(argc==2);tc2_link_leave();qlobby_show();assert(qlobby_visible());capture(argv[1],"home");

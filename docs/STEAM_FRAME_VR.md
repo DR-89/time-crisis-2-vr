@@ -11,7 +11,7 @@ A standalone build for the Valve Steam Frame: no PC involved. The Frame runs And
 
 ## Build, install, launch
 
-macOS with JDK 17, CMake, Ninja and the Android SDK (platform 34, build-tools 35.0.0, NDK 27.2.12479018):
+On macOS, x86_64 Linux or Windows through WSL2, with JDK 17, CMake, Ninja and the Android SDK (platform 34, build-tools 35.0.0, NDK 27.2.12479018); the README has the setup commands for each:
 
 ```sh
 python3 tools/bootstrap_frame.py           # SDL 2.30.11 + OpenXR 1.1.43 loader into .tools, hash-checked
@@ -27,7 +27,7 @@ python3 artifacts/steam-frame/bundle/install.py --install --rom "$HOME/Downloads
 
 Add `--identity` if the Frame only accepts a particular key, such as the SteamOS Devkit Client's `devkit_rsa`. The installer refuses to run while a Lepton app is active. It backs up and verifies any existing title and data, copies the APK and the ROM separately, and registers **TimeCrisis2VR** in the Steam library. Launch it from there: SteamVR only gives controller input to apps started by Steam.
 
-`tools/build_frame.py --flavor quest` builds the Quest APK from the same tree on macOS. That is how the Quest side of the LAN tests was built.
+`tools/build_frame.py --flavor quest` builds the Quest APK from the same tree. That is how the Quest side of the LAN tests was built.
 
 ## Controls
 

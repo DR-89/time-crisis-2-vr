@@ -44,7 +44,7 @@ The ROM preparer checks chip sizes and CRCs against the upstream table, records 
 
 ## Steam Frame ARM64 Android flavor
 
-`tools/build_frame.py` is a separate macOS-hosted Frame build. `tools/bootstrap_frame.py` first fetches the pinned SDL 2.30.11 source and Khronos OpenXR 1.1.43 Android loader into `.tools` (or pass `--shared-tools` to reuse another verified cache); the build validates the SDL 2.30.11 and OpenXR 1.1.43 archive hashes, and targets `arm64-v8a` / Android API 29. The expected local SDK is platform 34, build-tools 35.0.0, NDK 27.2.12479018, and JDK 17. Pass the ROM explicitly with `--rom`; generated native inputs are kept under `build/steam-frame`.
+`tools/build_frame.py` is a separate Frame build that runs on macOS, x86_64 Linux or WSL2 (`tools/host_paths.py` picks the SDK, JDK and NDK host tools). `tools/bootstrap_frame.py` first fetches the pinned SDL 2.30.11 source and Khronos OpenXR 1.1.43 Android loader into `.tools` (or pass `--shared-tools` to reuse another verified cache); the build validates the SDL 2.30.11 and OpenXR 1.1.43 archive hashes, and targets `arm64-v8a` / Android API 29. The expected local SDK is platform 34, build-tools 35.0.0, NDK 27.2.12479018, and JDK 17. Pass the ROM explicitly with `--rom`; generated native inputs are kept under `build/steam-frame`.
 
 ```sh
 python3 tools/bootstrap_frame.py
@@ -56,7 +56,7 @@ python3 artifacts/steam-frame/bundle/install.py --dry-run --rom "$HOME/Downloads
 
 The output APK at `artifacts/steam-frame/TimeCrisis2VR-SteamFrame-arm64.apk` includes the 22-chip hash manifest and weapon models, but no ROM chips or archive. The launcher imports a selected archive into persistent `Documents/TimeCrisis2VR`; the native process uses that same directory for extracted chips, configuration, logs and diagnostic captures. `--package-only` requires a source fingerprint receipt written by the native build and rejects stale libraries. The Frame signing key is retained at `~/.config/timecrisis2vr/steam-frame-debug.keystore`, outside disposable build caches.
 
-### Quest flavor on macOS
+### Quest flavor
 
 The same script builds the Quest 3 APK (`org.timecrisis2.arcadevr`) with `--flavor quest`. It compiles the shared host without `TCVR_STEAM_FRAME`, so the LAN lobby, cabinet link and Touch bindings match the Frame build exactly; native inputs live under `build/quest-mac`. The default is ROM-free: the 2D setup activity launches first and imports your `timecrs2.zip`. `--bundle-roms` adds your own verified chips for a private sideload and must never be published.
 

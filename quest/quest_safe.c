@@ -17,7 +17,8 @@ static GLint u_view,u_projection,u_texture,u_tint;
 #endif
 
 static void put(uint8_t *rgba,int x,int y,uint8_t r,uint8_t g,uint8_t b,uint8_t a){
-    if(x<0||y<0||x>=ATLAS_W||y>=ATLAS_H)return;uint8_t *p=rgba+(y*ATLAS_W+x)*4;p[0]=r;p[1]=g;p[2]=b;p[3]=a;
+    if(x<0||y<0||x>=ATLAS_W||y>=ATLAS_H)return;
+    uint8_t *p=rgba+(y*ATLAS_W+x)*4;p[0]=r;p[1]=g;p[2]=b;p[3]=a;
 }
 /* SAFE at three times the 16 px upstream font, inside a black outline. */
 static bool glyph_on(const char *text,int x,int y){

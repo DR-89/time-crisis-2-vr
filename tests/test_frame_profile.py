@@ -2,19 +2,21 @@
 from pathlib import Path
 import os
 import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+import host_paths
 import shutil
 import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-SDK = Path.home() / "Library" / "Android" / "sdk"
+SDK = host_paths.android_sdk()
 NDK = SDK / "ndk" / "27.2.12479018"
 TOOLS = Path(os.environ.get("TCVR_SHARED_TOOLS", ROOT / ".tools")).expanduser()
 SDL = TOOLS / "sdl" / "SDL2-2.30.11"
 OPENXR = TOOLS / "openxr" / "prefab" / "modules" / "headers" / "include"
-SYSROOT = NDK / "toolchains" / "llvm" / "prebuilt" / "darwin-x86_64" / "sysroot"
+SYSROOT = host_paths.ndk_prebuilt(NDK) / "sysroot"
 COMPILER = shutil.which("clang")
-JDK = Path(os.environ.get("JAVA_HOME", "/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home")).expanduser()
+JDK = host_paths.java_home()
 
 if not COMPILER:
     raise SystemExit("clang is required for the production Frame input fixture")
@@ -27,11 +29,11 @@ includes = [
     ROOT / "quest", ROOT / "link", ROOT / "quest/include", ROOT / "build/steam-frame/native/compat",
     ROOT / "upstream/tc2/src", ROOT / "upstream/tc2/src/eng", ROOT / "upstream/tc2/gen",
     ROOT / "upstream/tc2/include", SDL / "include", OPENXR,
-    JDK / "include", JDK / "include/darwin",
+    JDK / "include", JDK / "include" / host_paths.jni_platform_include(),
 ]
 with tempfile.TemporaryDirectory(prefix="tc2-frame-input-") as temp:
     executable = Path(temp) / "frame-input"
-    command = [COMPILER, "-std=c11", "-O1", "-Wall", "-Wextra", "-Wno-unused-function",
+    command = [COMPILER, "-std=c11", "-D_GNU_SOURCE", "-O1", "-Wall", "-Wextra", "-Wno-unused-function",
                "-Wno-unused-variable", "-Wno-missing-field-initializers", "-DTCVR",
                "-DTCVR_STEAM_FRAME", "-DSDL_MAIN_HANDLED", "-DXR_USE_PLATFORM_ANDROID",
                "-DXR_USE_GRAPHICS_API_OPENGL_ES", "-Dgettid=getpid"]

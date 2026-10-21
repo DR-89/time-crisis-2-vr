@@ -16,7 +16,7 @@ Built on the native System 23 reconstruction in **[spacestate1/namco22-decompile
 | --- | --- | --- |
 | Quest 3 standalone | [TimeCrisis2VR-v0.3.3-quest3.apk](https://github.com/DR-89/time-crisis-2-vr/releases/download/v0.3.3/TimeCrisis2VR-v0.3.3-quest3.apk) | Sideload with SideQuest or ADB, then open **Time Crisis II VR (Test)** under Unknown sources. |
 | Windows x64 PCVR / desktop | [TimeCrisis2VR-v0.3.3-windows-x64.zip](https://github.com/DR-89/time-crisis-2-vr/releases/download/v0.3.3/TimeCrisis2VR-v0.3.3-windows-x64.zip) | Extract the entire ZIP. Connect your headset, then run **Play VR.cmd**. |
-| Steam Frame standalone | Build it on a Mac (see [Build from source](#build-from-source)); the APK contains no game files | Install with the bundled installer, then launch **TimeCrisis2VR** from the Steam library. See [Steam Frame](#steam-frame). |
+| Steam Frame standalone | Build it on macOS, Linux or Windows (see [Build from source](#build-from-source)); the APK contains no game files | Install with the bundled installer, then launch **TimeCrisis2VR** from the Steam library. See [Steam Frame](#steam-frame). |
 
 The release packages include the game files, Namco pistol, fallback pistol and machine-gun models, so no separate ZIP import is needed. The APK uses package `org.timecrisis2.arcadevr` and installs alongside the original Time Crisis VR. Updating an existing test build preserves local settings and cabinet data.
 
@@ -34,7 +34,7 @@ After the arcade startup, press **A** for credits and then either **trigger** to
 
 The Steam Frame build runs standalone on the headset. SteamOS runs Android apps through Lepton, so this is the Quest app built for the Frame: the same game, options, physical cover and LAN play, with the Frame's own controller layout. Its APK contains no ROM. The installer copies your own `timecrs2.zip` to the Frame, and the game checks all 22 chips before using it.
 
-1. Build the APK and installer on a Mac ([macOS steps below](#macos-steam-frame-and-quest)).
+1. Build the APK and installer on macOS, Linux or Windows ([steps below](#steam-frame-and-quest-apks-macos-linux-or-windows)).
 2. On the Frame, enable SSH in the developer settings and note its IP address.
 3. Install it. The installer refuses to run while another Lepton app is open, backs up any earlier install and registers the Steam title:
 
@@ -200,68 +200,93 @@ Input recordings contain arcade controls, not video or headset poses. They do no
 
 You need your own **Time Crisis II US TSS3 Ver. B** arcade ROM set, `timecrs2.zip`. The build checks all 22 chips against the pinned table. ROMs, signing keys and build output never go into Git.
 
-Clone the repository with its `upstream` submodule:
-
-```sh
-git clone --recurse-submodules https://github.com/DR-89/time-crisis-2-vr.git
-cd time-crisis-2-vr
-```
+There are two sets of build tools: the original Windows scripts for the PCVR and Quest releases, and `tools/build_frame.py` for the Steam Frame (and Quest) on macOS, Linux or WSL2.
 
 ### Windows: PCVR and Quest
 
 Install Git, Python 3 and CMake. For Quest, also install a JDK, and Android SDK platform 35, build-tools 35.0.1 and NDK 28.2.13676358, with the SDK at `.tools/android-sdk`. The scripts fetch their pinned SDL, OpenXR, Ninja and Windows compiler dependencies.
 
 ```powershell
+git clone --recurse-submodules https://github.com/DR-89/time-crisis-2-vr.git
+cd time-crisis-2-vr
 python -X utf8 tools/build_pc.py --rom "$env:USERPROFILE\Downloads\timecrs2.zip" --jobs 2
 python -X utf8 tools/build.py --rom "$env:USERPROFILE\Downloads\timecrs2.zip" --bundle-roms --jobs 2
 ```
 
 Set `JAVA_HOME` to your JDK before building Android. See [development instructions](docs/DEVELOPMENT.md) for SDK setup, tests and output paths.
 
-### macOS: Steam Frame and Quest
+### Steam Frame and Quest APKs: macOS, Linux or Windows
 
-The Steam Frame build is made on a Mac (Apple Silicon or Intel); the same script also builds the Quest APK.
+`tools/build_frame.py` builds the Steam Frame APK, and the Quest APK too. It runs on **macOS** (Apple Silicon or Intel), **x86_64 Linux**, or **Windows through WSL2** (Ubuntu). The Frame itself can't be the build computer: Google ships the Android NDK's compilers for x86_64, not for ARM64 Linux.
 
-1. **Install the tools** (once):
+1. **Install the tools** (once). Pick your computer:
+
+   **macOS** (with [Homebrew](https://brew.sh)):
 
    ```sh
    xcode-select --install
    brew install cmake ninja python openjdk@17
    brew install --cask android-commandlinetools
    export JAVA_HOME="$(brew --prefix openjdk@17)/libexec/openjdk.jdk/Contents/Home"
-   yes | sdkmanager --sdk_root="$HOME/Library/Android/sdk" --licenses
-   sdkmanager --sdk_root="$HOME/Library/Android/sdk" "platforms;android-34" "build-tools;35.0.0" "ndk;27.2.12479018"
+   export ANDROID_SDK_ROOT="$HOME/Library/Android/sdk"
+   yes | sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --licenses
+   sdkmanager --sdk_root="$ANDROID_SDK_ROOT" "platforms;android-34" "build-tools;35.0.0" "ndk;27.2.12479018"
    ```
 
-   Android Studio's SDK Manager works too: install those same three packages. The build looks for the SDK in `~/Library/Android/sdk` (or `ANDROID_SDK_ROOT`), and for JDK 17 in `JAVA_HOME`, Android Studio or Homebrew.
+   **Windows:** open PowerShell as administrator and run `wsl --install -d Ubuntu`, restart if asked, then open **Ubuntu** from the Start menu and create its user. Do everything below inside Ubuntu, with the checkout in your Linux home folder (`~/src`), not under `/mnt/c`, and with the Linux JDK and SDK. A Windows JDK or Android SDK won't be used.
 
-2. **Fetch the pinned SDL 2.30.11 source and OpenXR 1.1.43 loader** into `.tools/` (checked by SHA-256):
+   **Ubuntu / Debian Linux and WSL2:**
+
+   ```sh
+   sudo apt update
+   sudo apt install -y git python3 openjdk-17-jdk cmake ninja-build clang unzip curl openssh-client
+   mkdir -p ~/Android/Sdk/cmdline-tools
+   curl -fL -o /tmp/cmdline-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip
+   unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools
+   mv /tmp/cmdline-tools/cmdline-tools ~/Android/Sdk/cmdline-tools/latest
+   export ANDROID_SDK_ROOT="$HOME/Android/Sdk"
+   export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+   yes | sdkmanager --licenses
+   sdkmanager "platforms;android-34" "build-tools;35.0.0" "ndk;27.2.12479018"
+   ```
+
+   Android Studio's SDK Manager works too: install those same three packages. The build finds the SDK in `ANDROID_SDK_ROOT` (or `~/Library/Android/sdk` on a Mac, `~/Android/Sdk` on Linux), and JDK 17 in `JAVA_HOME`, Android Studio, Homebrew or your `PATH`.
+
+2. **Get the source:**
+
+   ```sh
+   mkdir -p ~/src && cd ~/src
+   git clone --recurse-submodules https://github.com/DR-89/time-crisis-2-vr.git
+   cd time-crisis-2-vr
+   ```
+
+3. **Fetch the pinned SDL 2.30.11 source and OpenXR 1.1.43 loader** into `.tools/` (checked by SHA-256):
 
    ```sh
    python3 tools/bootstrap_frame.py
    ```
 
-3. **Build the Steam Frame APK and its installer bundle:**
+4. **Build the Steam Frame APK and its installer bundle:**
 
    ```sh
-   python3 tools/build_frame.py --rom "$HOME/Downloads/timecrs2.zip" --jobs 4
+   python3 tools/build_frame.py --rom ~/Downloads/timecrs2.zip --jobs 4
    python3 tools/steam_frame/make_bundle.py
    ```
 
-   This writes `artifacts/steam-frame/TimeCrisis2VR-SteamFrame-arm64.apk` and the ROM-free installer in `artifacts/steam-frame/bundle/`. The ROM is used only to generate the native code and the chip checksums; it isn't packaged. Install it as described under [Steam Frame](#steam-frame).
+   This writes `artifacts/steam-frame/TimeCrisis2VR-SteamFrame-arm64.apk` and the ROM-free installer in `artifacts/steam-frame/bundle/`. The ROM is used only to generate the native code and the chip checksums; it isn't packaged. Install it as described under [Steam Frame](#steam-frame); the installer runs from the same terminal (on Windows, inside Ubuntu). To reach the files from Windows Explorer, open `\\wsl.localhost\Ubuntu\home\YOUR_USER\src\time-crisis-2-vr\artifacts`.
 
-4. **Build the Quest APK** (optional):
+5. **Build the Quest APK** (optional):
 
    ```sh
-   python3 tools/build_frame.py --flavor quest --rom "$HOME/Downloads/timecrs2.zip" --jobs 4
+   python3 tools/build_frame.py --flavor quest --rom ~/Downloads/timecrs2.zip --jobs 4
    adb install -r artifacts/quest/TimeCrisis2VR-Quest-arm64.apk
    ```
 
-   This is ROM-free by default: on first launch, a setup screen imports your `timecrs2.zip`. Add `--bundle-roms` for a private APK with your chips inside (`TimeCrisis2VR-Quest-arm64-with-ROM.apk`). Never share that one.
+   This is ROM-free by default: on first launch, a setup screen imports your `timecrs2.zip`. Add `--bundle-roms` for a private APK with your chips inside (`TimeCrisis2VR-Quest-arm64-with-ROM.apk`); never share that one. `adb` comes with the SDK's platform-tools (`sdkmanager "platform-tools"`). On WSL2, install from Windows instead if USB isn't passed through.
 
 Signing keys are created on the first build in `~/.config/timecrisis2vr/` and reused afterwards. Keep them: an update signed with a different key can't install over an existing copy without uninstalling it first, and uninstalling deletes its saved settings.
 
-To run the tests that work on a Mac (after a Steam Frame build, whose configure step they reuse):
+To run the host tests (after a Steam Frame build, whose configure step they reuse):
 
 ```sh
 export TCVR_SHARED_TOOLS="$PWD/.tools"

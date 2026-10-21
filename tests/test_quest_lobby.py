@@ -3,7 +3,7 @@ from pathlib import Path
 import subprocess
 ROOT=Path(__file__).resolve().parents[1];out=ROOT/'build/lobby-render';out.mkdir(exist_ok=True)
 exe=out/'fixture'
-command=['cc','-std=c11','-Wall','-Wextra','-Werror','-fsanitize=address,undefined','-g','-I'+str(ROOT/'link'),'-I'+str(ROOT/'upstream/tc2/src'),'-I'+str(ROOT/'build/steam-frame/native/compat'),str(ROOT/'tests/quest_lobby_fixture.c'),str(ROOT/'quest/quest_keyboard.c'),str(ROOT/'quest/quest_openvr_keyboard.c'),str(ROOT/'link/tc2_link.c'),str(ROOT/'tests/link_host_stubs.c'),'-o',str(exe)]
+command=['cc','-std=c11','-Wall','-Wextra','-Werror','-Wno-unused-variable','-fsanitize=address,undefined','-g','-I'+str(ROOT/'link'),'-I'+str(ROOT/'upstream/tc2/src'),'-I'+str(ROOT/'build/steam-frame/native/compat'),str(ROOT/'tests/quest_lobby_fixture.c'),str(ROOT/'quest/quest_keyboard.c'),str(ROOT/'quest/quest_openvr_keyboard.c'),str(ROOT/'link/tc2_link.c'),str(ROOT/'tests/link_host_stubs.c'),'-o',str(exe)]
 for flags in ([],['-DTCVR_PC'],['-DTCVR_STEAM_FRAME']):
     subprocess.run(command+flags,check=True)
     subprocess.run([str(exe),str(out)],check=True)
