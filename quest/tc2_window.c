@@ -7,6 +7,7 @@
 #include "tc2_weapon.h"
 #include "tc2_link.h"
 #include "tc2_cover_spot.h"
+#include "tc2_coop.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <SDL2/SDL.h>
@@ -52,6 +53,15 @@ void tc2_window_frame(void) {
 #else
         tc2_on_exit();ss22_host_close();exit(0);
 #endif
+    }
+    {   /* Shooting the crossed-out SOLO/LINKED on the arcade's mode screen opens
+         * LAN Play; the ROM itself ignores that shot while no partner is linked. */
+        static uint16_t previous;uint16_t inputs=tc2_inputs;
+        if(!tc2_link_enabled()&&qtc2_coop_chosen(tc2_ram,sizeof tc2_ram,inputs,previous)){
+            fprintf(stderr,"[LAN] SOLO/LINKED chosen on the arcade mode screen: opening LAN Play\n");
+            qvr_open_lan_from_arcade();
+        }
+        previous=inputs;
     }
     if(tc2_link_take_restart()){void tc2_machine_restart(void);ss22_input_neutral();tc2_machine_restart();}
 }

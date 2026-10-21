@@ -573,7 +573,15 @@ int main(void){
     click(upper_action,RIGHT_HAND);qlobby_tick(0);assert(!qlobby_visible());
     tick();assert(options_page==0);
     stick_x=1;tick();assert(!qlobby_visible());stick_x=0;tick();
-    puts("PASS: LAN page and lobby input: page cycle, modal keyboard, Back to options");
+    /* The arcade's SOLO/LINKED shot opens LAN Play over a paused game; Back resumes it. */
+    paused=false;options_page=0;stick_x=stick_y=distance_x=distance_y=0;tick();
+    qvr_open_lan_from_arcade();assert(paused&&options_page==OPTIONS_LAN_PAGE&&qlobby_visible()&&lan_from_arcade);
+    tick();assert(paused&&qlobby_visible());
+    click(upper_action,RIGHT_HAND);qlobby_tick(0);tick();
+    assert(!paused&&options_page==0&&!qlobby_visible()&&!lan_from_arcade);
+    paused=true;qvr_open_lan_from_arcade();assert(!qlobby_visible()&&options_page==0);  /* not over open options */
+    click(pause_action,2);assert(!paused);
+    puts("PASS: LAN page and lobby input: page cycle, modal keyboard, Back to options; arcade SOLO/LINKED opens it paused and Back resumes play");
     return 0;
 }
 #endif

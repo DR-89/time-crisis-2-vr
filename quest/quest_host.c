@@ -321,13 +321,28 @@ static bool lobby_nav_armed,lobby_fire_armed;
 /* LAN play follows the option pages; its lobby is modal and its own Back
  * returns to the first page. */
 enum { OPTIONS_LAN_PAGE=QOPTIONS_PAGE_COUNT,OPTIONS_PAGES=QOPTIONS_PAGE_COUNT+1 };
+/* Opened from the arcade's SOLO/LINKED choice: leaving the lobby resumes play. */
+static bool lan_from_arcade;
+static void show_lan_page(void){
+    options_page=OPTIONS_LAN_PAGE;qlobby_show();lobby_nav_armed=lobby_fire_armed=false;
+    lobby_accept=lobby_back=lobby_view=(ButtonEdge){0};reset_fire_input();
+}
 static void change_options_page(int direction){
     options_page=(options_page+direction+OPTIONS_PAGES)%OPTIONS_PAGES;
     reset_pitch_input();reset_distance_input();
-    if(options_page==OPTIONS_LAN_PAGE){
-        qlobby_show();lobby_nav_armed=lobby_fire_armed=false;
-        lobby_accept=lobby_back=lobby_view=(ButtonEdge){0};reset_fire_input();
-    }
+    if(options_page==OPTIONS_LAN_PAGE)show_lan_page();
+}
+void qvr_open_lan_from_arcade(void){
+    if(paused||qlobby_visible())return;
+    paused=true;lan_from_arcade=true;game_deadline=0;reset_pitch_input();reset_distance_input();
+    ss22_input_neutral();tc2_audio_volume(0);show_lan_page();
+}
+/* The lobby has closed: back to the first options page, or straight back to
+ * the game when the arcade's mode screen opened it. */
+static void lan_page_closed(void){
+    if(qlobby_visible()||options_page!=OPTIONS_LAN_PAGE)return;
+    options_page=0;
+    if(lan_from_arcade){lan_from_arcade=false;paused=false;game_deadline=0;reset_fire_input();tc2_audio_volume(100);}
 }
 static void set_gun_pitch(int value){
     if(value<QOPTIONS_GUN_PITCH_MIN)value=QOPTIONS_GUN_PITCH_MIN;
@@ -717,11 +732,7 @@ static bool lobby_input(XrTime time){
         else if(fabsf(x)>fabsf(y)&&fabsf(x)>.65f)direction=x>0?QL_RIGHT:QL_LEFT;
         else if(fabsf(y)>.65f)direction=y>0?QL_UP:QL_DOWN;
     }
-    if(!qlobby_visible()){
-        /* Leaving the lobby returns to the first options page. */
-        if(options_page==OPTIONS_LAN_PAGE)options_page=0;
-        return false;
-    }
+    if(!qlobby_visible()){lan_page_closed();return false;}
     if(lobby_nav_armed&&direction>=0&&(direction!=lobby_direction||time>=lobby_repeat)){
         qlobby_input((QLobbyKey)direction);lobby_repeat=time+(direction==lobby_direction?120000000LL:400000000LL);lobby_direction=direction;
     }
@@ -1072,7 +1083,7 @@ static bool desktop_frame(void){
     static Uint64 deadline;static unsigned frame_number;bool fast=getenv("TCVR_FAST")!=NULL;
     for(;;){
         if(!events())return false;
-        lobby_service();
+        lobby_service();lan_page_closed();
         if(tc2_link_session()->restart)return true;
         int w,h,mx,my;SDL_GL_GetDrawableSize(window,&w,&h);int lw,lh;SDL_GetWindowSize(window,&lw,&lh);
         if(w<=0||h<=0||lw<=0||lh<=0){SDL_Delay(20);continue;}

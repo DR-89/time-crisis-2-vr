@@ -74,11 +74,11 @@ Two players can play a linked game the way two arcade cabinets do: each player h
 
 **Playing**
 
-1. Both players: open options and move the **left stick up** through the pages to **LAN PLAY**: Options, Gun Fit / Player, Graphics, then LAN Play.
+1. Both players: insert credits and, on the arcade's **SELECT GAME MODE** screen, shoot **SOLO/LINKED** (crossed out until you're linked). The game pauses and **LAN PLAY** opens. You can also get there from options: move the **left stick up** through the pages (Options, Gun Fit / Player, Graphics) to LAN Play.
 2. Player 1 chooses **Host**. The screen shows the host's IP address. The host is the red cabinet (Keith).
 3. Player 2 chooses **Find a Game** and picks the host, or **Join by IP** and enters the host's address. The joiner is the blue cabinet (Robert). On the Frame the SteamVR keyboard opens, and on Quest the system keyboard.
-4. Both select **Ready**; the host selects **Start**. Both cabinets restart and boot as a linked pair, which takes about 20 seconds of the arcade's power-on test. Then insert credits and start as usual.
-5. **Leave** in the lobby returns to normal solo play. Linked games keep their own saved cabinet data, so your solo settings and scores are untouched.
+4. Both select **Ready**; the host selects **Start**. Both cabinets restart and boot as a linked pair, which takes about 20 seconds of the arcade's power-on test. Then insert credits again and shoot **SOLO/LINKED**, which is no longer crossed out (the joiner's screen calls it **LINK PLAY**).
+5. **Back** from the lobby before starting returns you to the mode screen; **Leave** ends a linked session and returns to normal solo play. Linked games keep their own saved cabinet data, so your solo settings and scores are untouched.
 
 While linked, opening options doesn't pause the game: your input is ignored, but the arcade keeps running for the other player.
 
@@ -290,7 +290,7 @@ To run the host tests (after a Steam Frame build, whose configure step they reus
 
 ```sh
 export TCVR_SHARED_TOOLS="$PWD/.tools"
-for t in test_frame_profile test_cover_spot test_tc2_session test_tc2_link test_quest_lobby test_openvr_keyboard test_frame_storage test_frame_bundle test_frame_manifest test_tc2_frame_shutdown; do python3 tests/$t.py || break; done
+for t in test_frame_profile test_cover_spot test_coop_choice test_tc2_session test_tc2_link test_quest_lobby test_openvr_keyboard test_frame_storage test_frame_bundle test_frame_manifest test_tc2_frame_shutdown; do python3 tests/$t.py || break; done
 python3 tests/test_frame_profile.py --touch
 ```
 

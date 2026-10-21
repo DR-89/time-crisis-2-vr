@@ -40,6 +40,9 @@ const tc2_built *tc2_built_latest_wait(void){return NULL;}
 void qvr_scene_prepare(const tc2_built *frame){(void)frame;}
 void qtc2_cabinet_configure(const char *path){(void)path;}
 void qvr_set_cover_spot(const struct QCoverSpot *spot){(void)spot;}
+void qvr_open_lan_from_arcade(void){}
+uint16_t tc2_inputs; /* the window hook reads the arcade inputs for the SOLO/LINKED shot */
+int tc2_link_enabled(void){return 0;}
 uint8_t tc2_data[0x2000000]; /* the cover-slide reader maps ROM tables here */
 void qgun_select(QGunKind kind){(void)kind;}
 QGunKind qgun_selected(void){return QGUN_PISTOL;}

@@ -41,7 +41,7 @@ Then launch **TimeCrisis2VR** from the Steam library. See [Steam Frame](STEAM_FR
 - **Left menu button:** options. In options, right stick click changes the default hand; right stick up/down changes **GUN ANGLE**; left stick click resets the angle.
 - **Y in options:** switch physical ducking / grip cover. With physical ducking selected, calibrate upright using **X**, then lean or duck the way the **SAFE** sign points to hide, and come back upright to shoot.
 - The arcade selects the machine gun automatically. Hold the trigger for automatic fire outside cover.
-- **LAN play:** in options, move the left stick up through the pages (Options, Gun Fit / Player, Graphics) to **LAN PLAY**. One player hosts, the other uses **Find a Game** (or **Join by IP**); both select Ready and the host starts. See [LAN play](LAN-PLAY.md).
+- **LAN play:** after inserting credits, shoot **SOLO/LINKED** on the arcade's mode screen (or move the left stick up through the options pages to **LAN PLAY**). One player hosts, the other uses **Find a Game** (or **Join by IP**); both select Ready and the host starts. See [LAN play](LAN-PLAY.md).
 
 These face buttons assume the default right hand. The saved left-hand layout uses **X** for credits, **Y** for aim mode, **A** for recenter and **B** for cover-mode selection. Trigger handoffs do not change the saved face-button layout.
 
