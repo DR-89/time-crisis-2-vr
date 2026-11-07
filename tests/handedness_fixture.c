@@ -446,6 +446,14 @@ int main(void){
     assert(!qresolution_choose(-1,1360,1440,4096,4096,&w,&h)&&w==1360&&h==1440);
     assert(!qresolution_choose(6,1360,1440,4096,4096,&w,&h)&&w==1360&&h==1440);
     puts("PASS: online page routing (menu, edit, trigger select, back)");
+    /* The SOLO/LINKED shot opens the ONLINE page (trigger disarmed until released); a partner linking closes only that page. */
+    paused=false;options_page=0;ui_trigger_armed[0]=ui_trigger_armed[1]=true;
+    qhost_online_menu(true);assert(paused&&options_page==QOPTIONS_PAGE_ONLINE&&!ui_trigger_armed[0]&&!ui_trigger_armed[1]);
+    qhost_online_menu(true);assert(paused&&options_page==QOPTIONS_PAGE_ONLINE);
+    qhost_online_menu(false);assert(!paused);
+    paused=true;options_page=0;qhost_online_menu(false);assert(paused&&options_page==0);   /* the player moved to another page: left open */
+    paused=false;qhost_online_menu(false);assert(!paused);
+    puts("PASS: game-side ONLINE page open/close (SOLO/LINKED shot, partner linked)");
     puts("PASS: resolution page navigation, release/focus/disconnect guards, cycling/reset/persistence and runtime/GPU dimension limits");
     return 0;
 }

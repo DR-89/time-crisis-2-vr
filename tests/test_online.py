@@ -25,23 +25,28 @@ STATUS = re.compile(r'\[ONLINE\] frame (\d+) side P(\d) link (on|off) alive (\d)
 TONE_HZ = 440
 
 
-def recording(path: Path, frames: int):
-    """Coins and start at 1500 / 1700, then the pedal held and the trigger pulsed while the aim sweeps."""
-    lines = ['# TC2 session: F frame inputs gunx guny off', 'F 0 0000 457 161 0']
-    f = 1500
-    for _ in range(8):
-        lines += [f'F {f} 0001 457 161 0', f'F {f + 6} 0000 457 161 0']
-        f += 12
-    lines += ['F 1700 0010 457 161 0', 'F 1706 0000 457 161 0']
-    f, k = 1900, 0
+def recording(path: Path, frames: int, aim_until: int = 0, coins_at: int = 1500, again_at: int = 0):
+    """Coins and start at 1500 / 1700 (or coins_at / +200), then the pedal held and the trigger pulsed while the aim sweeps
+    (held on the mode screen's top panel until aim_until); again_at: coins once more (a cabinet that restarted)."""
+    events = [(0, '0000', 457, 161)]
+    for at in (coins_at, again_at):
+        if not at:
+            continue
+        for i in range(8):
+            events += [(at + 12 * i, '0001', 457, 161), (at + 12 * i + 6, '0000', 457, 161)]
+    events += [(coins_at + 200, '0010', 457, 161), (coins_at + 206, '0000', 457, 161)]
+    f, k = coins_at + 400, 0
     while f < frames:
-        x, y = int(457 + 250 * math.sin(k * .37)), int(161 + 80 * math.sin(k * .23))
+        x, y = (457, 161) if f < aim_until else (int(457 + 250 * math.sin(k * .37)), int(161 + 80 * math.sin(k * .23)))
         # release the pedal now and then to reload
         pedal = '0020' if (k % 40) < 34 else '0000'
         fire = '0030' if pedal == '0020' else '0000'
-        lines += [f'F {f} {fire} {x} {y} 0', f'F {f + 4} {pedal} {x} {y} 0']
+        events += [(f, fire, x, y), (f + 4, pedal, x, y)]
         f += 8
         k += 1
+    events = [e for e in events if not (again_at and again_at <= e[0] < again_at + 96 and e[1] not in ('0001', '0000'))]
+    events.sort(key=lambda e: e[0])                       # the replay reads in order
+    lines = ['# TC2 session: F frame inputs gunx guny off'] + [f'F {f} {i} {x} {y} 0' for f, i, x, y in events]
     path.write_text('\n'.join(lines) + '\n')
 
 
@@ -82,7 +87,7 @@ SCENARIOS = {
     'badnet': (4200, '600:host', '620:join=127.0.0.1', {'TC2_NET_SIM': '5,150'}, 'steady'),
     'leave':  (4800, '600:host', '620:join=127.0.0.1;2700:leave;3000:join=127.0.0.1', {}, 'rejoin'),
     'freeze': (4200, '600:host', '620:join=127.0.0.1;2700:freeze=3000', {}, 'recover'),
-    'late':   (4200, '600:host', '2400:join=127.0.0.1', {}, 'late'),
+    'late':   (4200, '600:host', '2400:join=127.0.0.1', {'TC2_NO_MODE_MENU': '1'}, 'late'),   # B links into a game under way
     'boot':   (3000, '30:host', '40:join=127.0.0.1', {}, 'steady'),
     'discover': (3000, '600:host', '620:discover', {}, 'steady'),
     'longfreeze': (5400, '600:host', '620:join=127.0.0.1;2700:freeze=8000', {}, 'recover'),
@@ -94,8 +99,17 @@ SCENARIOS = {
     'voicenet': (3600, '600:hostroom', '700:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'TC2_NET_SIM': '5,150'}, 'voice'),
     'duplex': (3600, '600:hostroom', '700:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7'}, 'duplex'),
     'roomleave': (4800, '600:hostroom', '700:joincode=KXQ7;2700:leave;3000:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7'}, 'rejoin'),
+    # P2 the arcade's way: linked first, A starts LINK PLAY, B puts coins in once A's game is under way and takes the top panel
+    'p2join': (6000, '600:hostroom', '700:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'TCVR_RAMWATCH': '2CE92B,2F3930,2F3502',
+               'AIM_UNTIL': 2600, 'B_COINS_AT': 3000, 'B_AIM_UNTIL': 5000}, 'p2join'),
+    # the arcade's own way in: A shoots the crossed-out SOLO/LINKED at 1700 (no link yet), the ONLINE page opens and holds the
+    # arcade; A hosts from it (wall clock: the arcade is stopped) and B, still without coins, joins by code. A's page closes;
+    # A was credited before the link, so both cabinets restart (TEST). A puts coins in again at 2600 and takes LINK PLAY; B puts
+    # coins in at 3000: held by the agreed start, paid in once A's game is under way, and B's shot takes LINK PLAY on the right
+    'modescreen': (9000, 't31000:hostroom', 't33000:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'TCVR_RAMWATCH': '2CE92B,2F3930,2F3502',
+                   'AIM_UNTIL': 3400, 'A_COINS_AGAIN': 2600, 'B_COINS_AT': 3000, 'B_AIM_UNTIL': 8000}, 'modescreen'),
 }
-ROOM_SCENARIOS = {'room', 'browse', 'mute', 'voicenet', 'duplex', 'roomleave'}
+ROOM_SCENARIOS = {'room', 'browse', 'mute', 'voicenet', 'duplex', 'roomleave', 'modescreen', 'p2join'}
 
 
 def cabinet(directory: Path, server: str):
@@ -114,6 +128,7 @@ def cabinet(directory: Path, server: str):
 
 def run(name: str, keep: bool):
     frames, script_a, script_b, extra, check = SCENARIOS[name]
+    extra = dict(extra)
     base = WORK / name
     run_dir = WORK / 'cabinets'
     rec = base / 'inputs.rec'
@@ -121,7 +136,11 @@ def run(name: str, keep: bool):
     server = f'127.0.0.1:{SERVER_PORT}' if name in ROOM_SCENARIOS else 'zonesync.invalid'
     for side in 'AB':
         cabinet(run_dir / side, server)
-    recording(rec, frames)
+    recording(rec, frames, int(extra.pop('AIM_UNTIL', 0)), again_at=int(extra.pop('A_COINS_AGAIN', 0)))
+    recs = {'A': rec, 'B': rec}
+    if 'B_COINS_AT' in extra:                                # B's own inputs: it puts coins in later
+        recs['B'] = base / 'inputs_b.rec'
+        recording(recs['B'], frames, int(extra.pop('B_AIM_UNTIL', 0)), int(extra.pop('B_COINS_AT')))
     seconds = frames // 60 + 30
     microphone(run_dir / 'A' / 'mic.wav', seconds, tone=True)
     microphone(run_dir / 'B' / 'mic.wav', seconds, tone=check == 'duplex')   # both talking at once: the echo safeguard must not mute either
@@ -134,10 +153,10 @@ def run(name: str, keep: bool):
         time.sleep(0.5)
     procs = []
     for side, script in (('A', script_a), ('B', script_b)):
-        env = dict(os.environ, SDL_AUDIODRIVER='dummy', TCVR_TEST_HIDDEN='1', TC2_REPLAY=str(rec), TC2_NET_STATUS='1', TC2_NET_SCRIPT=script,
+        env = dict(os.environ, SDL_AUDIODRIVER='dummy', TCVR_TEST_HIDDEN='1', TC2_REPLAY=str(recs[side]), TC2_NET_STATUS='1', TC2_NET_SCRIPT=script,
                    TC2_VOICE_IN=str(run_dir / side / 'mic.wav'), TC2_VOICE_OUT=str(run_dir / side / 'voice_out.wav'), **extra)
         if keep:
-            env['TCVR_CAPTURE_EVERY'] = '600'
+            env.setdefault('TCVR_CAPTURE_EVERY', '600')
         procs.append(subprocess.Popen([str(run_dir / side / 'TimeCrisis2VR.exe'), '--desktop', '--no-dialog', '--frames', str(frames)],
                                       cwd=run_dir / side, env=env))
     for p in procs:
@@ -176,12 +195,26 @@ def run(name: str, keep: bool):
         # a frozen cabinet falls behind real time; its partner reaches the frame limit and quits first, so look before that
         lost = max([int(m) for m in re.findall(r'freeze=(\d+)', script_a + script_b)] or [0]) * 60 // 1000
         tail = [r for r in linked if frames - 900 - lost <= r[0] < frames - lost - 60]
-        if check in ('steady', 'rejoin', 'recover', 'late', 'voice', 'mute') and tail and not all(r[3] for r in tail):
+        if check in ('steady', 'rejoin', 'recover', 'late', 'voice', 'mute', 'modescreen') and tail and not all(r[3] for r in tail):
             failures.append(f'{side}: partner not alive near the end')
         if check in ('steady', 'voice'):
             dead = [r[0] for r in linked if r[0] >= 1200 and not r[3]]
             if dead:
                 failures.append(f'{side}: link down at frames {dead}')
+    if check == 'modescreen':
+        if 'SOLO/LINKED shot without a partner' not in logs['A']:
+            failures.append('A: the SOLO/LINKED shot did not open the ONLINE page')
+        for side in 'AB':                                 # linked after A's credit: both restart (tc2_online.c link_contact_tick)
+            if 'the cabinet restarts (TEST)' not in logs[side]:
+                failures.append(f'{side}: did not restart after linking to a credited cabinet')
+    if check in ('modescreen', 'p2join'):
+        # each cabinet's choice, at the frame it leaves SELECT GAME MODE (0x2CE92B 1 -> 0): 0x2F3930 1 -> 4 is LINK PLAY, 1 -> 2
+        # SOLO ONLY (also what the ~15 s timeout picks); a TEST restart leaves with 1 -> 0. (In a game 0x2F3930 means other things.)
+        for side in 'AB':
+            left = set(re.findall(r'\[RAM\] frame (\d+) 2CE92B: 1 -> 0', logs[side]))
+            choice = {f: v for f, v in re.findall(r'\[RAM\] frame (\d+) 2F3930: 1 -> (\d+)', logs[side]) if f in left}
+            if '4' not in choice.values() or '2' in choice.values():
+                failures.append(f'{side}: LINK PLAY not taken (mode screen left with {choice or "nothing"})')
     if check == 'rejoin' and logs['A'].count('GO: session') < 2:
         failures.append('A: no second session after B rejoined')
     if name in ROOM_SCENARIOS:

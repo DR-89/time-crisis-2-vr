@@ -26,6 +26,7 @@ void     tc2_link_trailer(uint8_t *payload);
 int      tc2_link_unpack(const uint8_t *in);
 void     tc2_link_session_reset(void);    /* a session (re)starts: frame numbering afresh on both sides */
 int      tc2_link_self_state(void);       /* our cabinet's state as the partner reports it: 1 attract, 2 credited, 4 in a game; -1 unknown */
+bool     tc2_link_partner_vr(void);       /* the partner runs this build (its trailer's byte 3 is 'V'; upstream leaves it 0) */
 
 /* What the game's own link driver thinks (its variables at gp 0x802C7820). */
 typedef struct tc2_link_status {

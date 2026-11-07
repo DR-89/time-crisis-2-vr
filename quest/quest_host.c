@@ -175,6 +175,15 @@ static void reset_fire_input(void){
 }
 static void reset_pitch_input(void){pitch_armed=scale_armed=false;pitch_direction=scale_direction=0;pitch_repeat_time=scale_repeat_time=0;}
 static void reset_distance_input(void){page_armed=false;distance_armed=false;distance_direction=0;distance_repeat_time=0;}
+/* The game side opens or closes the ONLINE page (tc2_online.c): a shot at the arcade's crossed-out SOLO/LINKED opens it, the
+ * partner linking closes it again. The same resets as the pause button; the menu takes the trigger only after a release. */
+void qhost_online_menu(bool open){
+    if(open){if(paused&&options_page==QOPTIONS_PAGE_ONLINE)return;options_page=QOPTIONS_PAGE_ONLINE;}
+    else if(!paused||options_page!=QOPTIONS_PAGE_ONLINE)return;
+    paused=open;filter_armed=false;reset_fire_input();reset_pitch_input();reset_distance_input();game_deadline=0;
+    tc2_audio_volume(paused&&!tc2_online_session()?0:100);ss22_input_neutral();ui_trigger_armed[0]=ui_trigger_armed[1]=false;
+}
+bool qhost_online_menu_open(void){return paused&&options_page==QOPTIONS_PAGE_ONLINE;}
 static void reset_input_edges(void){
     filter_armed=false;
     coin_button=recenter_button=pause_button=laser_button=cover_button=hand_button=pitch_reset_button=(ButtonEdge){0};

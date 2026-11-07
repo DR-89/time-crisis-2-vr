@@ -13,6 +13,7 @@
 #include "tc2_voice.h"
 #include "tc2_rooms.h"
 #include "tc2_cabinet.h"
+#include "tc2_game.h"
 #include "net.h"
 #include <SDL2/SDL.h>
 #include <ctype.h>
@@ -41,6 +42,10 @@ extern int eng_net_room_request;extern char eng_net_room_request_name[32];
 int eng_net_my_room(void);
 
 static void session_begin(int slot,int players);
+static bool menu_from_mode;              /* the ONLINE page was opened by the SOLO/LINKED shot (mode_screen_tick) */
+#define MODE_RESTART_FRAMES 10
+static bool contact_pending;              /* set by session_begin, cleared at the first partner state */
+static int mode_restart;                 /* frames of TEST still to press: the cabinet restarts (link_contact_tick) */
 static void session_end(void);
 static int  frame_out(uint8_t *buf);
 static void frame_in(int slot,const uint8_t *buf,uint32_t seq);
@@ -160,6 +165,8 @@ static void session_begin(int slot,int players){
         qtc2_cabinet_side=side;tc2_link_set_enabled(true);
         snprintf(line,sizeof line,"LINKED WITH %s - P%d %s",partner,side,side==2?"ROBERT":"KEITH");say(line,6000);
     }
+    if(menu_from_mode){menu_from_mode=false;qhost_online_menu(false);}   /* opened by the SOLO/LINKED shot: back to the arcade */
+    contact_pending=true;                 /* both cabinets restart if the left was credited before this link (link_contact_tick) */
     if(!eng_net_hosting())snprintf(target,sizeof target,"%s",eng_net_server());   /* also a LAN host found by discovery */
     episode=true;partner_gone_ms=lost_ms=0;
 }
@@ -348,6 +355,59 @@ static void browse_tick(void){
 enum { ITEM_HOST_ROOM,ITEM_JOIN_CODE,ITEM_BROWSE,ITEM_HOST_LAN,ITEM_JOIN_IP,ITEM_QUICK,ITEM_VOICE,ITEM_MIC,ITEM_VOLUME,ITEM_NAME,
        ITEM_LEAVE,ITEM_REFRESH,ITEM_BACK,ITEM_ROOM0=100,ITEM_LAN0=200 };
 static int cursor,edit_item=-1,edit_pos;
+
+/* ---- the arcade's own way in: SOLO/LINKED on SELECT GAME MODE (measured on US TSS3 Ver. B, 2026-11-07) ----
+ * The screen comes up when the first credit goes in; it waits with 0x2CE92B = 1 and 0x2F3930 = 1 (a choice moves 0x2F3930 on to 2,
+ * 3, 255, 0 for SOLO ONLY, 4, 5, ... for LINK PLAY) and times out to SOLO ONLY after ~15 s. Without a partner (0x802F3502 = 0)
+ * SOLO/LINKED is crossed out and the game ignores a shot at it (three shots, nothing happened). Such a shot opens the ONLINE page
+ * instead; the arcade is held while the page is open with no partner, and the page closes when the partner links. The panel is
+ * x 20-632, y 95-258 of the 640x480 picture; the game's own gun position is used, so a replayed shot behaves like a real one. */
+static bool connected_any(void);
+static void mode_screen_tick(void){
+    extern uint8_t tc2_ram[];extern uint16_t tc2_inputs,g_ss22_gun_x,g_ss22_gun_y;
+    static bool prev_trigger;
+    const bool trigger=(tc2_inputs&0x0010)!=0,fresh=trigger&&!prev_trigger;prev_trigger=trigger;
+    if(menu_from_mode&&!qhost_online_menu_open())menu_from_mode=false;   /* the player left the page without linking */
+    if(tc2_ram[0x2CE92B]!=1||tc2_ram[0x2F3930]!=1)return;
+    static int off=-1;if(off<0)off=getenv("TC2_NO_MODE_MENU")!=NULL;   /* tests that link later on purpose */
+    if(off||!fresh||tc2_ram[0x2F3502]!=0||eng_net_session_active())return;   /* LINKED is crossed out: no partner */
+    const int x=((int)g_ss22_gun_x-tc2_game.gun_x0)*640/tc2_game.gun_xw,y=((int)g_ss22_gun_y-tc2_game.gun_y0)*480/tc2_game.gun_yh;
+    if(x<20||x>632||y<95||y>258)return;
+    fprintf(stderr,"[ONLINE] frame %u: SOLO/LINKED shot without a partner (%d,%d): the ONLINE page opens\n",sim_frames,x,y);
+    menu_from_mode=true;
+    if(!connected_any()){screen=SCREEN_MAIN;cursor=0;edit_item=-1;}
+    qhost_online_menu(true);
+    say(connected_any()?"WAITING FOR YOUR PARTNER":"HOST A ROOM - YOUR PARTNER JOINS YOU",5000);
+}
+/* ---- linking after the left cabinet was credited: both cabinets restart ----
+ * Measured with two linked cabinets (2026-11-07): the game offers the RIGHT cabinet LINK PLAY only when the link was up before the
+ * left was credited. Linked first, the right's attract switches to the left's game with INSERT COINS and its panel opens; linked
+ * after, its panel stays crossed out for good (coins 25 s or 60 s into the left's game alike) and its countdown ends in SOLO ONLY.
+ * The cure is the game's own restart: the TEST switch makes it restart its program (Parental Advisory, then attract, credits
+ * cleared; a 10-frame press), and each side shows its partner state 5 as it does. It has to be BOTH cabinets: a left that restarts
+ * alone sees no state 5 from its partner and its own panel then stays crossed out; restarted together after linking, the left took
+ * LINK PLAY on its new coins and the right joined in. So at FIRST CONTACT (the first partner state after a session starts), a
+ * cabinet restarts if it waits on SELECT GAME MODE itself or its partner shows 2 (credited): each side decides from what it sees,
+ * so both restart together. Only with a partner on this build (its trailer marks it, tc2_link_partner_vr): the upstream desktop
+ * game would not restart with us. Pressed after the input update each frame and released once; the emulator is not reset. */
+static void link_contact_tick(void){
+    extern uint8_t tc2_ram[];
+    if(!contact_pending||!eng_net_session_active())return;
+    const int pst=tc2_ram[0x2F3502];
+    if(!pst)return;
+    contact_pending=false;
+    const bool self_credited=tc2_ram[0x2CE92B]==1&&tc2_ram[0x2F3930]==1;
+    if(!(self_credited||pst==2))return;
+    if(!tc2_link_partner_vr()){fprintf(stderr,"[ONLINE] linked after a credit, partner on another build: no restart\n");return;}
+    mode_restart=MODE_RESTART_FRAMES;
+    fprintf(stderr,"[ONLINE] frame %u: linked after a credit (we wait on the mode screen %d, partner state %d): the cabinet restarts (TEST)\n",sim_frames,self_credited,pst);
+    say(qtc2_cabinet_side==1?"RESTARTING FOR LINK PLAY - THEN COIN IN":"RESTARTING FOR LINK PLAY - COIN IN AFTER P1",8000);
+}
+static void mode_restart_tick(void){
+    extern uint16_t tc2_inputs;static bool pressing;
+    if(mode_restart>0){tc2_inputs|=0x0008;pressing=true;mode_restart--;}
+    else if(pressing){tc2_inputs&=(uint16_t)~0x0008;pressing=false;}
+}
 static int current_items(int *items);
 static bool holding;                       /* the agreed start (below) */
 
@@ -480,6 +540,9 @@ void tc2_online_frame(void){
     tc2_voice_tick();
     eng_net_poll();
     start_hold_tick();
+    link_contact_tick();
+    mode_restart_tick();
+    mode_screen_tick();
     episode_tick();
     code_join_tick();
     browse_tick();
@@ -612,6 +675,7 @@ unsigned tc2_online_menu_lines(char text[TC2_ONLINE_LINES][TC2_ONLINE_COLUMNS],i
         }else if(mode==MODE_ROOM&&room_code[0]){
             STATUS(eng_net_connected()?TC2_LINE_GOOD:TC2_LINE_WARN,"ROOM CODE:  %s",room_code);
             STATUS(TC2_LINE_HINT,eng_net_connected()?"YOUR FRIEND: JOIN ROOM CODE":"OPENING THE ROOM...");
+            if(menu_from_mode&&eng_net_connected())STATUS(TC2_LINE_HINT,"THEN THEY PUT COINS IN");
         }else if(eng_net_connected())STATUS(TC2_LINE_GOOD,"CONNECTED TO %s",mode==MODE_QUICK?server:"HOST");
         else STATUS(TC2_LINE_WARN,eng_net_discovering()?"SEARCHING...":"CONNECTING...");
         int rc=eng_net_roster_count();
@@ -625,6 +689,7 @@ unsigned tc2_online_menu_lines(char text[TC2_ONLINE_LINES][TC2_ONLINE_COLUMNS],i
         if(!tc2_rooms_count()&&!eng_net_found_count()&&!tc2_rooms_busy())STATUS(TC2_LINE_HINT,"NO GAMES YET - HOST ONE!");
     }else{
         STATUS(TC2_LINE_HINT,"NAME: %s",name);
+        if(menu_from_mode)STATUS(TC2_LINE_GOOD,"HOST: YOU ARE P1, YOUR PARTNER JOINS");
         if(pending_code[0])STATUS(TC2_LINE_WARN,"LOOKING FOR ROOM %s...",pending_code);
     }
     #undef STATUS

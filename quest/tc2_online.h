@@ -25,3 +25,7 @@ unsigned tc2_online_menu_lines(char text[TC2_ONLINE_LINES][TC2_ONLINE_COLUMNS],i
 
 /* A short message over the game (a partner joined / left, the link is struggling); false = nothing to show. */
 bool tc2_online_toast(char *text,size_t n,unsigned *serial);
+
+/* The host (quest_host.c): open or close the ONLINE page from the game side (the arcade's SOLO/LINKED shot, a partner linking). */
+void qhost_online_menu(bool open);
+bool qhost_online_menu_open(void);

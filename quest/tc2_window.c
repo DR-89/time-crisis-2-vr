@@ -31,6 +31,12 @@ void tc2_window_frame(void) {
         qgun_select(weapon);
         fprintf(stderr,"[WEAPON] frame %u: %s (arcade player state)\n",rr_frame,weapon==QGUN_MACHINE_GUN?"MACHINE GUN":"PISTOL");
     }
+    {   /* $TCVR_RAMWATCH=addr[,addr...] (hex, main RAM offsets): log each byte when it changes -- reading the game's state */
+        static int n=-1;static uint32_t at[16];static int last[16];
+        if(n<0){n=0;const char *e=getenv("TCVR_RAMWATCH");
+            while(e&&*e&&n<16){char *end;at[n]=(uint32_t)strtoul(e,&end,16)&0xFFFFFFu;last[n++]=-1;e=*end==','?end+1:end;if(end==e&&*e!=',')break;}}
+        for(int i=0;i<n;i++)if(tc2_ram[at[i]]!=last[i]){fprintf(stderr,"[RAM] frame %u %06X: %d -> %d\n",rr_frame,at[i],last[i],tc2_ram[at[i]]);last[i]=tc2_ram[at[i]];}
+    }
     qvr_scene_prepare(tc2_built_latest_wait());
     if(rr_frame&&rr_frame%300==0)fprintf(stderr,"[PLAYER] frame %u: local slot %u route %u mode %u\n",rr_frame,qtc2_weapon_be32(tc2_ram+0x2cee28),qtc2_weapon_be32(tc2_ram+0x2f3fd4),qtc2_weapon_be32(tc2_ram+0x2f3fd0));
     static uint64_t started;

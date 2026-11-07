@@ -45,6 +45,7 @@ static tc2_link_status st;
 static struct { uint16_t id,n;uint16_t w[MAXW]; } hist[HIST];
 static uint16_t next_id,rx_last;static bool rx_have;static uint32_t n_sent;
 static int self_state=-1;                 /* our state as the partner sees it (its trailer); -1 unknown */
+static bool partner_vr;                   /* the partner's trailer says it runs this build */
 static uint32_t partner_frame;
 static void history_add(void);
 
@@ -165,7 +166,7 @@ bool tc2_link_pack_fits_newest(int limit){
 }
 void tc2_link_trailer(uint8_t *payload){
     extern uint32_t rr_frame;uint8_t *t=payload+TC2_LINK_PAYLOAD-TC2_LINK_TRAILER;
-    t[0]='T';t[1]='2';t[2]=tc2_ram[0x2F3502];t[3]=0;
+    t[0]='T';t[1]='2';t[2]=tc2_ram[0x2F3502];t[3]='V';   /* byte 3: this build (upstream writes and reads nothing there) */
     t[4]=(uint8_t)(rr_frame>>24);t[5]=(uint8_t)(rr_frame>>16);t[6]=(uint8_t)(rr_frame>>8);t[7]=(uint8_t)rr_frame;
 }
 static void give(const uint16_t *w,unsigned n){
@@ -181,7 +182,7 @@ static void give(const uint16_t *w,unsigned n){
 int tc2_link_unpack(const uint8_t *in){
     if(!enabled)return -1;
     const uint8_t *t=in+TC2_LINK_PAYLOAD-TC2_LINK_TRAILER;
-    if(t[0]=='T'&&t[1]=='2')self_state=t[2];
+    if(t[0]=='T'&&t[1]=='2'){self_state=t[2];partner_vr=t[3]=='V';}
     partner_frame=(uint32_t)t[4]<<24|(uint32_t)t[5]<<16|(uint32_t)t[6]<<8|t[7];
     int k=in[0],o=1;const int end=TC2_LINK_PAYLOAD-TC2_LINK_TRAILER;
     for(int i=0;i<k;i++){
@@ -198,9 +199,10 @@ int tc2_link_unpack(const uint8_t *in){
     return o;
 }
 int tc2_link_self_state(void){return enabled?self_state:-1;}
+bool tc2_link_partner_vr(void){return enabled&&partner_vr;}
 /* Every session (re)start, as upstream's session_begin: both sides number their link frames afresh, so a partner who left and
  * came back is not taken for old frames. The chip and the frames already waiting for the ring are kept. */
-void tc2_link_session_reset(void){next_id=0;n_sent=0;rx_have=false;self_state=-1;memset(hist,0,sizeof hist);}
+void tc2_link_session_reset(void){next_id=0;n_sent=0;rx_have=false;self_state=-1;partner_vr=false;memset(hist,0,sizeof hist);}
 
 static uint16_t g16(uint32_t va){uint32_t o=va&0xFFFFFFu;return (uint16_t)(tc2_ram[o]<<8|tc2_ram[o+1]);}
 void tc2_link_get_status(tc2_link_status *o){

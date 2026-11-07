@@ -19,10 +19,11 @@ Built on the native System 23 reconstruction in **[spacestate1/namco22-decompile
   - **BROWSE GAMES** lists the open rooms and LAN games.
   - LAN hosting, joining by IP and quick match are there too.
   - The two games link automatically.
+- **Or from the arcade's own screen:** shoot the crossed-out **SOLO/LINKED** on SELECT GAME MODE and the ONLINE page opens. Once your partner links, both arcades restart so the game's **LINK PLAY** works, then you coin in again.
 - **Voice chat:** Opus, open mic with a voice gate, mute on the left stick click, partner volume and level meters.
 - **Free to run:** the community lobby server relays rooms, so there are no accounts, no port forwarding and nothing to host.
 - **While linked**, the game keeps running behind menus and with the headset off, and dropped partners reconnect by themselves.
-- **Offline play is unchanged**, bit for bit.
+- **Offline**, the emulated link chip is the plain register stub the core has without it. The one visible difference: a shot at the crossed-out SOLO/LINKED opens the ONLINE page.
 
 See **[docs/ONLINE.md](docs/ONLINE.md)** for setup, how it works and the test suite. This build installs as **Time Crisis II VR Online (Test)** (`org.timecrisis2.arcadevr.online`), alongside the original.
 
