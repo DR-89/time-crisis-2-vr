@@ -23,7 +23,7 @@ static uint32_t sent_ms,last_send_ms;static bool answered;
 
 static void header(uint8_t *b,int type,int len){
     memcpy(b,"NMN2",4);b[4]=(uint8_t)type;b[5]=0;b[6]=b[7]=0;b[8]=(uint8_t)len;b[9]=(uint8_t)(len>>8);
-    b[10]='t';b[11]='v';b[12]=(uint8_t)version;b[13]=(uint8_t)(version>>8);b[14]=b[15]=0;
+    b[10]='t';b[11]='2';b[12]=(uint8_t)version;b[13]=(uint8_t)(version>>8);b[14]=b[15]=0;
 }
 static void send_query(void){
     if(sock==ENG_SOCK_BAD)return;
@@ -68,7 +68,7 @@ void tc2_rooms_poll(void){
         struct sockaddr_storage from;socklen_t fl=sizeof from;
         int n=(int)recvfrom(sock,(char*)b,sizeof b,0,(struct sockaddr*)&from,&fl);
         if(n<16)break;
-        if(memcmp(b,"NMN2",4)||b[10]!='t'||b[11]!='v'||(b[8]|b[9]<<8)!=n-16)continue;
+        if(memcmp(b,"NMN2",4)||b[10]!='t'||b[11]!='2'||(b[8]|b[9]<<8)!=n-16)continue;
         const uint8_t *p=b+16;int len=n-16;
         if(b[4]==T_ANNOUNCE&&len>=1){
             int nl=p[0];if(1+nl+2>len)continue;

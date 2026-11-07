@@ -3,10 +3,10 @@
 Needs a Windows build (tools/build_pc.py). Each scenario starts cabinet A (hosts) and cabinet B (joins), both booted as P1 so the
 session's cabinet assignment is exercised, feeds both the same scripted coins / start / fire (an arcade input recording), and
 reads the game's own link state from the [ONLINE] status lines: the C422 driver's alive flag, its error counters and the lag.
-Room scenarios run upstream's nmn-server (built with cargo into build/nmn-server) on 127.0.0.1 only. Microphones are replaced by
+Room scenarios run upstream's current nmn-server (build/nmn-server-head, see docs/ONLINE.md) on 127.0.0.1 only. Microphones are replaced by
 WAV files (a tone for A, silence for B), so no real microphone is opened; what B plays back is recorded and analysed.
 
-    python -X utf8 tests/test_online.py                 # every scenario (15 scenarios, ~20 minutes, real time)
+    python -X utf8 tests/test_online.py                 # every scenario (15 scenarios + crossplay, ~22 minutes, real time)
     python -X utf8 tests/test_online.py basic room      # some
     python -X utf8 tests/test_online.py --keep          # keep screenshots: build/online-test/<scenario>/{A,B}/cap-*.ppm
 """
@@ -16,7 +16,7 @@ import math, os, re, shutil, struct, subprocess, sys, time, wave
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / 'artifacts/pc/TimeCrisis2VR-PC'
 WORK = ROOT / 'build/online-test'
-SERVER_EXE = ROOT / 'build/nmn-server/release/nmn-server.exe'
+SERVER_EXE = ROOT / 'build/nmn-server-head/target/release/nmn-server.exe'   # upstream's current server: it knows Time Crisis 2's 1 KB frames
 SERVER_PORT = 27751
 STATUS = re.compile(r'\[ONLINE\] frame (\d+) side P(\d) link (on|off) alive (\d) lag (\d+) state (\d+) tx (\d+) rx (\d+) '
                     r'drop (\d+) bad (\d+)/(\d+) game-errors (\d+) ping (-?\d+) \| voice (on|off) sent (\d+) received (\d+) lost (\d+)')
@@ -126,7 +126,7 @@ def run(name: str, keep: bool):
     lobby = None
     if name in ROOM_SCENARIOS:
         if not SERVER_EXE.exists():
-            sys.exit('Build the lobby server first: cd upstream/server && set CARGO_TARGET_DIR=../../build/nmn-server && cargo build --release')
+            sys.exit("Build upstream's current lobby server first (see docs/ONLINE.md, Testing)")
         lobby = subprocess.Popen([str(SERVER_EXE), '--port', str(SERVER_PORT), '--bind', '127.0.0.1', '--max-per-ip', '16', '--quiet'],
                                  stdout=open(base / 'server.log', 'w'), stderr=subprocess.STDOUT)
         time.sleep(0.5)
@@ -224,13 +224,74 @@ def run(name: str, keep: bool):
     return not failures
 
 
+UPSTREAM_GAME = ROOT / 'build/upstream-release/windows-release/TimeCrisis2.exe'
+
+
+def crossplay(keep: bool):
+    """Our cabinet (P1, hosting a room) against upstream namco22-decompile's own released Time Crisis 2 (P2, headless), through
+    upstream's server. Needs build/upstream-release (docs/ONLINE.md, Testing). Checks the link from both sides and upstream's own
+    agreed start (it holds its start until our game has run 25 s, reading our trailer)."""
+    if not UPSTREAM_GAME.exists():
+        print('[crossplay] SKIPPED: no upstream release in build/upstream-release', flush=True)
+        return True
+    frames = 6600
+    base = WORK / 'crossplay'
+    base.mkdir(parents=True, exist_ok=True)
+    run_dir = WORK / 'cabinets'
+    cabinet(run_dir / 'A', f'127.0.0.1:{SERVER_PORT}')
+    rec = base / 'inputs.rec'
+    recording(rec, frames)
+    microphone(run_dir / 'A' / 'mic.wav', frames // 60 + 30, tone=True)
+    lobby = subprocess.Popen([str(SERVER_EXE), '--port', str(SERVER_PORT), '--bind', '127.0.0.1', '--quiet'], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+    time.sleep(0.5)
+    env = dict(os.environ, TCVR_TEST_HIDDEN='1', TC2_REPLAY=str(rec), TC2_NET_STATUS='1', TC2_NET_SCRIPT='600:hostroom', TC2_NET_ROOM_CODE='KXQ7',
+               TC2_VOICE_IN=str(run_dir / 'A' / 'mic.wav'))
+    ours = subprocess.Popen([str(run_dir / 'A' / 'TimeCrisis2VR.exe'), '--desktop', '--no-dialog', '--frames', str(frames)], cwd=run_dir / 'A', env=env)
+    time.sleep(16)                                   # upstream joins the server's fullest open room: ours, once it exists
+    uenv = dict(os.environ, TC2_NET_SERVER=f'127.0.0.1:{SERVER_PORT}', TC2_NET_NAME='UPSTREAM', TC2_NET_AUTOSTART='2', TC2_LINKLOG='1', TC2_REPLAY=str(rec))
+    theirs = subprocess.Popen([str(UPSTREAM_GAME), 'reset', str(frames * 2_900_000)], cwd=UPSTREAM_GAME.parent, env=uenv)
+    ours.wait(timeout=frames / 50 + 120)
+    theirs.wait(timeout=frames / 50 + 120)
+    lobby.terminate(); lobby.wait(timeout=10)
+    shutil.copy2(run_dir / 'A' / 'tc2.log', base / 'ours.log')
+    shutil.copy2(UPSTREAM_GAME.parent / 'tc2.log', base / 'upstream.log')
+    a = (base / 'ours.log').read_text(errors='replace')
+    u = (base / 'upstream.log').read_text(errors='replace')
+    rows = [tuple(int(v) if v.lstrip('-').isdigit() else v for v in m.groups()) for m in STATUS.finditer(a)]
+    states = [int(p) for p, _ in re.findall(r'partner-state (\d+) self (-?\d+)', a)]
+    selfs = [int(m) for m in re.findall(r'partner-state \d+ self (-?\d+)', a)]
+    failures = []
+    if 'GO: session' not in a or 'online: cabinet Right/Blue' not in u:
+        failures.append('the two never linked')
+    linked = [r for r in rows if r[2] == 'on' and r[0] >= 2400]
+    if not linked or not all(r[3] for r in linked):
+        failures.append('our cabinet lost its upstream partner')
+    if rows and rows[-1][11]:
+        failures.append(f'our game counted {rows[-1][11]} link errors')
+    if 4 not in selfs:
+        failures.append('upstream never saw our cabinet in a game (state 4)')
+    if not re.search(r'start HELD \(us', u) or not re.search(r'start free \(us \d+, partner 4\)', u):
+        failures.append("upstream's agreed start did not hold and release on our trailer")
+    if ' 0 traps, 0 FP exceptions' not in u or ' 0 traps, 0 FP exceptions' not in a:
+        failures.append('CPU traps or FP exceptions')
+    if not re.search(r'partner-voice 0', a):
+        failures.append('an upstream partner was taken for a voice-chat partner')
+    print('[crossplay] ' + ('PASS' if not failures else 'FAIL'), flush=True)
+    if rows:
+        r = rows[-1]
+        print(f'    ours (P1): link {r[2]} alive {r[3]} lag {r[4]} game-errors {r[11]}; partner states seen {sorted(set(states))}; upstream sees us as {sorted(set(selfs))}', flush=True)
+    for f in failures:
+        print('    - ' + f, flush=True)
+    return not failures
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
     keep = '--keep' in sys.argv
     if not (PACKAGE / 'TimeCrisis2VR.exe').exists():
         sys.exit('Build first: python -X utf8 tools/build_pc.py --rom <timecrs2.zip>')
-    names = args or list(SCENARIOS)
-    ok = all([run(n, keep) for n in names])
+    names = args or [*SCENARIOS, 'crossplay']
+    ok = all([crossplay(keep) if n == 'crossplay' else run(n, keep) for n in names])
     sys.exit(0 if ok else 1)
 
 

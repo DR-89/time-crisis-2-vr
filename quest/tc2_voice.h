@@ -15,14 +15,14 @@ int  tc2_voice_volume(void);
 
 void tc2_voice_tick(void);                        /* once per arcade frame: encode what was captured, decode what arrived */
 bool tc2_voice_pending(void);                     /* encoded voice waits to be sent */
-int  tc2_voice_pack(uint8_t *out);                /* 1 = out holds a 256-byte voice frame */
-bool tc2_voice_is_packet(const uint8_t *in);
-void tc2_voice_unpack(const uint8_t *in);
+int  tc2_voice_pack(uint8_t *out,int max);       /* the voice block for a link payload (up to max bytes); 0 = voice chat off */
+int  tc2_voice_wanted_bytes(void);                /* what the next block would like (0 = none) */
+bool tc2_voice_unpack(const uint8_t *block,int available);   /* false = no voice block there (an upstream desktop partner) */
 int  tc2_voice_mix(void);                         /* one sample at the game's 88.2 kHz output rate (added to both channels) */
 
 /* Capture feed: SDL's capture callback on desktop, MainActivity's voice-communication recorder on Quest (any thread). */
 void tc2_voice_capture(const int16_t *pcm,int samples);
 void tc2_voice_test_output(const char *wav_path);   /* tests: record what is played (TC2_VOICE_OUT, or online-test.txt on a headset) */
 
-typedef struct tc2_voice_status { bool active,capturing,talking,partner_talking,mic_denied; int level,partner_level; uint32_t sent,received,lost; } tc2_voice_status;
+typedef struct tc2_voice_status { bool active,capturing,talking,partner_talking,partner_has_voice,mic_denied; int level,partner_level; uint32_t sent,received,lost; } tc2_voice_status;
 void tc2_voice_get_status(tc2_voice_status *out);

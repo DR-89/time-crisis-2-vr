@@ -33,7 +33,7 @@
 #define CFG_PATH        "online.cfg"
 #define DEFAULT_SERVER  "zonesync.net"
 #define NAME_MAX_LEN    12
-#define LINK_VERSION    2           /* 1: link only; 2: link + voice frames */
+#define LINK_VERSION    1           /* upstream namco22-decompile's Time Crisis 2 link, version 1 */
 
 /* the room the next connect asks for (generated net.c adapter, quest/tc2_sources.cmake): 0 the server picks, -1 a new room
  * named eng_net_room_request_name, n room n. It stays set, so the library's own rejoins go back to the same room. */
@@ -45,9 +45,9 @@ static void session_end(void);
 static int  frame_out(uint8_t *buf);
 static void frame_in(int slot,const uint8_t *buf,uint32_t seq);
 static void net_hint(const char *text,int frames);
-/* Game id "tv" (Time Crisis II VR): upstream namco22-decompile now runs its own TC2 link protocol as "t2" (1 KB frames). Ours
- * is a different wire format, so it must never share their rooms. */
-#define GAME_ID         "tv"
+/* Game id "t2" with upstream namco22-decompile's own Time Crisis 2 payload (tc2_link.c): a VR cabinet and the upstream desktop
+ * game share rooms and link with each other. Voice rides in a block upstream's parser never reads (tc2_voice.c). */
+#define GAME_ID         "t2"
 static const eng_net_game game={GAME_ID,LINK_VERSION,2,TC2_LINK_PAYLOAD,"TC2_NET","game",0,
     session_begin,session_end,frame_out,frame_in,net_hint};
 
@@ -152,6 +152,7 @@ static void partner_name(char *out,size_t n){
 static void session_begin(int slot,int players){
     (void)players;
     int side=slot==1?2:1;char partner[24],line[64];partner_name(partner,sizeof partner);
+    tc2_link_session_reset();
     if(episode&&tc2_link_enabled()&&side==qtc2_cabinet_side){snprintf(line,sizeof line,"%s IS BACK - LINKED AGAIN",partner);say(line,4000);}
     else{
         if(episode&&side!=qtc2_cabinet_side)fprintf(stderr,"[ONLINE] the lobby moved this cabinet from P%d to P%d\n",qtc2_cabinet_side,side);
@@ -163,10 +164,23 @@ static void session_begin(int slot,int players){
 }
 static void session_end(void){ready_sent=false;start_sent_ms=0;}   /* the link stays up; the lobby re-links (see lobby_tick) */
 /* Each poll sends one frame: link fragments first (the arcade must not wait), voice when the link has nothing new. */
-static int frame_out(uint8_t *buf){return tc2_link_pack(buf)||tc2_voice_pack(buf);}
+/* One payload a frame, as upstream: the newest link frames that fit, then (ours only) the voice block, then the trailer. Voice
+ * takes room from the repeated older link frames, never from the newest. */
+static int frame_out(uint8_t *buf){
+    if(!tc2_link_enabled())return 0;
+    memset(buf,0,TC2_LINK_PAYLOAD);
+    const int end=TC2_LINK_PAYLOAD-TC2_LINK_TRAILER;
+    int want=tc2_voice_wanted_bytes(),limit=end-want;
+    if(want&&!tc2_link_pack_fits_newest(limit)){limit=end;want=0;}
+    int o=tc2_link_pack(buf,limit);
+    if(want)tc2_voice_pack(buf+o,end-o);
+    tc2_link_trailer(buf);
+    return 1;
+}
 static void frame_in(int slot,const uint8_t *buf,uint32_t seq){
     (void)slot;(void)seq;
-    if(tc2_voice_is_packet(buf))tc2_voice_unpack(buf);else tc2_link_unpack(buf);
+    int o=tc2_link_unpack(buf);
+    if(o>0)tc2_voice_unpack(buf+o,TC2_LINK_PAYLOAD-TC2_LINK_TRAILER-o);
 }
 static void net_hint(const char *text,int frames){
     /* the library's own lobby notes ("back in the lobby", "rejoining") are internal while an episode recovers by itself */
@@ -334,6 +348,7 @@ enum { ITEM_HOST_ROOM,ITEM_JOIN_CODE,ITEM_BROWSE,ITEM_HOST_LAN,ITEM_JOIN_IP,ITEM
        ITEM_LEAVE,ITEM_REFRESH,ITEM_BACK,ITEM_ROOM0=100,ITEM_LAN0=200 };
 static int cursor,edit_item=-1,edit_pos;
 static int current_items(int *items);
+static bool holding;                       /* the agreed start (below) */
 
 /* ---- test switches (desktop automation; see tests/test_online.py) ----
  * TC2_NET_SCRIPT="<frame>:<action>[=arg];..." (or t<ms>: milliseconds after start, for a headset nobody wears). Actions: host
@@ -386,11 +401,11 @@ static void test_switches_at(bool timed){
     }
     if(!timed&&test_status&&sim_frames%300==0){
         tc2_link_status s;tc2_link_get_status(&s);char net[96];eng_net_status(net,sizeof net);
-        tc2_voice_status v;tc2_voice_get_status(&v);
+        tc2_voice_status v;tc2_voice_get_status(&v);extern uint8_t tc2_ram[];
         fprintf(stderr,"[ONLINE] frame %u side P%d link %s alive %d lag %u state %u tx %u rx %u drop %u bad %u/%u game-errors %u ping %d"
-                " | voice %s sent %u received %u lost %u | room %d %s | %s\n",
+                " | voice %s sent %u received %u lost %u | room %d %s | partner-state %d self %d hold %d partner-voice %d | %s\n",
             sim_frames,qtc2_cabinet_side,s.enabled?"on":"off",s.alive,s.lag,s.state,s.tx,s.rx,s.rx_dropped,s.tx_bad,s.rx_bad,s.game_errors,eng_net_ping_ms(),
-            v.active?"on":"off",v.sent,v.received,v.lost,room_id,room_code[0]?room_code:"-",net);
+            v.active?"on":"off",v.sent,v.received,v.lost,room_id,room_code[0]?room_code:"-",tc2_ram[0x2F3502],tc2_link_self_state(),holding?1:0,v.partner_has_voice?1:0,net);
         if(screen==SCREEN_BROWSE)for(int i=0;i<tc2_rooms_count();i++){const tc2_room *r=tc2_rooms_get(i);
             fprintf(stderr,"[ONLINE] room %d '%s' code %s %d/%d %s v%d\n",r->id,r->name,r->code[0]?r->code:"-",r->players,r->max_players,r->state?"playing":"lobby",r->version);}
     }
@@ -408,6 +423,54 @@ static void health_tick(void){
     if(v.mic_denied&&!denied_said){denied_said=true;say("NO MICROPHONE ACCESS - LISTEN ONLY",5000);}
 }
 
+/* ---- the agreed start (from upstream namco22-decompile 0.9.3+, tc2/src/tc2_link.c, MIT): the game's byte 0x802F3502 is the
+ * PARTNER's state as this cabinet sees it (1 attract, 2 credited / selecting, 4 in a game). Upstream measured (LAN and zonesync):
+ * the right cabinet's kills only count when the LEFT starts its game first and the right is credited once that game is under
+ * way; credited first, or within ~6 s, the right shows its partner as "COM" and its score freezes. So the right cabinet's coin,
+ * trigger and pedal are held until it is in a game, while the left has not been in its game for TC2_JOIN_WAIT frames (1500 = 25 s,
+ * or the same in wall-clock time over a slow link). Coins put in meanwhile are counted and paid in afterwards, 4 frames on and 36
+ * off each. The right cabinet learns its own state from the left's trailer; without one (unknown), nothing is held. ---- */
+static bool holding;static int coin_pending,coin_pulse,prev_coin;static uint32_t p_since,p_since_ms;static int p_prev=-1;
+static void start_hold_tick(void){
+    extern uint8_t tc2_ram[];extern uint16_t tc2_inputs;extern uint32_t rr_frame;
+    static long wait=-1;if(wait<0){const char *e=getenv("TC2_JOIN_WAIT");wait=e?atol(e):1500;}
+    const int pst=tc2_ram[0x2F3502],self=tc2_link_self_state();
+    if(pst!=p_prev){p_prev=pst;p_since=rr_frame;p_since_ms=SDL_GetTicks();}
+    const uint32_t left_ms=(uint32_t)(wait*1000/60),in_ms=SDL_GetTicks()-p_since_ms;
+    const bool left_done=pst==4&&(rr_frame-p_since>=(uint32_t)wait||in_ms>=left_ms);
+    bool h=eng_net_session_active()&&eng_net_slot()==1&&self>=0&&self!=4&&!left_done;
+    const int c=tc2_inputs&0x0001;                       /* the raw coin, before the hold (qtc2_online_inputs) */
+    if(h&&c&&!prev_coin)coin_pending++;
+    prev_coin=c;
+    if(coin_pulse>0){if(--coin_pulse==0)coin_pulse=-36;}
+    else if(coin_pulse<0)coin_pulse++;
+    else if(!h&&coin_pending>0){coin_pending--;coin_pulse=4;}
+    if(h!=holding){
+        holding=h;
+        fprintf(stderr,"[ONLINE] start %s (we are %d, partner %d)\n",h?"HELD":"free",self,pst);
+        if(h||self!=4)say(h?(pst==4?"P1 IS STARTING - YOU JOIN IN A MOMENT":"P1 STARTS FIRST, THEN YOU JOIN"):"PULL THE TRIGGER TO JOIN YOUR PARTNER",h?6000:4000);
+    }
+    if(h&&pst==4&&rr_frame%120==0){
+        char t[48];uint32_t r=in_ms<left_ms?(left_ms-in_ms+999)/1000:0;
+        snprintf(t,sizeof t,"P1 IS STARTING - YOU JOIN IN %u S",(unsigned)r);say(t,2500);
+    }
+}
+uint16_t qtc2_online_inputs(uint16_t raw){
+    if(holding)raw&=(uint16_t)~(0x0001|0x0010|0x0020);   /* coin, trigger, pedal */
+    if(coin_pulse>0)raw|=0x0001;
+    return raw;
+}
+/* stall-and-wait, as upstream: neither cabinet runs more than a few frames ahead of the other. The VR host asks before each
+ * arcade frame and keeps rendering the headset meanwhile (upstream blocks in eng_net_wait; a headset must not). */
+bool tc2_online_may_advance(void){
+    if(!inited||!eng_net_session_active())return true;
+    static int lead=-2;if(lead==-2){const char *e=getenv("TC2_NET_LEAD");lead=e?atoi(e):-1;}
+    if(lead>=1000)return true;
+    if(eng_net_may_advance(lead<0?eng_net_auto_lead():lead,1000))return true;
+    eng_net_poll_paused();
+    return false;
+}
+
 void tc2_online_frame(void){
     if(!inited)return;
     sim_frames++;
@@ -417,8 +480,7 @@ void tc2_online_frame(void){
     tc2_voice_set_active(eng_net_session_active());
     tc2_voice_tick();
     eng_net_poll();
-    /* a link packet larger than one network frame, and queued voice, go out now (each poll sends one frame) */
-    for(int extra=0;extra<8&&(tc2_link_pending()||tc2_voice_pending());extra++)eng_net_poll();
+    start_hold_tick();
     episode_tick();
     code_join_tick();
     browse_tick();
@@ -539,7 +601,8 @@ unsigned tc2_online_menu_lines(char text[TC2_ONLINE_LINES][TC2_ONLINE_COLUMNS],i
         if(ping>=0)STATUS(s.alive?TC2_LINE_TEXT:TC2_LINE_WARN,"PING %d MS  LINK %s",ping,s.alive?(s.lag>6?"LAGGING":"GOOD"):"WAITING");
         else STATUS(s.alive?TC2_LINE_TEXT:TC2_LINE_WARN,"LINK %s",s.alive?"GOOD":"WAITING");
         if(room_code[0])STATUS(TC2_LINE_TEXT,"ROOM CODE %s",room_code);
-        if(cfg_voice&&v.active){char a[10],b[10];meter(a,cfg_muted?0:v.level);meter(b,v.partner_level*3);
+        if(cfg_voice&&v.active&&!v.partner_has_voice&&eng_net_session_active())STATUS(TC2_LINE_HINT,"PARTNER'S GAME HAS NO VOICE CHAT");
+        else if(cfg_voice&&v.active){char a[10],b[10];meter(a,cfg_muted?0:v.level);meter(b,v.partner_level*3);
             STATUS(v.mic_denied?TC2_LINE_WARN:TC2_LINE_TEXT,"YOU %s  PARTNER %s",v.mic_denied?"NO MIC  ":cfg_muted?"MUTED   ":a,b);}
         STATUS(TC2_LINE_HINT,"THE GAME RUNS ON WHILE THIS IS OPEN");
     }else if(connected_any()){

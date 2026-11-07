@@ -12,7 +12,7 @@ Built on the native System 23 reconstruction in **[spacestate1/namco22-decompile
 
 ## Online 2-player (this fork)
 
-**New in 0.4.0-online:** play the arcade's real **twin-cabinet mode** online, with voice chat. Each player runs the full game as Keith (P1) or Robert (P2), and the System 23 C422 link chip between the two cabinets is emulated and carried over the network. Quest, PCVR and desktop all play together.
+**New in 0.4.0-online:** play the arcade's real **twin-cabinet mode** online, with voice chat. Each player runs the full game as Keith (P1) or Robert (P2), and the System 23 C422 link chip between the two cabinets is emulated and carried over the network. Quest, PCVR and desktop all play together. It is wire-compatible with the desktop Time Crisis 2 online play of [namco22-decompile](https://github.com/spacestate1/namco22-decompile) (0.9.3+, tested with 0.10.1), so VR and desktop players share rooms.
 
 - **Options page 4/4 ONLINE 2-PLAYER:**
   - **HOST ONLINE ROOM** shows a four-character room code; your friend picks **JOIN ROOM CODE**.

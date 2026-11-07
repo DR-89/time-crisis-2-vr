@@ -762,7 +762,7 @@ static bool desktop_frame(void){
         GLenum error=glGetError();if(error)fprintf(stderr,"[GL] desktop error 0x%x\n",error);
         SDL_GL_SwapWindow(window);
         if(!fast){Uint64 now=SDL_GetPerformanceCounter(),freq=SDL_GetPerformanceFrequency();if(!deadline||now>deadline+freq/4)deadline=now;deadline+=freq*1000/59906;while((now=SDL_GetPerformanceCounter())<deadline)SDL_Delay(1);}
-        if(!paused||tc2_online_session()){ss22_input_update();return true;}
+        if((!paused||tc2_online_session())&&tc2_online_may_advance()){ss22_input_update();return true;}   /* stall-and-wait: render on, hold the arcade */
     }
 }
 #endif
@@ -780,13 +780,13 @@ bool ss22_host_frame(void){
             if(tc2_online_session()){
                 Uint64 now=SDL_GetPerformanceCounter(),freq=SDL_GetPerformanceFrequency();
                 if(!wall_deadline||now>wall_deadline+freq/4)wall_deadline=now;
-                if(now>=wall_deadline){wall_deadline+=freq*1000/59906;ss22_input_neutral();return true;}
+                if(now>=wall_deadline&&tc2_online_may_advance()){wall_deadline+=freq*1000/59906;ss22_input_neutral();return true;}
                 SDL_Delay(1);continue;
             }
             wall_deadline=0;SDL_Delay(10);continue;
         }
         if(game_deadline&&!sim_held(last_tracking)&&last_display_time>=game_deadline){
-            if(qclock_take(&game_deadline,last_display_time)){ss22_input_update();return true;}
+            if(tc2_online_may_advance()&&qclock_take(&game_deadline,last_display_time)){ss22_input_update();return true;}
         }
         XrFrameWaitInfo wi={XR_TYPE_FRAME_WAIT_INFO};XrFrameState frame={XR_TYPE_FRAME_STATE};if(!XR(xrWaitFrame(session,&wi,&frame)))return false;
         display_rate_check(frame.predictedDisplayTime);
@@ -868,7 +868,7 @@ bool ss22_host_frame(void){
         else{memset(profile_parts,0,sizeof profile_parts);profile_thread=0;}
         frame_profile(render_start,frame.predictedDisplayPeriod,draw_frame&&focused&&!paused);
         if(sim_held(tracking)){ss22_input_neutral();game_deadline=0;continue;}
-        if(qclock_take(&game_deadline,frame.predictedDisplayTime)){ss22_input_update();return true;}
+        if(tc2_online_may_advance()&&qclock_take(&game_deadline,frame.predictedDisplayTime)){ss22_input_update();return true;}
     }
 }
 #endif

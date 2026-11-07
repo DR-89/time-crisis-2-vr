@@ -14,15 +14,11 @@
  * Disabled, every access behaves as the pinned upstream stub (registers store and read back, a write of 0xFFFB / 0x000F to reg 1
  * raises / drops IP5 for the POWER ON TEST) so offline play is byte-identical.
  *
- * Network payload (TC2_LINK_PAYLOAD bytes, little-endian), one fragment of the newest packet:
- *   0 magic 0xC4   1 copies sent (1..15) | 0x80 deflated   2 packet id   3 fragment index << 4 | fragment count (1..8)
- *   4..5 blob length   6.. this fragment's FRAG_DATA bytes of the blob
- * blob = the packet's low bytes (bit 8 is only ever set on the last word, re-created on receive), deflated when that is smaller. */
+ * On the network the link travels in upstream's Time Crisis 2 payload (below), so VR and desktop cabinets link with each other. */
 #include "tc2_link.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <zlib.h>
 
 #define IP_C422     0x2000u
 #define RING        0x1000u
@@ -30,9 +26,6 @@
 #define RXQ         48
 #define RX_BUDGET   2048u                 /* words of received packets held for the game: half its 4096-word ring */
 #define TICK_INS    8000u                 /* instructions between chip ticks (~350 a frame) */
-#define FRAG_HEADER 6
-#define FRAG_DATA   (TC2_LINK_PAYLOAD-FRAG_HEADER)
-#define FRAG_MAX    8
 #define GP          0x802C7820u
 static unsigned tc2_link_frame(void){extern uint32_t rr_frame;return rr_frame;}
 
@@ -44,14 +37,16 @@ static bool enabled;
 static uint16_t reg[8];
 static bool rx_flag,tx_busy,line;
 static uint16_t txp[MAXW];static unsigned txn;              /* the packet being sent, gathered across chunks */
-static struct { uint16_t n;uint8_t b[MAXW]; } sent;          /* the newest complete packet sent, not yet packed */
-static unsigned sent_copies;static bool sent_new;
 static struct { uint16_t n,w[MAXW]; } rxq[RXQ];static int rxr,rxw;
 static uint32_t ins_acc;
 static tc2_link_status st;
-/* the wire: fragments of the newest packet out, reassembly in */
-static uint8_t blob[MAXW+64];static unsigned blob_len,frag_next,frag_count,blob_copies;static bool blob_deflated;static uint8_t msg_id;
-static uint8_t rx_blob[MAXW+64];static unsigned rx_have,rx_count,rx_len;static int rx_msg=-1;static bool rx_deflated;static unsigned rx_copies;
+/* the wire (see below): our transmitted link frames by id, what the partner sent last */
+#define HIST 64
+static struct { uint16_t id,n;uint16_t w[MAXW]; } hist[HIST];
+static uint16_t next_id,rx_last;static bool rx_have;static uint32_t n_sent;
+static int self_state=-1;                 /* our state as the partner sees it (its trailer); -1 unknown */
+static uint32_t partner_frame;
+static void history_add(void);
 
 static uint16_t ram_rd(uint32_t i){const uint8_t *m=tc2_c422_ram();i&=0x1FFF;return (uint16_t)(m[i*2]<<8|m[i*2+1]);}
 static void ram_wr(uint32_t i,uint16_t v){uint8_t *m=tc2_c422_ram();i&=0x1FFF;m[i*2]=(uint8_t)(v>>8);m[i*2+1]=(uint8_t)v;}
@@ -59,8 +54,8 @@ static void set_line(bool on){if(line!=on){line=on;tc2_irq_line(IP_C422,on);}}
 
 void tc2_link_set_enabled(bool on){
     if(on==enabled)return;
-    enabled=on;rx_flag=tx_busy=false;txn=0;sent_new=false;sent_copies=0;rxr=rxw=0;ins_acc=0;
-    frag_next=frag_count=0;rx_msg=-1;rx_have=0;
+    enabled=on;rx_flag=tx_busy=false;txn=0;rxr=rxw=0;ins_acc=0;
+    next_id=0;n_sent=0;rx_have=false;self_state=-1;memset(hist,0,sizeof hist);   /* a new link starts its numbering afresh (as upstream) */
     if(!on)set_line(false);
     fprintf(stderr,"[LINK] C422 link %s\n",on?"CONNECTED":"disconnected (single cabinet)");
 }
@@ -72,10 +67,7 @@ static void packet_done(void){
     for(unsigned k=0;k+1<txn;k++)if(txp[k]&0x100){
         if(st.tx_bad++<5)fprintf(stderr,"[LINK] unframeable packet: %u words, end mark at %u (frame %u)\n",txn,k,tc2_link_frame());
         txn=0;return;}
-    bool same=sent_new&&sent.n==txn;
-    for(unsigned k=0;same&&k<txn;k++)same=sent.b[k]==(uint8_t)txp[k];
-    if(same)sent_copies++;
-    else{sent.n=(uint16_t)txn;for(unsigned k=0;k<txn;k++)sent.b[k]=(uint8_t)txp[k];sent_copies=1;sent_new=true;}
+    history_add();
     st.tx++;txn=0;
 }
 static void transmit(unsigned n){
@@ -130,73 +122,78 @@ void tc2_link_step(uint32_t n){
     while(ins_acc>=TICK_INS){ins_acc-=TICK_INS;tick();}
 }
 
-/* ---- the wire ---- */
-/* The newest packet becomes a blob (raw bytes, or deflated when that is smaller), cut into fragments of FRAG_DATA bytes. Most
- * packets fit one network frame; gameplay packets of 380-470 bytes take two or three. A lost fragment loses that packet, as a
- * lost packet on the cabinet cable would; the next frame's packet supersedes it. */
-static bool make_blob(void){
-    unsigned copies=sent_copies>15?15:sent_copies;
-    blob_deflated=false;blob_len=sent.n;memcpy(blob,sent.b,sent.n);
-    if(sent.n>FRAG_DATA){
-        uint8_t z[MAXW+64];uLongf len=sizeof z;
-        if(compress2(z,&len,sent.b,sent.n,6)==Z_OK&&len<sent.n){memcpy(blob,z,len);blob_len=(unsigned)len;blob_deflated=true;}
-    }
-    frag_count=(blob_len+FRAG_DATA-1)/FRAG_DATA;
-    if(!frag_count||frag_count>FRAG_MAX){if(st.tx_bad++<8)fprintf(stderr,"[LINK] packet of %u bytes is too large to send\n",sent.n);return false;}
-    frag_next=0;blob_copies=copies;msg_id++;
-    return true;
-}
-int tc2_link_pack(uint8_t *out){
-    if(!enabled)return 0;
-    if(frag_next>=frag_count){
-        if(!sent_new)return 0;
-        sent_new=false;
-        if(!make_blob()){sent_copies=0;return 0;}
-        sent_copies=0;
-    }
-    unsigned off=frag_next*FRAG_DATA,n=blob_len-off;if(n>FRAG_DATA)n=FRAG_DATA;
-    memset(out,0,TC2_LINK_PAYLOAD);
-    out[0]=0xC4;out[1]=(uint8_t)(blob_copies|(blob_deflated?0x80:0));out[2]=msg_id;out[3]=(uint8_t)(frag_next<<4|frag_count);
-    out[4]=(uint8_t)blob_len;out[5]=(uint8_t)(blob_len>>8);
-    memcpy(out+FRAG_HEADER,blob+off,n);
-    frag_next++;
-    return 1;
-}
-bool tc2_link_pending(void){return enabled&&frag_next<frag_count;}
+/* ---- the wire: upstream namco22-decompile's Time Crisis 2 payload (tc2/src/tc2_link.c, 0.9.x-0.10.x, MIT), so a VR cabinet links
+ * with the upstream desktop game. Byte 0 = k, then k times { BE16 id, BE16 n, n bytes } oldest first: the newest transmitted link
+ * frames that fit, one byte a word, bit 8 (end of frame) being the last word's. The driver's resends of a packet are carried once;
+ * repeating recent frames in every payload means a lost datagram costs nothing, and the receiver gives the game each id once.
+ * The last 8 bytes are the trailer: 'T' '2' and the byte 0x802F3502 its sender sees (the partner's state: 1 attract, 2 credited,
+ * 4 in a game -- which tells the partner its OWN state), then the sender's frame, BE32. ---- */
 
-bool tc2_link_unpack(const uint8_t *in){
-    if(!enabled)return false;
-    unsigned copies=in[1]&15,index=in[3]>>4,count=in[3]&15,len=in[4]|in[5]<<8;
-    if(in[0]!=0xC4||!copies||!count||count>FRAG_MAX||index>=count||!len||len>count*FRAG_DATA||len>sizeof rx_blob){
-        if(st.rx_bad++<5)fprintf(stderr,"[LINK] bad payload %02X %02X %02X %02X\n",in[0],in[1],in[2],in[3]);return false;
+static void history_add(void){
+    unsigned prev=(uint16_t)(next_id-1)%HIST;
+    bool dup=n_sent&&hist[prev].n==txn&&!memcmp(hist[prev].w,txp,txn*2);
+    if(dup)return;
+    hist[next_id%HIST].id=next_id;hist[next_id%HIST].n=(uint16_t)txn;memcpy(hist[next_id%HIST].w,txp,txn*2);
+    next_id++;n_sent++;
+}
+int tc2_link_pack(uint8_t *out,int limit){
+    if(!enabled)return 0;
+    if(limit>TC2_LINK_PAYLOAD-TC2_LINK_TRAILER)limit=TC2_LINK_PAYLOAD-TC2_LINK_TRAILER;
+    int k=0,bytes=1;
+    while(k<HIST&&(uint32_t)k<n_sent&&k<255){
+        int sz=4+hist[(uint16_t)(next_id-1-k)%HIST].n;
+        if(bytes+sz>limit)break;
+        bytes+=sz;k++;
     }
-    if(rx_msg!=in[2]){                       /* a new packet: any unfinished older one is lost */
-        if(rx_msg>=0&&rx_have!=(1u<<rx_count)-1u)st.rx_dropped++;
-        rx_msg=in[2];rx_have=0;rx_count=count;rx_len=len;rx_deflated=(in[1]&0x80)!=0;rx_copies=copies;
+    out[0]=(uint8_t)k;int o=1;
+    for(int i=k-1;i>=0;i--){
+        uint16_t id=(uint16_t)(next_id-1-i);int h=id%HIST;
+        out[o++]=(uint8_t)(id>>8);out[o++]=(uint8_t)id;out[o++]=(uint8_t)(hist[h].n>>8);out[o++]=(uint8_t)hist[h].n;
+        for(int j=0;j<hist[h].n;j++)out[o++]=(uint8_t)hist[h].w[j];
     }
-    if(count!=rx_count||len!=rx_len)return false;
-    unsigned off=index*FRAG_DATA,n=len-off;if(n>FRAG_DATA)n=FRAG_DATA;
-    memcpy(rx_blob+off,in+FRAG_HEADER,n);rx_have|=1u<<index;
-    if(rx_have!=(1u<<count)-1u)return true;
-    rx_msg=-1;rx_have=0;
-    uint8_t b[MAXW];uLongf words=len;
-    if(rx_deflated){words=MAXW;if(uncompress(b,&words,rx_blob,len)!=Z_OK||!words){st.rx_bad++;return false;}}
-    else memcpy(b,rx_blob,len);
-    if(rx_copies>3)rx_copies=3;
+    return o;
+}
+bool tc2_link_pack_fits_newest(int limit){
+    return !n_sent||1+4+hist[(uint16_t)(next_id-1)%HIST].n<=limit;
+}
+void tc2_link_trailer(uint8_t *payload){
+    extern uint32_t rr_frame;uint8_t *t=payload+TC2_LINK_PAYLOAD-TC2_LINK_TRAILER;
+    t[0]='T';t[1]='2';t[2]=tc2_ram[0x2F3502];t[3]=0;
+    t[4]=(uint8_t)(rr_frame>>24);t[5]=(uint8_t)(rr_frame>>16);t[6]=(uint8_t)(rr_frame>>8);t[7]=(uint8_t)rr_frame;
+}
+static void give(const uint16_t *w,unsigned n){
     /* A cable never holds more than a frame or two of traffic. After a stall the network hands over seconds of backlog at once;
      * placing it all would wrap the game's 4096-word receive ring over packets it has queued but not read (they then fail its
      * sync check without a trace). Keep at most half a ring of the newest packets; Wi-Fi clumps of a few packets still pass whole. */
     unsigned queued=0;for(int q=rxr;q!=rxw;q=(q+1)%RXQ)queued+=rxq[q].n;
-    while(rxr!=rxw&&queued+rx_copies*(unsigned)words>RX_BUDGET){queued-=rxq[rxr].n;rxr=(rxr+1)%RXQ;st.rx_dropped++;}
-    for(unsigned c=0;c<rx_copies;c++){
-        rxq[rxw].n=(uint16_t)words;
-        for(unsigned k=0;k<words;k++)rxq[rxw].w[k]=b[k];
-        rxq[rxw].w[words-1]|=0x100;
-        rxw=(rxw+1)%RXQ;
-        if(rxw==rxr){rxr=(rxr+1)%RXQ;st.rx_dropped++;}
-    }
-    return true;
+    while(rxr!=rxw&&queued+n>RX_BUDGET){queued-=rxq[rxr].n;rxr=(rxr+1)%RXQ;st.rx_dropped++;}
+    rxq[rxw].n=(uint16_t)n;memcpy(rxq[rxw].w,w,n*2);
+    rxw=(rxw+1)%RXQ;
+    if(rxw==rxr){rxr=(rxr+1)%RXQ;st.rx_dropped++;}
 }
+int tc2_link_unpack(const uint8_t *in){
+    if(!enabled)return -1;
+    const uint8_t *t=in+TC2_LINK_PAYLOAD-TC2_LINK_TRAILER;
+    if(t[0]=='T'&&t[1]=='2')self_state=t[2];
+    partner_frame=(uint32_t)t[4]<<24|(uint32_t)t[5]<<16|(uint32_t)t[6]<<8|t[7];
+    int k=in[0],o=1;const int end=TC2_LINK_PAYLOAD-TC2_LINK_TRAILER;
+    for(int i=0;i<k;i++){
+        if(o+4>end){st.rx_bad++;return -1;}
+        uint16_t id=(uint16_t)(in[o]<<8|in[o+1]);int n=in[o+2]<<8|in[o+3];o+=4;
+        if(n<1||n>(int)MAXW||o+n>end){if(st.rx_bad++<5)fprintf(stderr,"[LINK] bad payload entry %d of %d (n %d)\n",i,k,n);return -1;}
+        if(!rx_have||(int16_t)(id-rx_last)>0){
+            uint16_t w[MAXW];for(int j=0;j<n;j++)w[j]=in[o+j];
+            w[n-1]|=0x100;
+            give(w,(unsigned)n);rx_last=id;rx_have=true;
+        }
+        o+=n;
+    }
+    return o;
+}
+int tc2_link_self_state(void){return enabled?self_state:-1;}
+/* Every session (re)start, as upstream's session_begin: both sides number their link frames afresh, so a partner who left and
+ * came back is not taken for old frames. The chip and the frames already waiting for the ring are kept. */
+void tc2_link_session_reset(void){next_id=0;n_sent=0;rx_have=false;self_state=-1;memset(hist,0,sizeof hist);}
 
 static uint16_t g16(uint32_t va){uint32_t o=va&0xFFFFFFu;return (uint16_t)(tc2_ram[o]<<8|tc2_ram[o+1]);}
 void tc2_link_get_status(tc2_link_status *o){

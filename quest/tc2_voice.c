@@ -5,8 +5,8 @@
  * Receive: frames by sequence number into a 64-slot jitter store -> decoded on the game thread into a 48 kHz playback ring kept
  * about 60 ms ahead, a missing frame rebuilt from the next frame's FEC or by Opus concealment -> read at the game's 88.2 kHz.
  *
- * Network frame (256 bytes, beside the 0xC4 link fragments): 0 0xC5, 1 flags (bit 0 talking), 2..3 sequence of the first Opus
- * frame, 4 count, then per frame: length byte, data. */
+ * On the network: a 'V' 'C' block in the link payload after the link frames, where upstream's own Time Crisis 2 ignores it (see
+ * tc2_voice_pack). */
 #include "tc2_voice.h"
 #include <opus.h>
 #include <SDL2/SDL.h>
@@ -25,7 +25,6 @@
 #define SLOTS       64
 #define OUTQ        12
 #define TARGET      (FRAME*3)             /* playback kept ~60 ms ahead */
-#define PAYLOAD     256
 #define GATE_ON     260                   /* RMS of int16 samples: ~ -42 dBFS */
 #define HANGOVER    20                    /* frames the gate stays open after speech (400 ms) */
 
@@ -159,32 +158,54 @@ bool tc2_voice_pending(void){
     int queued=(out_w-out_r+OUTQ)%OUTQ;
     return active&&queued>0&&(queued>=2||SDL_GetTicks()-first_queued_ms>=30||gate_hold==0);
 }
-int tc2_voice_pack(uint8_t *out){
-    if(!tc2_voice_pending())return 0;
-    memset(out,0,PAYLOAD);
-    out[0]=0xC5;out[1]=gate_hold>0?1:0;out[2]=(uint8_t)outq[out_r].seq;out[3]=(uint8_t)(outq[out_r].seq>>8);
-    int off=5,count=0;uint16_t expect=outq[out_r].seq;
-    while(out_r!=out_w&&count<4&&outq[out_r].seq==expect&&off+1+outq[out_r].n<=PAYLOAD){
-        out[off++]=outq[out_r].n;memcpy(out+off,outq[out_r].b,outq[out_r].n);off+=outq[out_r].n;
-        out_r=(out_r+1)%OUTQ;count++;expect++;
+/* The voice block inside a link payload: 'V' 'C', length (LE16) of what follows, then flags (bit 0 talking), the first Opus
+ * frame's sequence number (LE16), the frame count, and per frame its length byte and data. An empty block (no frames) still
+ * tells the partner that this cabinet has voice chat. */
+int tc2_voice_pack(uint8_t *out,int max){
+    if(!inited||!enabled||max<9)return 0;
+    out[0]='V';out[1]='C';
+    int off=4;
+    out[off++]=gate_hold>0&&!muted?1:0;
+    uint16_t first=out_r!=out_w?outq[out_r].seq:0;
+    out[off++]=(uint8_t)first;out[off++]=(uint8_t)(first>>8);
+    int count_at=off++,count=0;
+    if(tc2_voice_pending()){
+        uint16_t expect=first;
+        while(out_r!=out_w&&count<4&&outq[out_r].seq==expect&&off+1+outq[out_r].n<=max){
+            out[off++]=outq[out_r].n;memcpy(out+off,outq[out_r].b,outq[out_r].n);off+=outq[out_r].n;
+            out_r=(out_r+1)%OUTQ;count++;expect++;
+        }
+        n_sent+=(uint32_t)count;
+        if(out_r!=out_w)first_queued_ms=SDL_GetTicks();
     }
-    out[4]=(uint8_t)count;n_sent+=(uint32_t)count;
-    if(out_r!=out_w)first_queued_ms=SDL_GetTicks();
-    return count>0;
+    out[count_at]=(uint8_t)count;
+    out[2]=(uint8_t)(off-4);out[3]=(uint8_t)((off-4)>>8);
+    return off;
+}
+int tc2_voice_wanted_bytes(void){
+    if(!inited||!enabled)return 0;
+    int bytes=8;
+    if(tc2_voice_pending())for(int q=out_r,c=0;q!=out_w&&c<4;q=(q+1)%OUTQ,c++)bytes+=1+outq[q].n;
+    return bytes;
 }
 
 /* ---- receive ---- */
-bool tc2_voice_is_packet(const uint8_t *in){return in[0]==0xC5;}
-void tc2_voice_unpack(const uint8_t *in){
-    if(!active||in[0]!=0xC5)return;
-    uint16_t seq=(uint16_t)(in[2]|in[3]<<8);int count=in[4],off=5;
-    for(int i=0;i<count&&off<PAYLOAD;i++,seq++){
-        int n=in[off++];if(!n||off+n>PAYLOAD)break;
+static uint32_t partner_voice_ms;
+bool tc2_voice_unpack(const uint8_t *block,int avail){
+    if(avail<8||block[0]!='V'||block[1]!='C')return false;
+    int len=block[2]|block[3]<<8;if(len<4||4+len>avail)return false;
+    partner_voice_ms=SDL_GetTicks();
+    if(!active)return true;
+    const uint8_t *in=block+4;
+    uint16_t seq=(uint16_t)(in[1]|in[2]<<8);int count=in[3],off=4;
+    for(int i=0;i<count&&off<len;i++,seq++){
+        int n=in[off++];if(!n||off+n>len)break;
         int s=seq%SLOTS;slot[s].full=true;slot[s].seq=seq;slot[s].n=(uint8_t)n;memcpy(slot[s].b,in+off,(size_t)n);off+=n;
         n_received++;
         if(!playing){playing=true;next_seq=seq;}           /* a talk spurt starts: play from its first frame */
+        last_rx_ms=SDL_GetTicks();
     }
-    last_rx_ms=SDL_GetTicks();
+    return true;
 }
 static void play_push(const int16_t *pcm,int n){
     long sum=0;
@@ -254,6 +275,6 @@ int tc2_voice_mix(void){
 void tc2_voice_get_status(tc2_voice_status *o){
     memset(o,0,sizeof *o);
     o->active=active;o->capturing=capturing||test_in;o->talking=active&&!muted&&gate_hold>0;o->mic_denied=mic_denied;
-    o->partner_talking=active&&SDL_GetTicks()-last_rx_ms<300;o->level=level;o->partner_level=o->partner_talking?partner_level:0;
+    o->partner_talking=active&&SDL_GetTicks()-last_rx_ms<300;o->partner_has_voice=partner_voice_ms&&SDL_GetTicks()-partner_voice_ms<3000;o->level=level;o->partner_level=o->partner_talking?partner_level:0;
     o->sent=n_sent;o->received=n_received;o->lost=n_lost;
 }

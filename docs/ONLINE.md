@@ -4,7 +4,7 @@ Time Crisis II was built as a **twin cabinet**: two complete arcade boards, one 
 
 This build emulates that cable, the System 23 **C422** link chip, and carries it over the internet or your home network, with **voice chat** alongside. Both players run the full game, so there is no "host advantage", no rollback and no desync: it is the arcade's own two-cabinet mode, as Namco built it.
 
-Quest, Windows PCVR and the Windows desktop mode all play with each other.
+Quest, Windows PCVR and the Windows desktop mode all play with each other. **They also link with the desktop Time Crisis 2 of [namco22-decompile](https://github.com/spacestate1/namco22-decompile)**, the project this port is built on, 0.9.3 and later: the same lobby server, rooms and wire format. Tested against its 0.10.1 release. Voice chat works between VR builds; a desktop partner simply has none.
 
 ## Quick start
 
@@ -13,7 +13,10 @@ Quest, Windows PCVR and the Windows desktop mode all play with each other.
 3. One player chooses **HOST ONLINE ROOM (CODE)**. The page shows a four-character room code, for example `KXQ7`.
 4. The other player chooses **JOIN ROOM CODE** and enters it. Alternatively, **BROWSE GAMES** lists every open room on the server and every game hosted on your local network; select one to join.
 5. The games link automatically: the host becomes **P1 Keith**, the joiner **P2 Robert**. A banner confirms it: `LINKED WITH <NAME> - P2 ROBERT`. Voice chat starts at the same moment. On Quest, the first time, allow microphone access.
-6. Close the menu. Each player inserts credits (**A**) and pulls the **trigger** to start, just like at the arcade. Link first, then start together: a partner can also link while you are already playing (tested), but how the arcade merges two games already in progress has not been checked.
+6. Close the menu. **P1 starts first:** insert credits (**A**) and pull the **trigger**.
+7. **P2 joins once P1's game is under way.** P2's coin, trigger and pedal are held until P1's game has run 25 seconds. Banners count down (`P1 IS STARTING - YOU JOIN IN 12 S`), and coins put in meanwhile are paid in automatically. Then P2 pulls the trigger to join.
+
+   This is upstream's measured rule: if P2 is credited before or right at P1's start, the arcade can treat P1 as a computer partner and P2's kills stop counting. Both sides apply the same rule.
 
 Room codes go through the lobby server, so they work across the internet with no router setup, VPN or addresses. Other ways to meet:
 
@@ -67,7 +70,7 @@ There is nothing to pay for and no account.
 | **Port forward** | The host forwards **UDP 27750** to the PC or Quest; the joiner uses **JOIN IP** with the host's public address. | Direct connection; needs router access. |
 | **Your own server** | Run `nmn-server` from `upstream/server` (Rust, standard library only; a `Dockerfile` is included) on any machine with UDP 27750 open, for example a free-tier cloud VM. Put `server=your.host` in `online.cfg`. | Your own rooms, codes and browser list. |
 
-The game uses about **18 KB/s each way**: one 256-byte packet per arcade frame, at most three on the few frames with large link packets. Voice adds about 3 KB/s while someone talks.
+The game uses about **62 KB/s each way** (0.5 Mbit/s): one 1 KB packet per arcade frame, as upstream. Voice rides inside those packets and adds no traffic.
 
 ### Latency
 
@@ -87,6 +90,8 @@ The arcade's own link driver declares the partner lost after **16 frames (about 
 | Your partner hears an echo of themselves | Turn your headset's volume down a little, or wear headphones. The voice gate already suppresses most of it. |
 | No voice | Check **VOICE CHAT: ON**, the **MICROPHONE** state, and on Quest the app's microphone permission. On Windows, check that desktop apps may use the microphone (Privacy settings). |
 | Linked with a stranger | **QUICK MATCH** pairs whoever is waiting; for a friend, use a room code. |
+| P2's trigger and coin do nothing | P2 waits for P1's game to be under way (about 25 s); the banner counts down, and coins are paid in afterwards. |
+| `PARTNER'S GAME HAS NO VOICE CHAT` | Your partner runs the upstream desktop game; voice chat needs this VR build on both sides. |
 
 Logs: the Quest log (`Export-Quest-Diagnostics.ps1`) and Windows `tc2.log` contain `[ONLINE]`, `[NET]`, `[LINK]` and `[VOICE]` lines.
 
@@ -125,30 +130,35 @@ The pinned core is not modified. `quest/tc2_sources.cmake` generates copies of t
 - `tc2_chips.c`, `tc2_ctl.c`, `tc2_main.c` and `tc2_mem.c`: the C422 register reads and writes, its acknowledge, its clock and its RAM.
 - `tc2_audio.c`: the voice mix.
 - `engine/net.c`: a room request for the next connect, and an accessor for the current room.
+- `tc2_h8.c` (with the existing cabinet-switch hook): the inputs the I/O board reads pass through the agreed start's hold.
 
 ### Cabinet side
 
 The lobby slot decides the cabinet: slot 0 is P1, slot 1 is P2. The game reads the TSS I/O cabinet-ID switch continuously, so the side is set when the session starts with no reboot. The single-player Robert-route adapter is not involved. The side is kept until the player leaves, so a dropped and resumed connection never moves a cabinet mid-game.
 
-### Transport and rooms
+### Transport: compatible with upstream
 
-Upstream's NMN2 lobby/relay protocol (`upstream/docs/NETPLAY.md`) carries the game: the client `upstream/engine/net.c` and the built-in host `upstream/engine/net_host.c`. Game id `tv`, link version 2 (the link plus voice), 2 players, 256-byte frames. That is the size `nmn-server` allows any unlisted game, so stock servers carry it without changes.
+The lobby and relay are upstream's NMN2 protocol (`upstream/docs/NETPLAY.md`): the client `upstream/engine/net.c` and the built-in host `upstream/engine/net_host.c`. On top of that, `quest/tc2_link.c` and `quest/tc2_online.c` follow upstream's own Time Crisis 2 online play (its `tc2/src/tc2_link.c`, 0.9.3 to 0.10.1, MIT), so VR and desktop cabinets link with each other:
 
-Upstream namco22-decompile has since added its own Time Crisis II link play (0.9.0 and later) under game id `t2`, with a different wire format and 1 KB frames. The two do not interoperate, and the separate ids keep their rooms apart.
+- **Game, version and frame size:** game id `t2`, link version 1, 2 players, 1 KB frames. `zonesync.net` and current `nmn-server` builds list `t2` with 1 KB frames; an older server without that row caps unlisted games at 256 bytes and cannot carry it.
+- **One payload per arcade frame:**
 
-Two kinds of frame share the session:
+| Bytes | Content |
+| --- | --- |
+| 0 | k, the number of link frames |
+| then k times | big-endian 16-bit id, big-endian 16-bit length n, n bytes (one byte per word; bit 8 is set only on the last word, so it is rebuilt on receipt) |
+| after the link frames | **the voice block** (this build only): `V` `C`, a 16-bit length, then the Opus frames |
+| 1016-1018 | the trailer: `T` `2` and the byte `0x802F3502` the sender sees (its partner's state: 1 attract, 2 credited, 4 in a game), which tells the partner its own state |
+| 1020-1023 | the sender's frame number, big-endian |
 
-| Link (`0xC4`) | | Voice (`0xC5`) | |
-| --- | --- | --- | --- |
-| 1 | copies sent (1-15), bit 7 deflated | 1 | flags (bit 0: talking) |
-| 2 | packet id | 2-3 | sequence number of the first Opus frame |
-| 3 | fragment index << 4, fragment count (1-8) | 4 | Opus frames in this packet |
-| 4-5 | blob length | 5- | per frame: length byte, data |
-| 6-255 | fragment data | | |
+- **Redundancy and duplicates:** the payload carries the newest transmitted link frames that fit, so every datagram repeats recent ones and a lost datagram costs nothing. The driver's resends of the same packet are carried once, and the receiver gives the game each id once.
+- **Voice placement:** voice takes room from the repeated older frames, never from the newest. Upstream's parser stops after the k link frames, so it never sees the voice block.
+- **Agreed start:** P2's coin, trigger and pedal are held, through a guarded hook where the I/O board reads them (`tc2_h8.c`), until P2 is in a game or P1 has been in its game for `TC2_JOIN_WAIT` frames (1500, or the same time on the wall clock). Held coins are paid in afterwards, 4 frames on and 36 off each.
+- **Stall-and-wait:** neither cabinet runs more than a few frames ahead of the other (2 plus the ping in frames, or `TC2_NET_LEAD`). Upstream blocks inside the network call; here the VR host asks before each arcade frame and keeps rendering the headset while it waits.
 
-The link blob is the packet's low bytes. Bit 8 marks only the last word, so it is rebuilt on receipt. Packets longer than one fragment (380-470 bytes during play) are deflated, and any remainder goes out in extra frames the same frame. Each poll sends one frame: link fragments first, then voice when the link has nothing new.
+Our C422 model differs inside (its interrupt bookkeeping), but the words a cabinet puts on the cable are the game's own, so the two models interoperate. The cross-play test below checks this from both sides.
 
-**Rooms.** A hosted room is created with the name `<NAME> <CODE>`. The code uses 26 characters that cannot be misread: no 0/O, 1/I, 2/Z, 5/S or 8/B. **JOIN ROOM CODE** and **BROWSE GAMES** ask the server for this game's rooms without joining any (`quest/tc2_rooms.c`): DISCOVER returns ANNOUNCE, and a ROOMS request padded to 400 bytes returns ROOMLIST, exactly as the server answers any stranger. They then join that room by id. Once inside, every later reconnect asks for the same room.
+**Rooms.** A hosted room is created with the name `<NAME> <CODE>`. The code uses 26 characters that cannot be misread: no 0/O, 1/I, 2/Z, 5/S or 8/B. **JOIN ROOM CODE** and **BROWSE GAMES** ask the server for this game's rooms without joining any (`quest/tc2_rooms.c`): DISCOVER returns ANNOUNCE, and a ROOMS request padded to 400 bytes returns ROOMLIST, exactly as the server answers any stranger. They then join that room by id. Upstream players' rooms appear in the same list, without a code, and are joined from the browser. Once inside, every later reconnect asks for the same room.
 
 `quest/tc2_online.c` runs the session. Joining counts as Ready, and the lower slot starts as soon as both are in. Once linked, the episode keeps the link enabled through session gaps and reconnects as described above. `quest/quest_host.c` keeps the arcade running behind menus and focus loss while linked, and polls the lobby every display frame.
 
@@ -159,7 +169,7 @@ The link blob is the packet's low bytes. Bit 8 marks only the last word, so it i
 - **Capture:** 48 kHz mono, in 20 ms frames.
   - Desktop records through an SDL capture device.
   - Quest records in `MainActivity` with `AudioRecord` in `VOICE_COMMUNICATION` mode, plus the platform echo canceller and noise suppressor where the headset provides them.
-- **Send:** a level gate, then Opus VOIP at 20 kbit/s with in-band error correction, two frames per network frame.
+- **Send:** a level gate, then Opus VOIP at 20 kbit/s with in-band error correction, carried in the voice block of the link payload.
 - **Receive:**
   - A 64-slot jitter store, decoded about 60 ms ahead.
   - A missing frame is rebuilt from the next frame's error correction, or by Opus concealment.
@@ -171,8 +181,12 @@ Opus 1.5.2 is a pinned download (`tools/bootstrap.py`) built into both apps.
 
 ```powershell
 python -X utf8 tools/build_pc.py --rom timecrs2.zip --jobs 8
-cd upstream/server; $env:CARGO_TARGET_DIR="../../build/nmn-server"; cargo build --release; cd ../..
-python -X utf8 tests/test_online.py            # 15 scenarios, about 20 minutes in real time
+# upstream's CURRENT lobby server (it knows Time Crisis 2's 1 KB frames), from the submodule's remote
+git -C upstream fetch origin; mkdir build/nmn-server-head; git -C upstream archive origin/HEAD server | tar -x -C build/nmn-server-head
+cd build/nmn-server-head/server; $env:CARGO_TARGET_DIR="../target"; cargo build --release; cd ../../..
+# optional, for the cross-play scenario: upstream's own Windows release, extracted, with timecrs2.zip in its roms folder
+gh release download 0.10.1 -R spacestate1/namco22-decompile -p "windows-release-0.10.1.zip" -D build/upstream-release
+python -X utf8 tests/test_online.py            # 15 scenarios + crossplay, about 22 minutes in real time
 python -X utf8 tests/test_handedness.py        # includes the ONLINE page's input routing
 ```
 
@@ -198,6 +212,7 @@ python -X utf8 tests/test_handedness.py        # includes the ONLINE page's inpu
 | `voicenet` | Voice through 5% loss and stalls (error correction and concealment) |
 | `duplex` | Both talk at once: each must hear the other despite the echo safeguard |
 | `roomleave` | B leaves the room mid-game and rejoins by code |
+| `crossplay` | Our cabinet (P1, hosting a room) against **upstream's released desktop game** (P2, headless, joining by quick match). It checks the link from both sides, 0 link errors, upstream's agreed start holding and releasing on our trailer, and that a desktop partner is not shown voice chat. Skipped without the download |
 
 Test switches, read by `quest/tc2_online.c` and `quest/tc2_voice.c`:
 
@@ -220,4 +235,5 @@ Test switches, read by `quest/tc2_online.c` and `quest/tc2_voice.c`:
 - **Through `zonesync.net` itself:** two desktop instances on this PC hosted and joined a room by code over the internet relay. About 50 ms ping, the link alive with 0 game errors, voice intact.
 - **Rooms are listed publicly** in the browser; the code is a convenience, not a password.
 - **15-minute server sessions:** servers end a session after 15 minutes. The lobby re-links within about a second and the arcade link is kept up meanwhile, but this path has not been exercised in a full-length game yet.
-- **Same build:** both players need the same build, because the link version is checked by the lobby.
+- **Same wire format:** players need this build or an upstream namco22-decompile 0.9.3+ desktop game; the lobby checks game id, version and frame size.
+- **The agreed start:** our own tests also saw P2's kills count when P2 started first, but the hold is upstream's measured rule and both builds apply it.

@@ -20,3 +20,5 @@ static inline bool qtc2_route_select(uint8_t *ram,size_t size,int side){
 static inline uint8_t qtc2_cabinet_switch(uint8_t active_low,int side){
     return side==2?(uint8_t)(active_low&~4u):(uint8_t)(active_low|4u);
 }
+/* Online: the agreed start holds the right cabinet's coin / trigger / pedal and pays held coins in (tc2_online.c). */
+uint16_t qtc2_online_inputs(uint16_t raw);
