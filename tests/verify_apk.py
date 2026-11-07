@@ -51,17 +51,17 @@ with zipfile.ZipFile(apk) as z:
     assert 'Martoscar' in notice and 'https://creativecommons.org/licenses/by/4.0/' in notice
     assert '15fbd5b9add94a34b5c21746e3dd32be' in notice
 badging=subprocess.check_output([str(SDK/'build-tools'/BUILD_TOOLS/'aapt.exe'),'dump','badging',str(apk)],text=True)
-assert "package: name='org.timecrisis2.arcadevr'" in badging
+assert "package: name='org.timecrisis2.arcadevr.online'" in badging
 entry='MainActivity' if bundled else 'LauncherActivity'
 assert f"launchable-activity: name='org.timecrisis2.arcadevr.{entry}'" in badging
 tree=subprocess.check_output([str(SDK/'build-tools'/BUILD_TOOLS/'aapt.exe'),'dump','xmltree',str(apk),'AndroidManifest.xml'],text=True)
 activities=re.findall(r'(?ms)^([ ]+)E: activity\b(.*?)(?=^\1E: |\Z)',tree)
-main=next(block for _,block in activities if '=".MainActivity"' in block)
-setup=next(block for _,block in activities if '=".LauncherActivity"' in block)
+main=next(block for _,block in activities if 'arcadevr.MainActivity"' in block)
+setup=next(block for _,block in activities if 'arcadevr.LauncherActivity"' in block)
 for category in ('org.khronos.openxr.intent.category.IMMERSIVE_HMD','com.oculus.intent.category.VR'):
     assert category in main,'The actual OpenXR activity must be marked immersive'
     assert category not in setup,'Setup must not masquerade as the immersive game'
-assert 'org.timecrisis2.arcadevr.setup' in setup,'Setup needs a separate Android task'
+assert 'org.timecrisis2.arcadevr.online.setup' in setup,'Setup needs a separate Android task'
 assert ('android.intent.category.LAUNCHER' in main)==bundled
 assert "native-code: 'arm64-v8a'" in badging
 assert 'quest2|quest3|quest3s' in tree,'Quest 2 must not fall back to an older-device compatibility profile'

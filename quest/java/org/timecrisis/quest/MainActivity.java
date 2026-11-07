@@ -1,5 +1,7 @@
 package org.timecrisis2.arcadevr;
 import org.libsdl.app.SDLActivity;
+import android.content.Context;
+import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import java.io.*;
 import java.security.MessageDigest;
@@ -15,7 +17,18 @@ public final class MainActivity extends SDLActivity {
             installAssets("models");
         }
         catch(Exception e) { throw new IllegalStateException("Game asset installation failed", e); }
+        // Online play: a Quest hosting a game must receive the LAN discovery broadcasts of the partner's
+        // "Find LAN games"; Android filters broadcast/multicast on Wi-Fi without this lock.
+        try {
+            WifiManager wifi=(WifiManager)getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if(wifi!=null){multicast=wifi.createMulticastLock("tc2vr-lan-discovery");multicast.setReferenceCounted(false);multicast.acquire();}
+        } catch(Exception e) { multicast=null; }
         super.onCreate(state);
+    }
+    private WifiManager.MulticastLock multicast;
+    @Override protected void onDestroy() {
+        if(multicast!=null&&multicast.isHeld())multicast.release();
+        super.onDestroy();
     }
     private void installAssets(String category) throws Exception {
         File dir=new File(getFilesDir(),category.equals("roms")?"extracted":category);

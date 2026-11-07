@@ -100,8 +100,8 @@ v0.2.0 preserves the native game code tested in `0.1.0-test.4`. Quest 3 gameplay
 
 ```powershell
 ./Export-Quest-Diagnostics.ps1
-adb shell run-as org.timecrisis2.arcadevr cat files/timecrisis2-vr.log
-adb shell run-as org.timecrisis2.arcadevr touch files/capture.request
+adb shell run-as org.timecrisis2.arcadevr.online cat files/timecrisis2-vr.log
+adb shell run-as org.timecrisis2.arcadevr.online touch files/capture.request
 ```
 
 The exporter accepts `-Adb`, `-Serial` and `-Output`. It saves current/previous logs and input recordings, options and Android exit information locally. The capture request writes `eye-0.ppm` / `eye-1.ppm` in app-private files and can briefly stall rendering.

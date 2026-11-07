@@ -20,7 +20,7 @@ if(!$Serial){
     $Serial=$quests[0]
 }
 $targetArgs=@('-s',$Serial)
-$access=Read-Adb ($targetArgs+@('shell','run-as','org.timecrisis2.arcadevr','id'))
+$access=Read-Adb ($targetArgs+@('shell','run-as','org.timecrisis2.arcadevr.online','id'))
 if($access.Code -ne 0){throw 'Cannot read Time Crisis II VR on this device. Check the selected Quest, installation and USB debugging permission.'}
 if(!$Output){$Output=Join-Path $PSScriptRoot ('artifacts\diagnostics-'+(Get-Date -Format 'yyyyMMdd-HHmmss-fff'))}
 $Output=[IO.Path]::GetFullPath($Output)
@@ -30,14 +30,14 @@ New-Item -ItemType Directory -Force -Path $Output | Out-Null
 $utf8=[Text.UTF8Encoding]::new($false)
 $copied=@();$missing=@()
 foreach($name in @('timecrisis2-vr.log','timecrisis2-vr-previous.log','tc2_last.rec','tc2_prev.rec','quest-options.cfg')){
-    $result=Read-Adb ($targetArgs+@('shell','run-as','org.timecrisis2.arcadevr','cat',"files/$name"))
+    $result=Read-Adb ($targetArgs+@('shell','run-as','org.timecrisis2.arcadevr.online','cat',"files/$name"))
     if($result.Code -eq 0){
         # Keep input recordings as plain UTF-8 text without a Windows BOM.
         [IO.File]::WriteAllText((Join-Path $Output $name),($result.Lines -join "`n")+"`n",$utf8)
         $copied+=$name
     }else{$missing+=$name}
 }
-foreach($query in @(@('exit-info.txt','shell','dumpsys','activity','exit-info','org.timecrisis2.arcadevr'),@('package.txt','shell','dumpsys','package','org.timecrisis2.arcadevr'))){
+foreach($query in @(@('exit-info.txt','shell','dumpsys','activity','exit-info','org.timecrisis2.arcadevr.online'),@('package.txt','shell','dumpsys','package','org.timecrisis2.arcadevr.online'))){
     $result=Read-Adb ($targetArgs+$query[1..($query.Count-1)])
     if($result.Code -eq 0){[IO.File]::WriteAllText((Join-Path $Output $query[0]),($result.Lines -join "`n")+"`n",$utf8)}else{$missing+=$query[0]}
 }
