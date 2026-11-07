@@ -30,6 +30,7 @@
 #include "quest_ui.h"
 #include "quest_tracer.h"
 #include "tc2_cabinet.h"
+#include "tc2_online.h"
 
 #ifdef TCVR_PC
 typedef XrSwapchainImageOpenGLKHR QSwapchainImage;
@@ -95,6 +96,7 @@ static int options_page;
 static bool page_armed;
 static bool replay_input;
 static int coin_frames;
+static bool ui_trigger_armed[2];
 
 static struct Eye { XrSwapchain chain;uint32_t w,h,n;QSwapchainImage *images;GLuint *fb,depth; } eyes[2];
 static double profile_parts[6],profile_thread;
@@ -252,16 +254,19 @@ static void set_player_side(int side){
     fprintf(stderr,"[OPTIONS] P%d selected for next app start; current P%d\n",side,qtc2_cabinet_side);
 }
 static void adjust_horizontal(int direction){
+    if(options_page==QOPTIONS_PAGE_ONLINE){tc2_online_menu_adjust(direction);return;}
     if(options_page==QOPTIONS_PAGE_GRAPHICS)set_resolution((options.resolution+direction+QRESOLUTION_COUNT)%QRESOLUTION_COUNT);
     else if(options_page==1)set_gun_offset(false,options.gun_offset_z_mm+direction*QOPTIONS_GUN_OFFSET_STEP);
     else set_world_scale(options.world_scale+direction*QOPTIONS_WORLD_SCALE_STEP);
 }
 static void adjust_vertical(int direction){
+    if(options_page==QOPTIONS_PAGE_ONLINE){tc2_online_menu_move(direction);return;}
     if(options_page==QOPTIONS_PAGE_GRAPHICS)return;
     if(options_page==1)set_gun_offset(true,options.gun_offset_y_mm+direction*QOPTIONS_GUN_OFFSET_STEP);
     else set_gun_pitch(options.gun_pitch+direction);
 }
 static void reset_page_setting(void){
+    if(options_page==QOPTIONS_PAGE_ONLINE){tc2_online_menu_back();return;}
     if(options_page==QOPTIONS_PAGE_GRAPHICS)set_resolution(0);
     else if(options_page==1){set_gun_offset(true,0);set_gun_offset(false,0);}
     else set_gun_pitch(0);
@@ -383,6 +388,7 @@ static void adjust_view_distance(XrTime time){
     if(fabsf(x)<.25f){distance_armed=true;distance_direction=0;distance_repeat_time=0;return;}
     if(!distance_armed||fabsf(x)<.65f||fabsf(x)<fabsf(stick.currentState.y))return;
     int direction=x>0?1:-1;
+    if(options_page==QOPTIONS_PAGE_ONLINE){if(direction!=distance_direction||time>=distance_repeat_time){tc2_online_menu_adjust(direction);distance_repeat_time=time+(direction!=distance_direction?400000000LL:150000000LL);distance_direction=direction;}return;}
     if(direction!=distance_direction){if(options_page)set_player_side(direction>0?2:1);else set_view_distance(options.view_distance+direction*QOPTIONS_VIEW_DISTANCE_STEP);distance_direction=direction;distance_repeat_time=time+400000000LL;}
     else if(time>=distance_repeat_time){if(options_page)set_player_side(direction>0?2:1);else set_view_distance(options.view_distance+direction*QOPTIONS_VIEW_DISTANCE_STEP);distance_repeat_time=time+100000000LL;}
 }
@@ -406,6 +412,8 @@ static bool events(void){
 #ifdef TCVR_PC
         if(s.type==SDL_KEYDOWN&&!s.key.repeat){
             if(s.key.keysym.sym==SDLK_ESCAPE){paused=!paused;filter_armed=false;reset_fire_input();reset_pitch_input();reset_distance_input();ss22_input_neutral();}
+            if(paused&&options_page==QOPTIONS_PAGE_ONLINE&&(s.key.keysym.sym==SDLK_RETURN||s.key.keysym.sym==SDLK_KP_ENTER))tc2_online_menu_select();
+            if(paused&&options_page==QOPTIONS_PAGE_ONLINE&&s.key.keysym.sym==SDLK_BACKSPACE)tc2_online_menu_back();
             if(s.key.keysym.sym==SDLK_c||s.key.keysym.sym==SDLK_5)coin_frames=48;
             if(s.key.keysym.sym==SDLK_l)cycle_aim_guide();
             if(s.key.keysym.sym==SDLK_TAB&&paused){change_options_page(1);}
@@ -418,8 +426,8 @@ static bool events(void){
             if(s.key.keysym.sym==SDLK_LEFT&&paused)adjust_horizontal(-1);
             if(s.key.keysym.sym==SDLK_RIGHT&&paused)adjust_horizontal(1);
             if(s.key.keysym.sym==SDLK_END&&paused&&options_page==0)set_world_scale(QOPTIONS_WORLD_SCALE_DEFAULT);
-            if(s.key.keysym.sym==SDLK_PAGEUP&&paused&&options_page!=QOPTIONS_PAGE_GRAPHICS){if(options_page)set_player_side(2);else set_view_distance(options.view_distance+QOPTIONS_VIEW_DISTANCE_STEP);}
-            if(s.key.keysym.sym==SDLK_PAGEDOWN&&paused&&options_page!=QOPTIONS_PAGE_GRAPHICS){if(options_page)set_player_side(1);else set_view_distance(options.view_distance-QOPTIONS_VIEW_DISTANCE_STEP);}
+            if(s.key.keysym.sym==SDLK_PAGEUP&&paused&&options_page<QOPTIONS_PAGE_GRAPHICS){if(options_page)set_player_side(2);else set_view_distance(options.view_distance+QOPTIONS_VIEW_DISTANCE_STEP);}
+            if(s.key.keysym.sym==SDLK_PAGEDOWN&&paused&&options_page<QOPTIONS_PAGE_GRAPHICS){if(options_page)set_player_side(1);else set_view_distance(options.view_distance-QOPTIONS_VIEW_DISTANCE_STEP);}
         }
 #endif
     }
@@ -455,7 +463,7 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
     if(!focused){reset_input_edges();return;}
     XrActiveActionSet aset={action_set,XR_NULL_PATH};XrActionsSyncInfo sync={XR_TYPE_ACTIONS_SYNC_INFO};sync.countActiveActionSets=1;sync.activeActionSets=&aset;
     if(!XR(xrSyncActions(session,&sync))){reset_input_edges();return;}
-    if(pressed(pause_action,XR_NULL_PATH,&pause_button)){paused=!paused;filter_armed=false;reset_fire_input();reset_pitch_input();reset_distance_input();game_deadline=0;tc2_audio_volume(paused?0:100);ss22_input_neutral();}
+    if(pressed(pause_action,XR_NULL_PATH,&pause_button)){paused=!paused;filter_armed=false;reset_fire_input();reset_pitch_input();reset_distance_input();game_deadline=0;tc2_audio_volume(paused&&!tc2_online_session()?0:100);ss22_input_neutral();ui_trigger_armed[0]=ui_trigger_armed[1]=false;}
     adjust_texture_filter();
     bool change_hand=pressed(hand_action,XR_NULL_PATH,&hand_button);
     if(paused&&change_hand){change_weapon_hand();return;}
@@ -490,6 +498,10 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
             XR_SUCCEEDED(xrLocateSpace(aim_spaces[h],local_space,time,&locations[h]))&&(locations[h].locationFlags&required)==required;
         available[h]=axis_state(trigger_action,hand_paths[h],&fire[h]);
         FireTrigger *button=&fire_triggers[h];
+        if(paused&&options_page==QOPTIONS_PAGE_ONLINE&&available[h]){
+            if(fire[h].currentState<.2f)ui_trigger_armed[h]=true;
+            else if(fire[h].currentState>.55f&&ui_trigger_armed[h]){ui_trigger_armed[h]=false;tc2_online_menu_select();}
+        }
         if(paused||!tracked[h]||!available[h]){*button=(FireTrigger){0};continue;}
         if(fire[h].currentState<.2f){button->armed=true;button->pressed=false;}
         else if(fire[h].currentState>.55f&&button->armed){button->armed=false;button->pressed=true;edges[h]=true;}
@@ -530,6 +542,7 @@ bool tc2_vr_open(void){
     replay_input=getenv("TC2_REPLAY")!=NULL;
     qoptions_load(options_path,&options);tc2_gl_set_filter(options.texture_filtering);qvr_world_scale=options.world_scale/100.f;active_weapon_hand=options.left_handed?LEFT_HAND:RIGHT_HAND;
     qvr_view_distance=options.view_distance/100.f;
+    tc2_online_init();
     fprintf(stderr,"[VR SCALE] %.6f reconstructed units/metre; world size %d%%; view distance %d cm\n",qvr_units_per_meter,options.world_scale,options.view_distance);
     fprintf(stderr,"[OPTIONS] laser %s; cover %s; default hand %s; trigger handoff enabled (left menu: options)\n",options.laser_enabled?"ON":"OFF",options.physical_crouch?"PHYSICAL":"GRIP",options.left_handed?"LEFT":"RIGHT");
     fprintf(stderr,"[OPTIONS] gun angle %+d deg\n",options.gun_pitch);
@@ -702,11 +715,23 @@ fail:
     fprintf(stderr,"[XR] initialization failed; SDL: %s\n",SDL_GetError());ss22_host_close();return false;
 }
 
+/* While linked, the partner's cabinet needs ours: the arcade keeps running behind the menu and
+ * through focus or tracking loss, with neutral controls. Offline, those pause it as before. */
+static bool sim_held(bool tracking){return !tc2_online_session()&&(!focused||paused||!tracking);}
+static void online_overlays(const float v[16],const float p[16],V3 head,Q4 rotation){
+    if(paused&&options_page==QOPTIONS_PAGE_ONLINE){
+        char text[TC2_ONLINE_LINES][TC2_ONLINE_COLUMNS];int style[TC2_ONLINE_LINES];
+        unsigned serial=tc2_online_menu_lines(text,style);qui_set_online_page(text,style,serial);
+    }
+    char toast[64];unsigned serial;
+    if(!paused&&tc2_online_toast(toast,sizeof toast,&serial))qui_draw_toast(v,p,head,rotation,toast,serial);
+}
 static void hud_camera(void){float cx,cy,focal;qvr_flat_camera(&cx,&cy,&focal);qgl_flat_camera(cx,cy,focal);}
 #ifdef TCVR_PC
 static bool desktop_frame(void){
     static Uint64 deadline;static unsigned frame_number;bool fast=getenv("TCVR_FAST")!=NULL;
     for(;;){
+        tc2_online_service();
         if(!events())return false;
         int w,h,mx,my;SDL_GL_GetDrawableSize(window,&w,&h);int lw,lh;SDL_GetWindowSize(window,&lw,&lh);
         if(w<=0||h<=0||lw<=0||lh<=0){SDL_Delay(20);continue;}
@@ -724,14 +749,19 @@ static bool desktop_frame(void){
         if((float)w/h>4.f/3.f){p[0]*=(float)vw/w;}else{p[5]*=(float)vh/h;}
         hud_camera();qgl_target(0,0);qgl_eye(v,p);qtc2_draw(v,p,w,h,0);qgl_flush();
         if(options.laser_enabled&&aim_valid&&!paused){qgl_pointer(v3(.24f,-.24f,-.45f),v3((nx-.5f)*3.2f,(.5f-ny)*2.4f,-2.5f));qgl_flush();}
+        online_overlays(v,p,v3(0,0,0),(Q4){0,0,0,1});
         if(paused)qui_draw(v,p,v3(0,0,0),(Q4){0,0,0,1},&options,options_page,qtc2_cabinet_side,options_saved);
         const char *capture_frame=getenv("TCVR_CAPTURE_FRAME");
-        if(capture_frame&&++frame_number==strtoul(capture_frame,NULL,10)){FILE *f=fopen("capture.request","w");if(f)fclose(f);}
-        if(!access("capture.request",F_OK)){capture_eye(0,w,h);unlink("capture.request");}
+        const char *capture_every=getenv("TCVR_CAPTURE_EVERY");++frame_number;
+        {const char *menu=getenv("TCVR_TEST_MENU");const char *at=menu?strchr(menu,'@'):NULL;   /* "page@frame": open the options there */
+         if(menu&&frame_number==(at?strtoul(at+1,NULL,10):1)){paused=true;options_page=atoi(menu)%QOPTIONS_PAGE_COUNT;}}
+        if((capture_frame&&frame_number==strtoul(capture_frame,NULL,10))||(capture_every&&atoi(capture_every)>0&&frame_number%(unsigned)atoi(capture_every)==0)){FILE *f=fopen("capture.request","w");if(f)fclose(f);}
+        if(!access("capture.request",F_OK)){capture_eye(0,w,h);unlink("capture.request");
+            if(capture_every){char name[32];snprintf(name,sizeof name,"cap-%06u.ppm",frame_number);remove(name);rename("eye-0.ppm",name);}}
         GLenum error=glGetError();if(error)fprintf(stderr,"[GL] desktop error 0x%x\n",error);
         SDL_GL_SwapWindow(window);
         if(!fast){Uint64 now=SDL_GetPerformanceCounter(),freq=SDL_GetPerformanceFrequency();if(!deadline||now>deadline+freq/4)deadline=now;deadline+=freq*1000/59906;while((now=SDL_GetPerformanceCounter())<deadline)SDL_Delay(1);}
-        if(!paused){ss22_input_update();return true;}
+        if(!paused||tc2_online_session()){ss22_input_update();return true;}
     }
 }
 #endif
@@ -741,9 +771,20 @@ bool ss22_host_frame(void){
 #endif
     /* The original game runs at 59.906 Hz. Submit additional poses without advancing its CPU at headset refresh. */
     for(;;){
+        tc2_online_service();
         if(!events())return false;
-        if(!running){SDL_Delay(10);continue;}
-        if(game_deadline&&focused&&!paused&&last_tracking&&last_display_time>=game_deadline){
+        if(!running){
+            /* No XR frames (headset off / app in the background): a linked arcade keeps its own 59.906 Hz. */
+            static Uint64 wall_deadline;
+            if(tc2_online_session()){
+                Uint64 now=SDL_GetPerformanceCounter(),freq=SDL_GetPerformanceFrequency();
+                if(!wall_deadline||now>wall_deadline+freq/4)wall_deadline=now;
+                if(now>=wall_deadline){wall_deadline+=freq*1000/59906;ss22_input_neutral();return true;}
+                SDL_Delay(1);continue;
+            }
+            wall_deadline=0;SDL_Delay(10);continue;
+        }
+        if(game_deadline&&!sim_held(last_tracking)&&last_display_time>=game_deadline){
             if(qclock_take(&game_deadline,last_display_time)){ss22_input_update();return true;}
         }
         XrFrameWaitInfo wi={XR_TYPE_FRAME_WAIT_INFO};XrFrameState frame={XR_TYPE_FRAME_STATE};if(!XR(xrWaitFrame(session,&wi,&frame)))return false;
@@ -794,9 +835,10 @@ bool ss22_host_frame(void){
             qgl_flush();
             parts[2]+=wall_ms()-stage_start;stage_start=wall_ms();
             if(focused&&gun_tracked)qgun_draw(v[i],p[i],gun_position,gun_rotation,recoil,trigger,flash);
-            if(focused&&paused){
+            if(focused){
                 V3 head=mul(add(relative_position(views[0].pose.position),relative_position(views[1].pose.position)),.5f);
-                qui_draw(v[i],p[i],head,relative_rotation(views[0].pose.orientation),&options,options_page,qtc2_cabinet_side,options_saved);
+                online_overlays(v[i],p[i],head,relative_rotation(views[0].pose.orientation));
+                if(paused)qui_draw(v[i],p[i],head,relative_rotation(views[0].pose.orientation),&options,options_page,qtc2_cabinet_side,options_saved);
             }
             capture_eye(i,eye->w,eye->h);
             parts[3]+=wall_ms()-stage_start;stage_start=wall_ms();
@@ -824,7 +866,7 @@ bool ss22_host_frame(void){
         if(draw_frame&&focused&&!paused){for(int j=0;j<6;j++)profile_parts[j]+=parts[j];profile_thread+=cpu_ms()-cpu_start;}
         else{memset(profile_parts,0,sizeof profile_parts);profile_thread=0;}
         frame_profile(render_start,frame.predictedDisplayPeriod,draw_frame&&focused&&!paused);
-        if(!focused||paused||!tracking){ss22_input_neutral();game_deadline=0;continue;}
+        if(sim_held(tracking)){ss22_input_neutral();game_deadline=0;continue;}
         if(qclock_take(&game_deadline,frame.predictedDisplayTime)){ss22_input_update();return true;}
     }
 }

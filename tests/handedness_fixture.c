@@ -105,6 +105,13 @@ XRAPI_ATTR XrResult XRAPI_CALL xrStopHapticFeedback(XrSession s,const XrHapticAc
     (void)s;assert(info->action==haptic_action);last_stop=info->subactionPath;return XR_SUCCESS;
 }
 void tc2_audio_volume(int v){(void)v;}
+/* Online play is exercised by tests/test_online.py; the input path only needs inert hooks. */
+static unsigned online_selects,online_moves,online_adjusts,online_backs;
+bool tc2_online_session(void){return false;}
+void tc2_online_menu_select(void){online_selects++;}
+void tc2_online_menu_move(int d){(void)d;online_moves++;}
+void tc2_online_menu_adjust(int d){(void)d;online_adjusts++;}
+void tc2_online_menu_back(void){online_backs++;}
 void ss22_snd_inputs(uint16_t bits,unsigned w,unsigned p1,unsigned p2){(void)w;(void)p1;(void)p2;arcade_bits=bits;}
 V3 qgun_muzzle(V3 p,Q4 q){return add(p,rotate(q,v3(0,0,-.1f)));}
 bool qvr_aim(V3 p,V3 d,float *x,float *y,V3 *hit){*x=p.x+.5f;*y=.5f;*hit=add(p,mul(d,2.f));return true;}
@@ -384,7 +391,22 @@ int main(void){
         tick();assert(options_page==page);
         distance_y=0;tick();
     }
-    assert(options_page==QOPTIONS_PAGE_GRAPHICS);
+    assert(options_page==QOPTIONS_PAGE_ONLINE);
+    /* ONLINE page: right stick moves through the menu, left stick left/right edits, a trigger selects, left click goes back;
+     * none of it reaches the world, gun or player settings. */
+    {
+        int old_world=options.world_scale,old_pitch=options.gun_pitch,old_side=options.player_side;
+        unsigned moves=online_moves,adjusts=online_adjusts,selects=online_selects,backs=online_backs;
+        stick_y=1;tick();assert(online_moves==moves+1);stick_y=0;tick();
+        stick_x=1;tick();assert(online_adjusts==adjusts+1);stick_x=0;tick();
+        distance_x=1;tick();assert(online_adjusts==adjusts+2);distance_x=0;tick();
+        triggers[RIGHT_HAND]=1;tick();assert(online_selects==selects+1);tick();assert(online_selects==selects+1);
+        triggers[RIGHT_HAND]=0;tick();triggers[LEFT_HAND]=1;tick();assert(online_selects==selects+2);triggers[LEFT_HAND]=0;tick();
+        click(pitch_reset_action,2);assert(online_backs==backs+1);
+        assert(options.world_scale==old_world&&options.gun_pitch==old_pitch&&options.player_side==old_side);
+        assert(!(arcade_bits&0x10));
+    }
+    distance_y=-1;tick();assert(options_page==QOPTIONS_PAGE_GRAPHICS);distance_y=0;tick();
     int old_world=options.world_scale,old_pitch=options.gun_pitch,old_distance=options.view_distance;
     for(int preset=1;preset<=QRESOLUTION_COUNT;preset++){
         stick_x=1;tick();assert(options.resolution==preset%QRESOLUTION_COUNT);
@@ -400,8 +422,10 @@ int main(void){
     stick_x=0;tick();stick_x=1;tick();assert(options.resolution==1);
     connected[1]=false;tick();connected[1]=true;tick();assert(options.resolution==1);
     stick_x=NAN;tick();stick_x=1;tick();assert(options.resolution==1);
-    stick_x=0;tick();distance_y=1;tick();assert(options_page==0);
+    stick_x=0;tick();distance_y=1;tick();assert(options_page==QOPTIONS_PAGE_ONLINE);distance_y=0;tick();
+    distance_y=1;tick();assert(options_page==0);
     tick();assert(options_page==0);distance_y=0;tick();
+    distance_y=-1;tick();assert(options_page==QOPTIONS_PAGE_ONLINE);distance_y=0;tick();
     distance_y=-1;tick();assert(options_page==QOPTIONS_PAGE_GRAPHICS);
     distance_y=0;tick();click(pause_action,2);assert(!paused);
     stick_x=1;tick();assert(options.resolution==1);
@@ -420,6 +444,7 @@ int main(void){
     assert(qresolution_choose(0,2000,2160,1800,1900,&w,&h)&&w==1800&&h==1900);
     assert(!qresolution_choose(-1,1360,1440,4096,4096,&w,&h)&&w==1360&&h==1440);
     assert(!qresolution_choose(6,1360,1440,4096,4096,&w,&h)&&w==1360&&h==1440);
+    puts("PASS: online page routing (menu, edit, trigger select, back)");
     puts("PASS: resolution page navigation, release/focus/disconnect guards, cycling/reset/persistence and runtime/GPU dimension limits");
     return 0;
 }
