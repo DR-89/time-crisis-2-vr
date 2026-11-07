@@ -20,11 +20,11 @@
     <intent><action android:name="org.khronos.openxr.OpenXRRuntimeService" /></intent>
     <intent><action android:name="org.khronos.openxr.OpenXRApiLayerService" /></intent>
   </queries>
-  <application android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:banner="@drawable/launcher_banner" android:label="Time Crisis II VR Online (Test)" android:allowBackup="false" android:debuggable="true" android:extractNativeLibs="true" android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" android:hardwareAccelerated="true">
+  <application android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:banner="@drawable/launcher_banner" android:label="Time Crisis II VR (Test)" android:allowBackup="false" android:debuggable="true" android:extractNativeLibs="true" android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" android:hardwareAccelerated="true">
     <meta-data android:name="com.oculus.supportedDevices" android:value="quest2|quest3|quest3s" />
     <meta-data android:name="com.oculus.intent.category.VR" android:value="vr_only" />
     <meta-data android:name="com.oculus.vr.focusaware" android:value="true" />
-    <activity android:name=".LauncherActivity" android:icon="@mipmap/ic_launcher" android:banner="@drawable/launcher_banner" android:exported="true" android:screenOrientation="landscape" android:taskAffinity="org.timecrisis2.arcadevr.online.setup" android:excludeFromRecents="true" />
+    <activity android:name=".LauncherActivity" android:icon="@mipmap/ic_launcher" android:banner="@drawable/launcher_banner" android:exported="true" android:screenOrientation="landscape" android:taskAffinity="org.timecrisis2.arcadevr.setup" android:excludeFromRecents="true" />
     <activity android:name=".MainActivity" android:icon="@mipmap/ic_launcher" android:banner="@drawable/launcher_banner" android:exported="true" android:screenOrientation="landscape" android:launchMode="singleTask" android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode|density">
       <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /><category android:name="org.khronos.openxr.intent.category.IMMERSIVE_HMD" /><category android:name="com.oculus.intent.category.VR" /></intent-filter>
     </activity>

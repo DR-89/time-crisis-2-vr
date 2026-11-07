@@ -17,11 +17,11 @@ if($Apk){
     if(!(Test-Path -LiteralPath $Apk -PathType Leaf)){throw 'APK not found.'}
     Invoke-Adb install -r $Apk
 }
-Invoke-Adb shell am force-stop org.timecrisis2.arcadevr.online
-$destination='/sdcard/Android/data/org.timecrisis2.arcadevr.online/files'
+Invoke-Adb shell am force-stop org.timecrisis2.arcadevr
+$destination='/sdcard/Android/data/org.timecrisis2.arcadevr/files'
 Invoke-Adb shell mkdir -p $destination
 Invoke-Adb push $Rom "$destination/timecrs2.zip"
-$activity=(Invoke-Adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p org.timecrisis2.arcadevr.online | Select-Object -Last 1).Trim()
-if($activity -notmatch '^org\.timecrisis2\.arcadevr\.online/(org\.timecrisis2\.arcadevr)?\.(MainActivity|LauncherActivity)$'){throw 'Cannot resolve the app launcher.'}
+$activity=(Invoke-Adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p org.timecrisis2.arcadevr | Select-Object -Last 1).Trim()
+if($activity -notmatch '^org\.timecrisis2\.arcadevr/\.(MainActivity|LauncherActivity)$'){throw 'Cannot resolve the app launcher.'}
 Invoke-Adb shell am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n $activity
 Write-Host 'The app now verifies and imports your own ROM set. No ROM files are downloaded.'

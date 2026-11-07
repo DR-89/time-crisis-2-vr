@@ -25,7 +25,7 @@ Built on the native System 23 reconstruction in **[spacestate1/namco22-decompile
 - **While linked**, the game keeps running behind menus and with the headset off, and dropped partners reconnect by themselves.
 - **Offline**, the emulated link chip is the plain register stub the core has without it. The one visible difference: a shot at the crossed-out SOLO/LINKED opens the ONLINE page.
 
-See **[docs/ONLINE.md](docs/ONLINE.md)** for setup, how it works and the test suite. This build installs as **Time Crisis II VR Online (Test)** (`org.timecrisis2.arcadevr.online`), alongside the original.
+See **[docs/ONLINE.md](docs/ONLINE.md)** for setup, how it works and the test suite. This build is a drop-in replacement for the original: same app (**Time Crisis II VR (Test)**, `org.timecrisis2.arcadevr`), same settings and cabinet files. It is signed with a different key, so Android won't update an official release with it in place: uninstall the official app once, which deletes its settings, then install this one (and the other way round).
 
 ## Downloads and installation
 

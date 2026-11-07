@@ -8,8 +8,6 @@ BUILD=ROOT/'build'
 SDK=Path(os.environ.get('ANDROID_SDK_ROOT',ROOT/'.tools/android-sdk'))
 BUILD_TOOLS=os.environ.get('ANDROID_BUILD_TOOLS_VERSION','35.0.1')
 NDK_VERSION=os.environ.get('ANDROID_NDK_VERSION','28.2.13676358')
-# The online build installs alongside the original port (org.timecrisis2.arcadevr): its own application id, signing key and data.
-APP_ID='org.timecrisis2.arcadevr.online'
 JAVA=Path(os.environ.get('JAVA_HOME',r'C:\Program Files\Android\Android Studio\jbr'))/'bin'
 def run(args,cwd=ROOT):
     print('> '+' '.join(map(str,args)),flush=True)
@@ -74,7 +72,7 @@ def package(assets):
         (public/'roms.sha256').write_text('\n'.join(manifest)+'\n',encoding='ascii')
         resources=BUILD/'launcher-res.zip'
         run([bt/'aapt2.exe','compile','--dir',ROOT/'quest/res','-o',resources])
-        run([bt/'aapt2.exe','link','--manifest',package_manifest(args.bundle_roms),'--rename-manifest-package',APP_ID,'-I',android,'-A',public,resources,'-o',base])
+        run([bt/'aapt2.exe','link','--manifest',package_manifest(args.bundle_roms),'-I',android,'-A',public,resources,'-o',base])
     strip=SDK/'ndk'/NDK_VERSION/'toolchains/llvm/prebuilt/windows-x86_64/bin/llvm-strip.exe'
     libs=BUILD/'package-libs';libs.mkdir(exist_ok=True)
     for name,source in [('libmain.so',args.native_dir/'libmain.so'),('libSDL2.so',args.native_dir/'sdl/libSDL2.so'),('libopenxr_loader.so',ROOT/'.tools/openxr/prefab/modules/openxr_loader/libs/android.arm64-v8a/libopenxr_loader.so')]:
