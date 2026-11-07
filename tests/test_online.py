@@ -6,7 +6,7 @@ reads the game's own link state from the [ONLINE] status lines: the C422 driver'
 Room scenarios run upstream's current nmn-server (build/nmn-server-head, see docs/ONLINE.md) on 127.0.0.1 only. Microphones are replaced by
 WAV files (a tone for A, silence for B), so no real microphone is opened; what B plays back is recorded and analysed.
 
-    python -X utf8 tests/test_online.py                 # every scenario (15 scenarios + crossplay, ~22 minutes, real time)
+    python -X utf8 tests/test_online.py                 # every scenario (18 scenarios + crossplay, ~35 minutes, real time)
     python -X utf8 tests/test_online.py basic room      # some
     python -X utf8 tests/test_online.py --keep          # keep screenshots: build/online-test/<scenario>/{A,B}/cap-*.ppm
 """
@@ -103,13 +103,19 @@ SCENARIOS = {
     'p2join': (6000, '600:hostroom', '700:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'TCVR_RAMWATCH': '2CE92B,2F3930,2F3502',
                'AIM_UNTIL': 2600, 'B_COINS_AT': 3000, 'B_AIM_UNTIL': 5000}, 'p2join'),
     # the arcade's own way in: A shoots the crossed-out SOLO/LINKED at 1700 (no link yet), the ONLINE page opens and holds the
-    # arcade; A hosts from it (wall clock: the arcade is stopped) and B, still without coins, joins by code. A's page closes;
-    # A was credited before the link, so both cabinets restart (TEST). A puts coins in again at 2600 and takes LINK PLAY; B puts
-    # coins in at 3000: held by the agreed start, paid in once A's game is under way, and B's shot takes LINK PLAY on the right
+    # arcade; A hosts from it (wall clock: the arcade is stopped). Once the room is open the page closes and, as SOLO/LINKED is
+    # decided when the screen comes up, A restarts; the stand-in answers, A puts coins in again at 2600 and takes SOLO/LINKED.
+    # B, without coins, joins by code meanwhile (it waits for A's restart), restarts once for its handshake, puts coins in at
+    # 3000: held by the agreed start, paid in once A's game is under way, and B's shot takes LINK PLAY on the right
     'modescreen': (9000, 't31000:hostroom', 't33000:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'TCVR_RAMWATCH': '2CE92B,2F3930,2F3502',
                    'AIM_UNTIL': 3400, 'A_COINS_AGAIN': 2600, 'B_COINS_AT': 3000, 'B_AIM_UNTIL': 8000}, 'modescreen'),
+    # drop-in: A hosts a room and plays alone at once (the stand-in makes SOLO/LINKED available: A takes it at 1700); B joins by
+    # code a minute later, A's game well under way: B restarts once for the handshake, puts coins in at 4800 (no agreed-start
+    # wait: A's game has run over 25 s) and takes LINK PLAY on the right
+    'dropin': (8400, '600:hostroom', '3600:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'TCVR_RAMWATCH': '2CE92B,2F3930,2F3502',
+               'B_COINS_AT': 4800, 'B_AIM_UNTIL': 7400}, 'dropin'),
 }
-ROOM_SCENARIOS = {'room', 'browse', 'mute', 'voicenet', 'duplex', 'roomleave', 'modescreen', 'p2join'}
+ROOM_SCENARIOS = {'room', 'browse', 'mute', 'voicenet', 'duplex', 'roomleave', 'modescreen', 'p2join', 'dropin'}
 
 
 def cabinet(directory: Path, server: str):
@@ -204,10 +210,26 @@ def run(name: str, keep: bool):
     if check == 'modescreen':
         if 'SOLO/LINKED shot without a partner' not in logs['A']:
             failures.append('A: the SOLO/LINKED shot did not open the ONLINE page')
-        for side in 'AB':                                 # linked after A's credit: both restart (tc2_online.c link_contact_tick)
-            if 'the cabinet restarts (TEST)' not in logs[side]:
-                failures.append(f'{side}: did not restart after linking to a credited cabinet')
-    if check in ('modescreen', 'p2join'):
+        if 'room open: back to SELECT GAME MODE' not in logs['A']:
+            failures.append('A: the ONLINE page did not close back to the arcade once the room was open')
+    if check in ('modescreen', 'dropin'):
+        if 'P2 linked after its power-on handshake' in logs['A']:
+            failures.append('A: restarted as if it were P2')
+        if check == 'dropin' and 'restarts' in logs['A']:   # hosting before the credit: P1 never restarts
+            failures.append('A: restarted')
+        if check == 'modescreen' and 'P1 restarts so SOLO/LINKED opens' not in logs['A']:   # credited without a partner: once
+            failures.append('A: did not restart once the room was open')
+        if 'P2 linked after its power-on handshake' not in logs['B']:   # B linked long after power-on: one restart to shake hands
+            failures.append('B: did not restart for the handshake after linking late')
+        if 'drop-in open' not in logs['A']:
+            failures.append('A: the stand-in never answered')
+    if check == 'dropin':
+        # A takes LINK PLAY alone, before B ever links (A's first choice frame < A's first session)
+        choice = [int(f) for f in re.findall(r'\[RAM\] frame (\d+) 2F3930: 1 -> 4', logs['A'])]
+        linked = re.search(r'frame (\d+): the partner replaces the stand-in', logs['A'])
+        if not choice or not linked or choice[0] >= int(linked.group(1)):
+            failures.append(f'A: LINK PLAY was not taken alone before B linked (choice {choice[:1]}, handover {linked.group(1) if linked else None})')
+    if check in ('modescreen', 'p2join', 'dropin'):
         # each cabinet's choice, at the frame it leaves SELECT GAME MODE (0x2CE92B 1 -> 0): 0x2F3930 1 -> 4 is LINK PLAY, 1 -> 2
         # SOLO ONLY (also what the ~15 s timeout picks); a TEST restart leaves with 1 -> 0. (In a game 0x2F3930 means other things.)
         for side in 'AB':

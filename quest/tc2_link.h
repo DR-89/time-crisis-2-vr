@@ -27,6 +27,10 @@ int      tc2_link_unpack(const uint8_t *in);
 void     tc2_link_session_reset(void);    /* a session (re)starts: frame numbering afresh on both sides */
 int      tc2_link_self_state(void);       /* our cabinet's state as the partner reports it: 1 attract, 2 credited, 4 in a game; -1 unknown */
 bool     tc2_link_partner_vr(void);       /* the partner runs this build (its trailer's byte 3 is 'V'; upstream leaves it 0) */
+void     tc2_link_set_ghost(bool on);      /* a stand-in partner: answers as an idle right cabinet, no second game running */
+bool     tc2_link_ghost(void);
+int      tc2_link_partner_mark(void);     /* the partner's trailer byte 3: 'V' this build, 'J' its game takes a second player, 'L' its game is SOLO ONLY; 0 upstream */
+void     tc2_link_set_mark(int mark);     /* ours: 'V', 'J' or 'L' (tc2_online.c standin_tick) */
 
 /* What the game's own link driver thinks (its variables at gp 0x802C7820). */
 typedef struct tc2_link_status {

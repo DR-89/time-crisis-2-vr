@@ -45,7 +45,9 @@ static tc2_link_status st;
 static struct { uint16_t id,n;uint16_t w[MAXW]; } hist[HIST];
 static uint16_t next_id,rx_last;static bool rx_have;static uint32_t n_sent;
 static int self_state=-1;                 /* our state as the partner sees it (its trailer); -1 unknown */
-static bool partner_vr;                   /* the partner's trailer says it runs this build */
+static int partner_mark;                  /* the partner's trailer byte 3: 'V' this build, 'J' joinable, 'L' locked; 0 upstream */
+static int own_mark='V';
+static bool ghost;                        /* the stand-in partner answers (below) */
 static uint32_t partner_frame;
 static void history_add(void);
 
@@ -56,12 +58,57 @@ static void set_line(bool on){if(line!=on){line=on;tc2_irq_set(TC2_SRC_C422,on);
 
 void tc2_link_set_enabled(bool on){
     if(on==enabled)return;
-    enabled=on;rx_flag=tx_busy=false;txn=0;rxr=rxw=0;ins_acc=0;
+    enabled=on;rx_flag=tx_busy=false;txn=0;rxr=rxw=0;ins_acc=0;if(!on)ghost=false;
     next_id=0;n_sent=0;rx_have=false;self_state=-1;memset(hist,0,sizeof hist);   /* a new link starts its numbering afresh (as upstream) */
     if(!on)set_line(false);
     fprintf(stderr,"[LINK] C422 link %s\n",on?"CONNECTED":"disconnected (single cabinet)");
 }
 bool tc2_link_enabled(void){return enabled;}
+
+/* ---- the stand-in partner: an idle right cabinet, without running one (drop-in experiment) ----
+ * Measured (build/online-test/linkdump, 2026-11-07): before a game, a right cabinet's packets are the left's own, same frame counter
+ * (bytes 1-2) and header, except byte 13 (cabinet: 4 left, 5 right) and a few attract fields. Bytes 1..n-3 sum to 0 (n-3 is the
+ * checksum), the last two are the length. A credited or playing left sends more (its game), while an idle right keeps sending its
+ * attract packet. So the stand-in answers each packet the left sends: during the handshake with the packet itself, in attract with
+ * it as the right cabinet, and after that with the last attract answer, its counter and header bytes 4-7 following the left's. */
+/* an idle right cabinet's packet (attract, its partner credited), recorded from the game in build/online-test/linkdump */
+static const uint8_t standin_attract[250]={
+    0x5A, 0x02, 0x76, 0x01, 0x53, 0x00, 0x80, 0x80, 0x01, 0xBC, 0x4E, 0xC3, 0x15, 0x05, 0x01, 0x00, 0x00, 0x00, 0x19, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x89, 0xC6, 0xB2, 0x06, 0x09, 0x27, 0xC0, 0x52, 0x0E, 0x8B, 0x82, 0x08, 0x64, 0x70, 0x91, 0xC6, 0x63, 0xB2, 0x07, 0xA1, 0x20, 0x14, 0x64, 0x88, 0x96,
+    0x06, 0xDD, 0xD0, 0x1A, 0x32, 0x68, 0xD0, 0x06, 0x1A, 0x80, 0x8E, 0x98, 0x8E, 0x98, 0x05, 0x57, 0x30, 0x90, 0x26, 0x94, 0xA4, 0x04, 0x93, 0xE0, 0x6A,
+    0xA4, 0x9E, 0x94, 0x03, 0xD0, 0x90, 0x3E, 0x9A, 0x60, 0x14, 0x03, 0x0D, 0x40, 0x50, 0x2C, 0x9E, 0xB0, 0x02, 0x49, 0xF0, 0x8B, 0xAE, 0x38, 0x16, 0x01,
+    0x86, 0xA0, 0x3A, 0x0C, 0x3E, 0xAC, 0x01, 0x5F, 0x90, 0x51, 0xDA, 0xC3, 0x94, 0x01, 0x38, 0x80, 0x91, 0xDC, 0xC0, 0x24, 0x01, 0x11, 0x70, 0x4E, 0xA8,
+    0x3E, 0x94, 0x00, 0xEA, 0x60, 0x04, 0x50, 0x6E, 0xB0, 0x00, 0xC3, 0x50, 0x3A, 0x22, 0x43, 0x68, 0x00, 0x9C, 0x40, 0x31, 0xDA, 0x52, 0x14, 0x00, 0x75,
+    0x30, 0x68, 0x1C, 0x66, 0xB0, 0x00, 0x4E, 0x20, 0x44, 0xDC, 0x78, 0x04, 0x00, 0x27, 0x10, 0x12, 0xEC, 0x2F, 0x03, 0x9F, 0x22, 0x1B, 0x0F, 0x32, 0x7F,
+    0x22, 0x49, 0xEF, 0x61, 0x5F, 0x22, 0x78, 0xCF, 0x90, 0x3F, 0x22, 0xA7, 0xAF, 0xBF, 0x1F, 0x22, 0xD6, 0x8F, 0xED, 0xFF, 0x33, 0x05, 0x6F, 0x1C, 0xDF,
+    0x33, 0x34, 0x4F, 0x4B, 0xBF, 0x33, 0x63, 0x2F, 0x7A, 0x9F, 0x33, 0x92, 0x0F, 0xA9, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x64, 0x00, 0xFA};
+static uint8_t gtpl[MAXW];static unsigned gtpl_n;   /* the stand-in's attract answer */
+static void give(const uint16_t *w,unsigned n);
+static void ghost_reply(void){
+    unsigned n=txn;uint8_t b[MAXW];
+    if(n<8||n>MAXW)return;
+    for(unsigned k=0;k<n;k++)b[k]=(uint8_t)txp[k];
+    if(b[0]!=0x5A)return;
+    if(n==250&&b[3]==1&&b[13]==4){b[13]=5;memcpy(gtpl,b,n);gtpl_n=n;}          /* attract: the right cabinet's answer */
+    else if(b[3]==5||b[13]<2){if(b[13]==4)b[13]=5;}                              /* the handshake: echoed */
+    else{   /* the last attract answer; a stand-in that starts on a credited cabinet uses a recorded one */
+        const uint8_t *t=gtpl_n?gtpl:standin_attract;unsigned tn=gtpl_n?gtpl_n:(unsigned)sizeof standin_attract;
+        uint8_t c[MAXW];memcpy(c,t,tn);c[1]=b[1];c[2]=b[2];for(int k=4;k<8;k++)c[k]=b[k];n=tn;memcpy(b,c,n);
+    }
+    unsigned s=0;for(unsigned k=1;k+3<n;k++)s+=b[k];
+    b[n-3]=(uint8_t)(0u-s);b[n-2]=(uint8_t)(n>>8);b[n-1]=(uint8_t)n;
+    uint16_t w[MAXW];for(unsigned k=0;k<n;k++)w[k]=b[k];
+    w[n-1]|=0x100;give(w,n);
+}
+void tc2_link_set_ghost(bool on){
+    if(on==ghost)return;
+    ghost=on;gtpl_n=0;
+    if(on){if(!enabled)tc2_link_set_enabled(true);else rxr=rxw=0;}   /* also over a link whose partner has gone (an episode) */
+    else tc2_link_set_enabled(false);       /* a real partner starts afresh (tc2_online.c session_begin) */
+    fprintf(stderr,"[LINK] stand-in partner %s\n",on?"ON (an idle right cabinet)":"off");
+}
+bool tc2_link_ghost(void){return ghost;}
 
 /* ---- the board side ---- */
 static void packet_done(void){
@@ -70,6 +117,12 @@ static void packet_done(void){
         if(st.tx_bad++<5)fprintf(stderr,"[LINK] unframeable packet: %u words, end mark at %u (frame %u)\n",txn,k,link_frame());
         txn=0;return;}
     history_add();
+    {   /* $TCVR_LINKDUMP=file: every packet this cabinet sends, as hex bytes with its arcade frame (studying the link protocol) */
+        static FILE *dump;static int open_tried;
+        if(!open_tried){open_tried=1;const char *p=getenv("TCVR_LINKDUMP");if(p)dump=fopen(p,"w");}
+        if(dump){fprintf(dump,"%u %u",link_frame(),txn);for(unsigned k=0;k<txn;k++)fprintf(dump," %02X",txp[k]&0xFF);fputc('\n',dump);fflush(dump);}
+    }
+    if(ghost)ghost_reply();
     st.tx++;txn=0;
 }
 static void transmit(unsigned n){
@@ -146,6 +199,7 @@ static void history_add(void){
 }
 int tc2_link_pack(uint8_t *out,int limit){
     if(!enabled)return 0;
+    if(ghost){out[0]=0;return 1;}           /* the stand-in answers our cabinet: a real partner waits for the handover */
     if(limit>TC2_LINK_PAYLOAD-TC2_LINK_TRAILER)limit=TC2_LINK_PAYLOAD-TC2_LINK_TRAILER;
     int k=0,bytes=1;
     while(k<HIST&&(uint32_t)k<n_sent&&k<255){
@@ -166,7 +220,7 @@ bool tc2_link_pack_fits_newest(int limit){
 }
 void tc2_link_trailer(uint8_t *payload){
     extern uint32_t rr_frame;uint8_t *t=payload+TC2_LINK_PAYLOAD-TC2_LINK_TRAILER;
-    t[0]='T';t[1]='2';t[2]=tc2_ram[0x2F3502];t[3]='V';   /* byte 3: this build (upstream writes and reads nothing there) */
+    t[0]='T';t[1]='2';t[2]=tc2_ram[0x2F3502];t[3]=(uint8_t)own_mark;   /* byte 3: this build (upstream writes and reads nothing there) */
     t[4]=(uint8_t)(rr_frame>>24);t[5]=(uint8_t)(rr_frame>>16);t[6]=(uint8_t)(rr_frame>>8);t[7]=(uint8_t)rr_frame;
 }
 static void give(const uint16_t *w,unsigned n){
@@ -182,14 +236,14 @@ static void give(const uint16_t *w,unsigned n){
 int tc2_link_unpack(const uint8_t *in){
     if(!enabled)return -1;
     const uint8_t *t=in+TC2_LINK_PAYLOAD-TC2_LINK_TRAILER;
-    if(t[0]=='T'&&t[1]=='2'){self_state=t[2];partner_vr=t[3]=='V';}
+    if(t[0]=='T'&&t[1]=='2'){self_state=t[2];partner_mark=t[3]=='V'||t[3]=='J'||t[3]=='L'?t[3]:0;}
     partner_frame=(uint32_t)t[4]<<24|(uint32_t)t[5]<<16|(uint32_t)t[6]<<8|t[7];
     int k=in[0],o=1;const int end=TC2_LINK_PAYLOAD-TC2_LINK_TRAILER;
     for(int i=0;i<k;i++){
         if(o+4>end){st.rx_bad++;return -1;}
         uint16_t id=(uint16_t)(in[o]<<8|in[o+1]);int n=in[o+2]<<8|in[o+3];o+=4;
         if(n<1||n>(int)MAXW||o+n>end){if(st.rx_bad++<5)fprintf(stderr,"[LINK] bad payload entry %d of %d (n %d)\n",i,k,n);return -1;}
-        if(!rx_have||(int16_t)(id-rx_last)>0){
+        if(!ghost&&(!rx_have||(int16_t)(id-rx_last)>0)){
             uint16_t w[MAXW];for(int j=0;j<n;j++)w[j]=in[o+j];
             w[n-1]|=0x100;
             give(w,(unsigned)n);rx_last=id;rx_have=true;
@@ -199,10 +253,12 @@ int tc2_link_unpack(const uint8_t *in){
     return o;
 }
 int tc2_link_self_state(void){return enabled?self_state:-1;}
-bool tc2_link_partner_vr(void){return enabled&&partner_vr;}
+bool tc2_link_partner_vr(void){return enabled&&partner_mark!=0;}
+int tc2_link_partner_mark(void){return enabled?partner_mark:0;}
+void tc2_link_set_mark(int m){own_mark=m=='J'||m=='L'?m:'V';}
 /* Every session (re)start, as upstream's session_begin: both sides number their link frames afresh, so a partner who left and
  * came back is not taken for old frames. The chip and the frames already waiting for the ring are kept. */
-void tc2_link_session_reset(void){next_id=0;n_sent=0;rx_have=false;self_state=-1;partner_vr=false;memset(hist,0,sizeof hist);}
+void tc2_link_session_reset(void){next_id=0;n_sent=0;rx_have=false;self_state=-1;partner_mark=0;memset(hist,0,sizeof hist);}
 
 static uint16_t g16(uint32_t va){uint32_t o=va&0xFFFFFFu;return (uint16_t)(tc2_ram[o]<<8|tc2_ram[o+1]);}
 void tc2_link_get_status(tc2_link_status *o){

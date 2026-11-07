@@ -19,7 +19,8 @@ Built on the native System 23 reconstruction in **[spacestate1/namco22-decompile
   - **BROWSE GAMES** lists the open rooms and LAN games.
   - LAN hosting, joining by IP and quick match are there too.
   - The two games link automatically.
-- **Or from the arcade's own screen:** shoot the crossed-out **SOLO/LINKED** on SELECT GAME MODE and the ONLINE page opens. Once your partner links, both arcades restart so the game's **LINK PLAY** works, then you coin in again.
+- **Drop in, drop out:** the host plays at once with the arcade's own **SOLO/LINKED** ("SOLO START, BUT PERMITS 2P JOIN-IN"), and a friend can join that game whenever they arrive. Until then a stand-in answers on the link as an idle second cabinet, so no second game runs. Either player can leave mid-game and the other plays on.
+- **Or from the arcade's own screen:** shoot the crossed-out **SOLO/LINKED** on SELECT GAME MODE and the ONLINE page opens; host from it.
 - **Voice chat:** Opus, open mic with a voice gate, mute on the left stick click, partner volume and level meters.
 - **Free to run:** the community lobby server relays rooms, so there are no accounts, no port forwarding and nothing to host.
 - **While linked**, the game keeps running behind menus and with the headset off, and dropped partners reconnect by themselves.

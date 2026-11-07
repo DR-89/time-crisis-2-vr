@@ -11,23 +11,25 @@ Quest, Windows PCVR and the Windows desktop mode all play with each other. **The
 1. Both players install **the same build** of Time Crisis II VR Online.
 2. Press the **left menu button** to open options, then **left stick up / down** to reach page **4/4 ONLINE 2-PLAYER**.
 3. One player chooses **HOST ONLINE ROOM (CODE)**. The page shows a four-character room code, for example `KXQ7`.
-4. The other player chooses **JOIN ROOM CODE** and enters it. Alternatively, **BROWSE GAMES** lists every open room on the server and every game hosted on your local network; select one to join.
-5. The games link automatically: the host becomes **P1 Keith**, the joiner **P2 Robert**. A banner confirms it: `LINKED WITH <NAME> - P2 ROBERT`. Voice chat starts at the same moment. On Quest, the first time, allow microphone access.
-6. Close the menu. **P1 starts first:** insert credits (**A**) and pull the **trigger**.
-7. **P2 joins once P1's game is under way.** P2's coin, trigger and pedal are held until P1's game has run 25 seconds. Banners count down (`P1 IS STARTING - YOU JOIN IN 12 S`), and coins put in meanwhile are paid in automatically. Then P2 pulls the trigger to join.
+4. **The host can play straight away.** Close the menu, insert credits (**A**) and shoot **SOLO/LINKED** ("SOLO START, BUT PERMITS 2P JOIN-IN"). Your friend can join that game whenever they arrive, as at a linked arcade. **SOLO ONLY** is there too: it locks out a second player for that game.
+5. The other player chooses **JOIN ROOM CODE** and enters it, at any time. Alternatively, **BROWSE GAMES** lists every open room on the server and every game hosted on your local network; select one to join.
+6. The games link automatically: the host becomes **P1 Keith**, the joiner **P2 Robert**. A banner confirms it: `LINKED WITH <NAME> - P2 ROBERT`. Voice chat starts at the same moment. On Quest, the first time, allow microphone access.
+7. **P2's arcade restarts once** (`JOINING P1 - THE ARCADE RESTARTS, THEN COIN IN`): the warning screen, then attract, about 10 seconds. The arcade only takes in a second cabinet that shook hands on the link when it powered on, and the restart does that handshake. A P2 still in a game of its own finishes it first.
+8. **P2 joins P1's game.** P2 inserts credits and pulls the trigger. If P1's game started less than 25 seconds ago, P2's coin, trigger and pedal are held until it has run that long. Banners count down (`P1 IS STARTING - YOU JOIN IN 12 S`), and coins put in meanwhile are paid in automatically.
 
-   This is upstream's measured rule: if P2 is credited before or right at P1's start, the arcade can treat P1 as a computer partner and P2's kills stop counting. Both sides apply the same rule.
+   The 25 seconds are upstream's measured rule: if P2 is credited before or right at P1's start, the arcade can treat P1 as a computer partner and P2's kills stop counting. Both sides apply the same rule.
+
+Either player can leave at any time. The other's game carries on, and the room stays open for the next partner. When P1's game ends, P1 can start a new one with SOLO/LINKED again, whether or not anyone is linked.
 
 ### Or start from the arcade's own screen
 
-Put coins in and you reach **SELECT GAME MODE**. With nobody linked, **SOLO/LINKED** is crossed out, and the arcade ignores a shot at it. Here, **shooting it opens the ONLINE page**, with the game paused, so its countdown waits:
+Put coins in without a room open and you reach **SELECT GAME MODE** with **SOLO/LINKED** crossed out; the arcade ignores a shot at it. Here, **shooting it opens the ONLINE page**, with the game paused, so its countdown waits:
 
-1. Host a room (or use any other way to link). The page says your partner joins you.
-2. When your partner links, the page closes and **both arcades restart** (banner `RESTARTING FOR LINK PLAY`). This is the game's own restart: the warning screen, then attract. Your coins are cleared.
-3. **P1:** put coins in again and shoot **LINK PLAY** ("BLUE PLAYER IS YOUR TEAMMATE").
-4. **P2:** put coins in once P1's game is under way, as above, and shoot the top panel.
+1. Host a room (or a LAN game).
+2. Once it is open, the page closes and **your arcade restarts** (`ROOM OPEN - THE ARCADE RESTARTS, THEN COIN IN AND SHOOT SOLO/LINKED`): the warning screen, then attract. Your coins are cleared. The game decides whether SOLO/LINKED is open when the screen comes up, so it has to come up again.
+3. Put coins in again and shoot **SOLO/LINKED**. Your partner joins when they arrive, as in the quick start.
 
-The restart is needed because the arcade only lets the right cabinet join a left cabinet that was linked *before* it was credited. Without it, P2's SOLO/LINKED stays crossed out and its countdown runs out into SOLO ONLY. Both arcades restart together, because a cabinet restarting alone does not get LINK PLAY either (see How it works). The same restart happens whenever a link comes up while a cabinet sits credited on SELECT GAME MODE, however the link was made, but only between two copies of this build: the upstream desktop game would not restart with us.
+Host before you put coins in and none of this is needed.
 
 Room codes go through the lobby server, so they work across the internet with no router setup, VPN or addresses. Other ways to meet:
 
@@ -65,7 +67,7 @@ Room codes go through the lobby server, so they work across the internet with no
 ## While you are linked
 
 - **The game keeps running while the menu is open, while the headset is off and while the app is in the background.** Your partner's cabinet needs yours, exactly as at the arcade. Your controls are released while you are away. On Quest this holds until the headset goes to sleep; after that the reconnection below takes over.
-- **If your partner drops** (Wi-Fi gap, headset asleep, app restarted), the game behaves like a twin cabinet whose other half was switched off. The host reopens the room by itself, and a joiner keeps reconnecting to the same room or address for a minute. When the partner returns, the banner shows `<NAME> IS BACK - LINKED AGAIN`.
+- **If your partner drops** (Wi-Fi gap, headset asleep, app restarted), the game behaves like a twin cabinet whose other half was switched off. P1's game goes on alone. The host reopens the room by itself, and a joiner keeps reconnecting to the same room or address for a minute. When the partner returns, the banner shows `<NAME> IS BACK - LINKED AGAIN`.
 - **Leaving:** ONLINE page, **LEAVE ONLINE GAME**. You go back to single-player on your usual cabinet side.
 - A banner warns `PARTNER CONNECTION IS LAGGING` when the arcade link has been more than six frames behind for over a second and a half.
 
@@ -102,8 +104,10 @@ The arcade's own link driver declares the partner lost after **16 frames (about 
 | No voice | Check **VOICE CHAT: ON**, the **MICROPHONE** state, and on Quest the app's microphone permission. On Windows, check that desktop apps may use the microphone (Privacy settings). |
 | Linked with a stranger | **QUICK MATCH** pairs whoever is waiting; for a friend, use a room code. |
 | P2's trigger and coin do nothing | P2 waits for P1's game to be under way (about 25 s); the banner counts down, and coins are paid in afterwards. |
-| P2's SOLO/LINKED stays crossed out | P2 was credited, or P1 was credited, before linking. Link first, then put coins in; or shoot SOLO/LINKED to link from the mode screen and let both arcades restart. |
-| `RESTARTING FOR LINK PLAY` | A cabinet was credited when you linked: both arcades restart so LINK PLAY works. Put coins in again. |
+| P2's SOLO/LINKED stays crossed out | P1 is playing **SOLO ONLY** (P2's banner says `P1 PLAYS SOLO ONLY - JOIN AFTER THEIR GAME`), or P1 put coins in before opening the room. P2 joins P1's next game. |
+| `JOINING P1 - THE ARCADE RESTARTS` | P2's one restart for the link handshake. Put coins in again once attract is back. |
+| `FINISH YOUR GAME - THEN YOU JOIN P1` | P2 is in a game of its own; the restart waits until it ends. |
+| P1's SOLO/LINKED crossed out while hosting | The upstream desktop game, or `TC2_NO_STANDIN`, has no stand-in: link first, then put coins in. |
 | `PARTNER'S GAME HAS NO VOICE CHAT` | Your partner runs the upstream desktop game; voice chat needs this VR build on both sides. |
 
 Logs: the Quest log (`Export-Quest-Diagnostics.ps1`) and Windows `tc2.log` contain `[ONLINE]`, `[NET]`, `[LINK]` and `[VOICE]` lines.
@@ -161,7 +165,7 @@ The lobby and relay are upstream's NMN2 protocol (`upstream/docs/NETPLAY.md`): t
 | then k times | big-endian 16-bit id, big-endian 16-bit length n, n bytes (one byte per word; bit 8 is set only on the last word, so it is rebuilt on receipt) |
 | after the link frames | **the voice block** (this build only): `V` `C`, a 16-bit length, then the Opus frames |
 | 1016-1018 | the trailer: `T` `2` and the byte `0x802F3502` the sender sees (its partner's state: 1 attract, 2 credited, 4 in a game), which tells the partner its own state |
-| 1019 | `V` from this build (upstream leaves it 0 and never reads it): the restart below happens only between two VR cabinets |
+| 1019 | from this build (upstream leaves it 0 and never reads it): `J` our game takes a second player and has run 25 s (P2's agreed start ends at once), `L` our game is SOLO ONLY, `V` otherwise |
 | 1020-1023 | the sender's frame number, big-endian |
 
 - **Redundancy and duplicates:** the payload carries the newest transmitted link frames that fit, so every datagram repeats recent ones and a lost datagram costs nothing. The driver's resends of the same packet are carried once, and the receiver gives the game each id once.
@@ -175,16 +179,17 @@ Our C422 model differs inside (its interrupt bookkeeping), but the words a cabin
 
 `quest/tc2_online.c` runs the session. Joining counts as Ready, and the lower slot starts as soon as both are in. Once linked, the episode keeps the link enabled through session gaps and reconnects as described above. `quest/quest_host.c` keeps the arcade running behind menus and focus loss while linked, and polls the lobby every display frame.
 
-### SOLO/LINKED and the restart
+### Drop in at any time: the stand-in partner
 
-Measured on US TSS3 Ver. B (`quest/tc2_online.c`, `mode_screen_tick` and `link_contact_tick`):
+Measured on US TSS3 Ver. B (`quest/tc2_link.c` stand-in, `quest/tc2_online.c` `standin_tick` and `link_contact_tick`):
 
-- **SELECT GAME MODE** comes up with the first credit. It waits with `0x2CE92B` = 1 and `0x2F3930` = 1 and times out to SOLO ONLY after about 15 s. Leaving it, `0x2F3930` goes 1 to 2 for SOLO ONLY and 1 to 4 for LINK PLAY.
-- **Without a partner** (`0x802F3502` = 0), the top panel is crossed out and the game ignores a shot at it (three shots, nothing happened). The panel covers x 20-632, y 95-258 of the 640x480 picture. The port checks the game's own gun position there, so a replayed shot behaves like a real one, and opens the ONLINE page.
-- **The right cabinet** gets LINK PLAY only when the link was up before the left was credited. Then its attract switches to the left's game with `INSERT COINS`, and its panel opens. Linked after the left's credit, the right's panel stayed crossed out for good, with coins put in 25 s and 60 s into the left's game alike.
-- **The TEST switch** pressed on SELECT GAME MODE (10 frames) makes the game restart its own program: the Parental Advisory, then attract about 600 frames later, credits cleared. As it restarts, a cabinet shows its partner state 5.
-- **Restarting one side is not enough.** A left that restarted alone after linking saw no state 5 from its partner, and its own panel then stayed crossed out. Restarted together, the left took LINK PLAY on new coins and the right joined in.
-- **So, at first contact** (the first partner state after a session starts), a cabinet restarts if it waits on SELECT GAME MODE itself or its partner shows 2 (credited). Each side decides from what it sees, so both restart together. The emulator is not reset; the game does it.
+- **SELECT GAME MODE** comes up with the first credit. It waits with `0x2CE92B` = 1 and `0x2F3930` = 1 and times out to SOLO ONLY after about 15 s. Leaving it, `0x2F3930` goes 1 to 2 for SOLO ONLY and 1 to 4 for SOLO/LINKED.
+- **SOLO/LINKED is open only if a partner is linked as the screen comes up** (`0x802F3502`, the partner's state: 0 none, 1 attract, 2 credited, 4 in a game, 5 handshake). A partner appearing later does not open it: the screen re-armed, shots on the panel did nothing, and it ran out into SOLO ONLY. Without a partner the game ignores a shot at the panel (x 20-632, y 95-258 of the 640x480 picture); the port opens the ONLINE page instead.
+- **The game's mode** is the word at `0x802F3FD0`: 1 SOLO ONLY, 2 SOLO/LINKED, 0 between games. About 30 places in the game branch on it.
+- **A game in mode 2 takes a second player whenever one arrives.** Its partner may vanish mid-game, and a right cabinet that links later still takes LINK PLAY and plays alongside: score, lives, P1 seen from Robert's side. A right cabinet that was running before the link came up does not: it sees the left's game but its SOLO/LINKED stays crossed out. The game shakes hands on the link about 920 frames after power-on, and a right cabinet only joins after doing so with the link up. A left cabinet does not need it: hosting 50 s after power-on, SOLO/LINKED opened.
+- **So while you host with nobody linked, a stand-in answers as an idle right cabinet.** Before a game, a right cabinet's packets are the left's own: the same frame counter (bytes 1-2) and header, cabinet byte 13 = 5 instead of 4, a few attract fields. Bytes 1 to n-3 sum to 0 (n-3 is the checksum); the last two give the length. The stand-in answers each packet the left sends: during the handshake with the packet itself, in attract as the right cabinet, and after that with that attract packet, its counter and header bytes 4-7 following the left's. A stand-in that starts while the left is credited uses an attract packet recorded from the game. No second game runs; the cost is one packet copy a frame. In an episode (a partner linked before), the stand-in comes back only between games, because mid-game the arcade still expects that partner.
+- **A real partner replaces the stand-in** at once. If P1 is choosing on SELECT GAME MODE right then, the handover waits for the choice, since a link change would cross SOLO/LINKED out under the player. P2 then restarts once if it linked after its power-on handshake: the TEST switch pressed for 10 frames makes the game restart its own program (the Parental Advisory, then attract about 600 frames later, credits cleared). It waits until P2 is between games. The emulator is not reset; the game does it.
+- **The difficulty** of SOLO/LINKED played alone is about that of SOLO ONLY. Over four seeds of a player standing exposed and never firing, SOLO ONLY took 10 hits and SOLO/LINKED 7, the first hit always a little later. Same stage, route, cutscenes and computer partner.
 
 ### Voice
 
@@ -210,7 +215,7 @@ git -C upstream fetch origin; mkdir build/nmn-server-head; git -C upstream archi
 cd build/nmn-server-head/server; $env:CARGO_TARGET_DIR="../target"; cargo build --release; cd ../../..
 # optional, for the cross-play scenario: upstream's own Windows release, extracted, with timecrs2.zip in its roms folder
 gh release download 0.10.1 -R spacestate1/namco22-decompile -p "windows-release-0.10.1.zip" -D build/upstream-release
-python -X utf8 tests/test_online.py            # 17 scenarios + crossplay, about 30 minutes in real time
+python -X utf8 tests/test_online.py            # 18 scenarios + crossplay, about 35 minutes in real time
 python -X utf8 tests/test_handedness.py        # includes the ONLINE page's input routing
 ```
 
@@ -238,7 +243,8 @@ python -X utf8 tests/test_handedness.py        # includes the ONLINE page's inpu
 | `duplex` | Both talk at once: each must hear the other despite the echo safeguard |
 | `roomleave` | B leaves the room mid-game and rejoins by code |
 | `p2join` | Linked first; A starts LINK PLAY, B puts coins in at 3000 (held, then paid in) and takes LINK PLAY on the right cabinet |
-| `modescreen` | A shoots the crossed-out SOLO/LINKED; the ONLINE page opens and A hosts from it; B joins without coins; both cabinets restart; A takes LINK PLAY on new coins, and B joins it |
+| `modescreen` | A shoots the crossed-out SOLO/LINKED; the ONLINE page opens and A hosts from it; A restarts once the room is open, puts coins in again and takes SOLO/LINKED; B joins meanwhile, restarts once for its handshake, and joins A's game |
+| `dropin` | A hosts and takes SOLO/LINKED alone at once (the stand-in); B joins a minute into A's game, restarts once, and takes LINK PLAY with no agreed-start wait |
 | `crossplay` | Our cabinet (P1, hosting a room) against **upstream's released desktop game** (P2, headless, joining by quick match). It checks the link from both sides, 0 link errors, upstream's agreed start holding and releasing on our trailer, and that a desktop partner is not shown voice chat. Skipped without the download |
 
 Test switches, read by `quest/tc2_online.c` and `quest/tc2_voice.c`:
@@ -253,6 +259,8 @@ Test switches, read by `quest/tc2_online.c` and `quest/tc2_voice.c`:
 - `TCVR_TEST_MENU=3@60`: open the ONLINE page at desktop frame 60.
 - `TCVR_RAMWATCH=2CE92B,2F3930`: log each main-RAM byte (hex offsets) whenever it changes.
 - `TC2_NO_MODE_MENU=1`: a shot at the crossed-out SOLO/LINKED does nothing, as at the arcade (`late` links into a game on purpose).
+- `TC2_NO_STANDIN=1`: no stand-in partner while hosting (SOLO/LINKED then needs a linked partner, as before).
+- `TCVR_LINKDUMP=<file>`: every link packet this cabinet sends, as hex with its frame (how the stand-in was worked out).
 - `TCVR_CAPTURE_EVERY=N`: save `cap-<frame>.ppm` every N frames.
 
 ## Limitations
