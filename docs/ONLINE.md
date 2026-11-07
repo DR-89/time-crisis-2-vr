@@ -30,7 +30,7 @@ Quest, Windows PCVR and the Windows desktop mode all play with each other.
 
 ## While you are linked
 
-- **The game keeps running while the menu is open, while the headset is off and while the app is in the background.** Your partner's cabinet needs yours, exactly as at the arcade. Your controls are released while you are away.
+- **The game keeps running while the menu is open, while the headset is off and while the app is in the background.** Your partner's cabinet needs yours, exactly as at the arcade. Your controls are released while you are away. On Quest this holds until the headset goes to sleep; after that the reconnection below takes over.
 - **If your partner drops** (Wi-Fi gap, headset asleep, app restarted), the game behaves like a twin cabinet whose other half was switched off. The host reopens the room by itself; a joiner keeps reconnecting to the same address for a minute. When the partner returns, the banner shows `<NAME> IS BACK - LINKED AGAIN`.
 - **Leaving:** ONLINE page, **LEAVE ONLINE GAME**. You go back to single-player on your usual cabinet side.
 - A banner warns `PARTNER CONNECTION IS LAGGING` when the arcade link has been more than six frames behind for over a second and a half.
@@ -52,6 +52,19 @@ Traffic is about **18 KB/s each way** (one 256-byte packet per arcade frame, at 
 ### Latency
 
 The arcade's own link driver declares the partner lost after **16 frames (about 270 ms) without a packet**, then recovers as soon as packets return. Tested on loopback with 5% packet loss plus 150 ms stalls, 3-second and 8-second freezes of either player, a partner leaving and rejoining mid-game, and a partner joining a game already in progress: the game kept its 0 link errors and re-linked every time. Real internet play has not yet been measured; under about 100 ms round trip it should feel like the arcade.
+
+## Troubleshooting
+
+| Problem | Fix |
+| --- | --- |
+| `NO ANSWER - CHECK ADDRESS / PORT 27750` | Check the host's address on their ONLINE page. Over the internet, the host must forward **UDP** 27750, or both of you must be on the same Tailscale/ZeroTier network. |
+| A Windows host is never found | When Windows asks whether `TimeCrisis2VR.exe` may use the network, allow it on **Private networks**. Otherwise add an inbound rule for UDP 27750. |
+| **FIND LAN GAMES** finds nothing | Some routers block broadcasts between Wi-Fi clients ("AP/client isolation") or between 2.4 and 5 GHz bands. Use **JOIN IP** with the address shown on the host's page. |
+| `CANNOT HOST: PORT 27750 IS IN USE` | Another copy of the game (or an `nmn-server`) is already hosting on this machine. |
+| `PARTNER CONNECTION IS LAGGING` | Prefer 5 GHz Wi-Fi or Ethernet for the PC, and close large downloads. The arcade link gives up after 16 silent frames and recovers on its own. |
+| Linked with a stranger | **QUICK MATCH** pairs whoever is waiting; use **HOST** / **JOIN IP** to play with a friend. |
+
+Logs: the Quest log (`Export-Quest-Diagnostics.ps1`) and Windows `tc2.log` contain `[ONLINE]`, `[NET]` and `[LINK]` lines.
 
 ## online.cfg
 
@@ -78,7 +91,7 @@ The System 23 board's C422 is an RS-422 serial controller with 16 KB of buffer R
 
 Its variables (gp `0x802C7820`) give the link state shown on the ONLINE page: `0x802F3502` alive, `0x802F3504` frames behind the partner (lost above 16), `gp+0x75BC` state (0 linked, 2 lost) and three error counters.
 
-`quest/tc2_link.c` implements the chip. Register 1 is an interrupt mask that the chip sets as it interrupts and the handler clears to re-arm. Register 6 points at the last word received. Received packets enter the ring one per chip tick (about 350 a frame); after a stall only the newest two are kept, because a burst of backlog would wrap the ring over packets the game has queued but not read. **While no session has started the chip is exactly the upstream stub**, so single-player play is bit-identical: the same instruction and interrupt counts and pixel-identical frames as v0.3.3.
+`quest/tc2_link.c` implements the chip. Register 1 is an interrupt mask that the chip sets as it interrupts and the handler clears to re-arm. Register 6 points at the last word received. Received packets enter the ring one per chip tick (about 350 a frame); after a stall only the newest half-ring's worth (2048 words) is kept, because a burst of backlog would wrap the ring over packets the game has queued but not read. **While no session has started the chip is exactly the upstream stub**, so single-player play is bit-identical: the same instruction and interrupt counts and pixel-identical frames as v0.3.3.
 
 The pinned core is not modified. `quest/tc2_sources.cmake` generates copies of four upstream files with one-line hooks: the register reads and writes, the acknowledge, the chip's clock and the RAM accessor. The configure step fails if any hook no longer matches upstream.
 
@@ -136,7 +149,7 @@ Test switches, read by `quest/tc2_online.c`:
 
 ## Limitations
 
-- Quest-to-Quest and Quest-to-PC play are built but not yet tested on headsets; all automated tests ran on Windows desktop instances.
+- Hardware so far: a Quest 3 hosting and a Windows desktop instance joining over home Wi-Fi linked and played the scripted game. The link was alive throughout, with 0 game errors on the Quest, 16-35 ms ping and 1-2 frames of lag, and the room reopened when the PC left. Nobody wore the headset during that test. Quest-to-Quest, PCVR, and actually playing linked in a headset are not tested yet.
 - No voice chat. Use a party app or a phone call.
 - **QUICK MATCH** pairs whoever is waiting; for a friend, use **JOIN IP**.
 - Servers end a session after 15 minutes. The lobby re-links within about a second and the arcade link is kept up meanwhile, but this path has not been exercised in a full-length game yet.

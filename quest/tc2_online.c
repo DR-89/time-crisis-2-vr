@@ -233,17 +233,33 @@ static void episode_tick(void){
 }
 
 /* ---- test switches (desktop automation; see tests/test_online.py) ---- */
-/* TC2_NET_SCRIPT="<frame>:<action>[=arg];..." actions: host, join=<addr>, discover, quick, leave, freeze=<ms> (the whole app
+/* TC2_NET_SCRIPT="<frame>:<action>[=arg];..." (or t<ms>: milliseconds after start, for a headset nobody wears) actions: host, join=<addr>, discover, quick, leave, freeze=<ms> (the whole app
  * stalls, as a backgrounded headset does). The menu path runs exactly as a player's selection would. */
-static void test_switches(void){
-    static int status=-1;static const char *script;
-    if(status<0){status=getenv("TC2_NET_STATUS")!=NULL;script=getenv("TC2_NET_SCRIPT");}
-    for(const char *p=script;p&&*p;){
+/* On a headset there is no environment: online-test.txt beside the settings (adb run-as on this debuggable build) may hold
+ * "script=<as TC2_NET_SCRIPT>" and "status=1". */
+static void test_file(int *status,const char **script){
+    static char from_file[256];
+    FILE *f=fopen("online-test.txt","r");if(!f)return;
+    char line[300];
+    while(fgets(line,sizeof line,f)){
+        line[strcspn(line,"\r\n")]=0;
+        if(!strncmp(line,"script=",7)){snprintf(from_file,sizeof from_file,"%s",line+7);*script=from_file;}
+        else if(!strcmp(line,"status=1"))*status=1;
+    }
+    fclose(f);fprintf(stderr,"[ONLINE] online-test.txt: script '%s'\n",*script?*script:"");
+}
+static int test_status=-1;static const char *test_script;static uint32_t test_t0,test_last_ms;
+static void test_switches_at(bool timed){
+    if(test_status<0){test_status=getenv("TC2_NET_STATUS")!=NULL;test_script=getenv("TC2_NET_SCRIPT");test_file(&test_status,&test_script);test_t0=SDL_GetTicks();}
+    uint32_t now=SDL_GetTicks()-test_t0,since=test_last_ms;if(timed)test_last_ms=now;
+    for(const char *p=test_script;p&&*p;){
+        bool ms=*p=='t';if(ms)p++;
         unsigned at=(unsigned)strtoul(p,(char**)&p,10);
         if(*p!=':')break;
         p++;
         char action[64];size_t n=strcspn(p,";");if(n>=sizeof action)n=sizeof action-1;memcpy(action,p,n);action[n]=0;p+=n;if(*p==';')p++;
-        if(at!=sim_frames)continue;
+        if(ms!=timed)continue;
+        if(timed?!(at>since&&at<=now):at!=sim_frames)continue;
         char *arg=strchr(action,'=');if(arg)*arg++=0;
         fprintf(stderr,"[ONLINE] test frame %u: %s%s%s\n",sim_frames,action,arg?" ":"",arg?arg:"");
         if(!strcmp(action,"host"))host();
@@ -253,7 +269,7 @@ static void test_switches(void){
         else if(!strcmp(action,"leave"))leave();
         else if(!strcmp(action,"freeze")&&arg)SDL_Delay((Uint32)atoi(arg));
     }
-    if(status&&sim_frames%300==0){
+    if(!timed&&test_status&&sim_frames%300==0){
         tc2_link_status s;tc2_link_get_status(&s);char net[96];eng_net_status(net,sizeof net);
         fprintf(stderr,"[ONLINE] frame %u side P%d link %s alive %d lag %u state %u tx %u rx %u drop %u bad %u/%u game-errors %u ping %d | %s\n",
             sim_frames,qtc2_cabinet_side,s.enabled?"on":"off",s.alive,s.lag,s.state,s.tx,s.rx,s.rx_dropped,s.tx_bad,s.rx_bad,s.game_errors,eng_net_ping_ms(),net);
@@ -273,7 +289,8 @@ static void health_tick(void){
 void tc2_online_frame(void){
     if(!inited)return;
     sim_frames++;
-    test_switches();
+    test_switches_at(false);
+    test_switches_at(true);
     lobby_tick();
     eng_net_poll();
     /* a packet larger than one network frame: its other fragments go out now (each poll sends one FRAME) */
@@ -286,6 +303,7 @@ void tc2_online_service(void){
     if(!inited)return;
     uint32_t now=SDL_GetTicks();
     if(now-last_poll_ms<30)return;
+    test_switches_at(true);
     lobby_tick();
     eng_net_poll_paused();
     episode_tick();

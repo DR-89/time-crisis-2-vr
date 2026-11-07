@@ -28,7 +28,7 @@
 #define RING        0x1000u
 #define MAXW        0x800u
 #define RXQ         48
-#define RX_BACKLOG  6                     /* received packet copies held for the game: the newest two packets */
+#define RX_BUDGET   2048u                 /* words of received packets held for the game: half its 4096-word ring */
 #define TICK_INS    8000u                 /* instructions between chip ticks (~350 a frame) */
 #define FRAG_HEADER 6
 #define FRAG_DATA   (TC2_LINK_PAYLOAD-FRAG_HEADER)
@@ -185,8 +185,9 @@ bool tc2_link_unpack(const uint8_t *in){
     if(rx_copies>3)rx_copies=3;
     /* A cable never holds more than a frame or two of traffic. After a stall the network hands over seconds of backlog at once;
      * placing it all would wrap the game's 4096-word receive ring over packets it has queued but not read (they then fail its
-     * sync check without a trace). Keep only the newest packets. */
-    while((unsigned)((rxw-rxr+RXQ)%RXQ)+rx_copies>RX_BACKLOG){rxr=(rxr+1)%RXQ;st.rx_dropped++;}
+     * sync check without a trace). Keep at most half a ring of the newest packets; Wi-Fi clumps of a few packets still pass whole. */
+    unsigned queued=0;for(int q=rxr;q!=rxw;q=(q+1)%RXQ)queued+=rxq[q].n;
+    while(rxr!=rxw&&queued+rx_copies*(unsigned)words>RX_BUDGET){queued-=rxq[rxr].n;rxr=(rxr+1)%RXQ;st.rx_dropped++;}
     for(unsigned c=0;c<rx_copies;c++){
         rxq[rxw].n=(uint16_t)words;
         for(unsigned k=0;k<words;k++)rxq[rxw].w[k]=b[k];

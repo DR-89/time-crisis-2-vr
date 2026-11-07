@@ -53,13 +53,15 @@ SCENARIOS = {
 
 
 def cabinet(directory: Path):
-    if directory.exists():
-        shutil.rmtree(directory)
-    directory.mkdir(parents=True)
+    """The two cabinets always run from the same two folders: Windows asks for firewall permission once per executable path,
+    and the tests only use loopback, so a fresh path per scenario would only produce prompts. Per-run state is reset."""
+    directory.mkdir(parents=True, exist_ok=True)
     for name in ('TimeCrisis2VR.exe', 'openxr_loader.dll'):
         shutil.copy2(PACKAGE / name, directory / name)
     for name in ('extracted', 'models'):
-        shutil.copytree(PACKAGE / name, directory / name)
+        shutil.copytree(PACKAGE / name, directory / name, dirs_exist_ok=True)
+    for stale in [*directory.glob('cap-*.ppm'), *directory.glob('*.log'), *directory.glob('*.rec'), *directory.glob('*.nv')]:
+        stale.unlink()
     (directory / 'quest-options.cfg').write_text('player_side=1\n')
     (directory / 'online.cfg').write_text(f'name=CAB{directory.name}\n')
 
@@ -67,19 +69,29 @@ def cabinet(directory: Path):
 def run(name: str, keep: bool):
     frames, script_a, script_b, extra, check = SCENARIOS[name]
     base = WORK / name
+    run_dir = WORK / 'cabinets'
     rec = base / 'inputs.rec'
+    base.mkdir(parents=True, exist_ok=True)
     for side in 'AB':
-        cabinet(base / side)
+        cabinet(run_dir / side)
     recording(rec, frames)
     procs = []
     for side, script in (('A', script_a), ('B', script_b)):
         env = dict(os.environ, TCVR_TEST_HIDDEN='1', TC2_REPLAY=str(rec), TC2_NET_STATUS='1', TC2_NET_SCRIPT=script, **extra)
         if keep:
             env['TCVR_CAPTURE_EVERY'] = '600'
-        procs.append(subprocess.Popen([str(base / side / 'TimeCrisis2VR.exe'), '--desktop', '--no-dialog', '--frames', str(frames)],
-                                      cwd=base / side, env=env))
+        procs.append(subprocess.Popen([str(run_dir / side / 'TimeCrisis2VR.exe'), '--desktop', '--no-dialog', '--frames', str(frames)],
+                                      cwd=run_dir / side, env=env))
     for p in procs:
         p.wait(timeout=frames / 50 + 120)
+    for side in 'AB':                                       # keep each scenario's log (and screenshots) under its own name
+        out = base / side
+        if out.exists():
+            shutil.rmtree(out)
+        out.mkdir()
+        for f in [run_dir / side / 'tc2.log', *(run_dir / side).glob('cap-*.ppm')]:
+            if f.exists():
+                shutil.move(str(f), out / f.name)
     logs = {side: (base / side / 'tc2.log').read_text(errors='replace') for side in 'AB'}
     rows = {side: [tuple(int(v) if v.lstrip('-').isdigit() else v for v in m.groups()) for m in STATUS.finditer(log)] for side, log in logs.items()}
     failures = []
