@@ -112,6 +112,7 @@ void tc2_online_menu_select(void){online_selects++;}
 void tc2_online_menu_move(int d){(void)d;online_moves++;}
 void tc2_online_menu_adjust(int d){(void)d;online_adjusts++;}
 void tc2_online_menu_back(void){online_backs++;}
+void tc2_online_toggle_mute(void){}
 void ss22_snd_inputs(uint16_t bits,unsigned w,unsigned p1,unsigned p2){(void)w;(void)p1;(void)p2;arcade_bits=bits;}
 V3 qgun_muzzle(V3 p,Q4 q){return add(p,rotate(q,v3(0,0,-.1f)));}
 bool qvr_aim(V3 p,V3 d,float *x,float *y,V3 *hit){*x=p.x+.5f;*y=.5f;*hit=add(p,mul(d,2.f));return true;}

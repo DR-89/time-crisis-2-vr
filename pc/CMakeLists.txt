@@ -28,6 +28,6 @@ target_compile_options(main PRIVATE -O2 -fno-strict-aliasing -fwrapv -Wall -Wno-
 target_include_directories(main PRIVATE "${ROOT}/quest" "${ROOT}/quest/include" vendor/glad/include "${ROOT}/.tools/zlib/zlib-1.3.1" "${CMAKE_BINARY_DIR}/zlib" "${CMAKE_BINARY_DIR}/compat" "${TC}/gen" "${TC}/include" "${TC}/src" "${TC}/src/eng" "${XR}/include")
 add_library(openxr_loader UNKNOWN IMPORTED)
 set_target_properties(openxr_loader PROPERTIES IMPORTED_LOCATION "${XR}/native/x64/release/lib/openxr_loader.lib")
-target_link_libraries(main SDL2-static openxr_loader zlibstatic opengl32 ws2_32 winpthread)
+target_link_libraries(main SDL2-static openxr_loader zlibstatic opus opengl32 ws2_32 winpthread)
 set_target_properties(main PROPERTIES OUTPUT_NAME TimeCrisis2VR)
 target_link_options(main PRIVATE -static "-Wl,--stack,67108864")

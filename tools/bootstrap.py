@@ -11,6 +11,8 @@ PACKAGES = [
     ('sdl', 'https://github.com/libsdl-org/SDL/releases/download/release-2.30.11/SDL2-2.30.11.zip', None),
     ('openxr', 'https://repo.maven.apache.org/maven2/org/khronos/openxr/openxr_loader_for_android/1.1.43/openxr_loader_for_android-1.1.43.aar', None),
     ('ninja', 'https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-win.zip', None),
+    # Online voice chat (docs/ONLINE.md): the Opus codec, BSD licence.
+    ('opus', 'https://github.com/xiph/opus/archive/refs/tags/v1.5.2.zip', None),
 ]
 
 def fetch(package):

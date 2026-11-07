@@ -9,6 +9,7 @@ void tc2_online_frame(void);             /* once per simulated arcade frame */
 void tc2_online_service(void);           /* every host loop iteration: keeps the lobby alive while the arcade is paused */
 bool tc2_online_session(void);           /* linked to a partner: the arcade keeps running behind menus and focus loss */
 bool tc2_online_busy(void);              /* hosting, connecting, in a lobby or in a session */
+void tc2_online_toggle_mute(void);       /* the microphone, during play (left stick click / M) */
 
 /* The ONLINE options page (a small menu model; quest_ui.c draws it, quest_host.c feeds it input). */
 void tc2_online_menu_move(int direction);       /* up / down */

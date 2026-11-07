@@ -344,7 +344,7 @@ static void adjust_texture_filter(void){
 }
 static void adjust_gun_pitch(XrTime time){
     bool reset=pressed(pitch_reset_action,XR_NULL_PATH,&pitch_reset_button);
-    if(!paused){reset_pitch_input();return;}
+    if(!paused){if(reset&&tc2_online_session())tc2_online_toggle_mute();reset_pitch_input();return;}   /* left stick click: voice chat mute */
     if(reset){reset_page_setting();reset_pitch_input();return;}
     XrActionStateGetInfo get={XR_TYPE_ACTION_STATE_GET_INFO};get.action=pitch_action;
     XrActionStateVector2f stick={XR_TYPE_ACTION_STATE_VECTOR2F};
@@ -415,6 +415,7 @@ static bool events(void){
             if(paused&&options_page==QOPTIONS_PAGE_ONLINE&&(s.key.keysym.sym==SDLK_RETURN||s.key.keysym.sym==SDLK_KP_ENTER))tc2_online_menu_select();
             if(paused&&options_page==QOPTIONS_PAGE_ONLINE&&s.key.keysym.sym==SDLK_BACKSPACE)tc2_online_menu_back();
             if(s.key.keysym.sym==SDLK_c||s.key.keysym.sym==SDLK_5)coin_frames=48;
+            if(s.key.keysym.sym==SDLK_m&&!paused&&tc2_online_session())tc2_online_toggle_mute();
             if(s.key.keysym.sym==SDLK_l)cycle_aim_guide();
             if(s.key.keysym.sym==SDLK_TAB&&paused){change_options_page(1);}
             if(s.key.keysym.sym==SDLK_r)recenter_requested=true;

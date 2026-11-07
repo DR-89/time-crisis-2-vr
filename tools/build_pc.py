@@ -14,7 +14,7 @@ def main():
     parser.add_argument('--output',type=Path,default=ROOT/'artifacts/pc/TimeCrisis2VR-PC',help='Portable folder (also determines the ZIP destination)')
     args=parser.parse_args()
     if not args.skip_prepare and not args.rom.is_file():parser.error('ROM ZIP not found')
-    for package in [bootstrap.PACKAGES[3],bootstrap.PACKAGES[5],*bootstrap_pc.PACKAGES]:bootstrap.fetch(package)
+    for package in [bootstrap.PACKAGES[3],bootstrap.PACKAGES[5],*[p for p in bootstrap.PACKAGES if p[0]=='opus'],*bootstrap_pc.PACKAGES]:bootstrap.fetch(package)
     assets=ROOT/'build/assets' if args.skip_prepare else build.prepare(args.rom)
     build.prepare_sound()
     toolchain=ROOT/'.tools/llvm-mingw/llvm-mingw-20260922-ucrt-x86_64/bin'
