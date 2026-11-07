@@ -3,7 +3,7 @@ from pathlib import Path
 import argparse, hashlib, json, os, subprocess, sys, zipfile, zlib
 ROOT=Path(__file__).resolve().parents[1]
 TC=ROOT/'upstream/tc2'
-PIN='0837a397ebe554dbf5341d95629aa1e29fc58a52'
+PIN='8f2ed7f4ed5c3fb5fecbbd29bbf6a6bf13876b2c'
 
 def prepare(rom):
     actual=subprocess.check_output(['git','rev-parse','HEAD'],cwd=TC,text=True).strip()

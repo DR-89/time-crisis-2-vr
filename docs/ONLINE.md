@@ -112,7 +112,7 @@ voice_volume=100        # the partner's voice, 0-200
 
 ### The link chip
 
-The System 23 board's C422 is an RS-422 serial controller with 16 KB of buffer RAM (`0x06200000`) and eight 16-bit registers (`0x06400000`); its interrupt is CPU IRQ3 (Cause IP5). MAME and the pinned upstream core only stub it, so the cable was dead. The game's own driver, read from the translated program, defines what the chip must do:
+The System 23 board's C422 is an RS-422 serial controller with 16 KB of buffer RAM (`0x06200000`) and eight 16-bit registers (`0x06400000`); its interrupt is CPU IRQ3 (Cause IP5). MAME only stubs it, so the cable was dead; upstream added its own model in 0.9.0, and this port keeps its own (below), which speaks the same wire format. The game's own driver, read from the translated program, defines what the chip must do:
 
 | Routine | Role |
 | --- | --- |
@@ -123,14 +123,13 @@ The System 23 board's C422 is an RS-422 serial controller with 16 KB of buffer R
 
 Its variables (gp `0x802C7820`) give the link state shown on the ONLINE page: `0x802F3502` alive, `0x802F3504` frames behind the partner (lost above 16), `gp+0x75BC` state (0 linked, 2 lost) and three error counters.
 
-`quest/tc2_link.c` implements the chip. Register 1 is an interrupt mask that the chip sets as it interrupts and the handler clears to re-arm. Register 6 points at the last word received. Received packets enter the ring one per chip tick (about 350 a frame); after a stall only the newest half-ring's worth (2048 words) is kept, because a burst of backlog would wrap the ring over packets the game has queued but not read. **While no session has started the chip is exactly the upstream stub**, so single-player play is bit-identical: the same instruction and interrupt counts and pixel-identical frames as v0.3.3.
+`quest/tc2_link.c` implements the chip. Register 1 is an interrupt mask that the chip sets as it interrupts and the handler clears to re-arm. Register 6 points at the last word received. Received packets enter the ring one per chip tick (about 350 a frame); after a stall only the newest half-ring's worth (2048 words) is kept, because a burst of backlog would wrap the ring over packets the game has queued but not read. **While no session has started the chip is exactly the plain register stub** that MAME and upstream's unarmed model are, so single-player play is unchanged by it.
 
-The pinned core is not modified. `quest/tc2_sources.cmake` generates copies of the upstream files it hooks, and the configure step fails if any hook no longer matches upstream:
+The pinned core is not modified. Since upstream 0.9.0 the core calls out for its link (`tc2_c422_read` / `tc2_c422_write` from `tc2_chips.c`; `tc2_link_id`, `tc2_link_hold_start` and `tc2_link_coin_inject` from the I/O board in `tc2_h8.c`), so the build compiles `quest/tc2_link.c`, `quest/tc2_cabinet.c` and `quest/tc2_online.c` in place of upstream's `tc2_link.c`. For the rest, `quest/tc2_sources.cmake` generates copies of the upstream files it hooks, and the configure step fails if any hook no longer matches upstream:
 
-- `tc2_chips.c`, `tc2_ctl.c`, `tc2_main.c` and `tc2_mem.c`: the C422 register reads and writes, its acknowledge, its clock and its RAM.
+- `tc2_ctl.c` and `tc2_main.c`: the C422 handler's acknowledge, and its clock in instructions.
 - `tc2_audio.c`: the voice mix.
-- `engine/net.c`: a room request for the next connect, and an accessor for the current room.
-- `tc2_h8.c` (with the existing cabinet-switch hook): the inputs the I/O board reads pass through the agreed start's hold.
+- `tc2/src/eng/net.c` (Time Crisis 2's own copy of the NMN2 client): a room request for the next connect, and an accessor for the current room.
 
 ### Cabinet side
 
@@ -138,7 +137,7 @@ The lobby slot decides the cabinet: slot 0 is P1, slot 1 is P2. The game reads t
 
 ### Transport: compatible with upstream
 
-The lobby and relay are upstream's NMN2 protocol (`upstream/docs/NETPLAY.md`): the client `upstream/engine/net.c` and the built-in host `upstream/engine/net_host.c`. On top of that, `quest/tc2_link.c` and `quest/tc2_online.c` follow upstream's own Time Crisis 2 online play (its `tc2/src/tc2_link.c`, 0.9.3 to 0.10.1, MIT), so VR and desktop cabinets link with each other:
+The lobby and relay are upstream's NMN2 protocol (`upstream/docs/NETPLAY.md`): the client `upstream/tc2/src/eng/net.c` and the built-in host `upstream/tc2/src/eng/net_host.c`, the copies upstream's own Time Crisis 2 builds. On top of that, `quest/tc2_link.c` and `quest/tc2_online.c` follow upstream's own Time Crisis 2 online play (its `tc2/src/tc2_link.c`, 0.9.3 to 0.10.1, MIT), so VR and desktop cabinets link with each other:
 
 - **Game, version and frame size:** game id `t2`, link version 1, 2 players, 1 KB frames. `zonesync.net` and current `nmn-server` builds list `t2` with 1 KB frames; an older server without that row caps unlisted games at 256 bytes and cannot carry it.
 - **One payload per arcade frame:**
@@ -153,7 +152,7 @@ The lobby and relay are upstream's NMN2 protocol (`upstream/docs/NETPLAY.md`): t
 
 - **Redundancy and duplicates:** the payload carries the newest transmitted link frames that fit, so every datagram repeats recent ones and a lost datagram costs nothing. The driver's resends of the same packet are carried once, and the receiver gives the game each id once.
 - **Voice placement:** voice takes room from the repeated older frames, never from the newest. Upstream's parser stops after the k link frames, so it never sees the voice block.
-- **Agreed start:** P2's coin, trigger and pedal are held, through a guarded hook where the I/O board reads them (`tc2_h8.c`), until P2 is in a game or P1 has been in its game for `TC2_JOIN_WAIT` frames (1500, or the same time on the wall clock). Held coins are paid in afterwards, 4 frames on and 36 off each.
+- **Agreed start:** P2's coin, trigger and pedal are held, where the I/O board reads them (`tc2_h8.c` asks `tc2_link_hold_start`), until P2 is in a game or P1 has been in its game for `TC2_JOIN_WAIT` frames (1500, or the same time on the wall clock). Held coins are paid in afterwards, 4 frames on and 36 off each.
 - **Stall-and-wait:** neither cabinet runs more than a few frames ahead of the other (2 plus the ping in frames, or `TC2_NET_LEAD`). Upstream blocks inside the network call; here the VR host asks before each arcade frame and keeps rendering the headset while it waits.
 
 Our C422 model differs inside (its interrupt bookkeeping), but the words a cabinet puts on the cable are the game's own, so the two models interoperate. The cross-play test below checks this from both sides.
@@ -193,7 +192,8 @@ python -X utf8 tests/test_handedness.py        # includes the ONLINE page's inpu
 `tests/test_online.py` starts two real desktop instances, both booted as P1:
 
 - **Running:** A hosts and B joins, over loopback or through a local `nmn-server` bound to 127.0.0.1. Both play the same scripted coins, start and shooting.
-- **Microphones:** replaced by WAV files, a 440 Hz tone for A and silence for B. What each side plays back is recorded and checked for that tone.
+- **Microphones:** replaced by WAV files, a 440 Hz tone for A and silence for B. What each side plays back is recorded and checked for that tone. Every cabinet runs on SDL's silent audio device, so nothing plays aloud.
+- **Firewall:** the cabinets always run from `build/online-test/cabinets/A` and `B`, so Windows asks once per path. From a git worktree, `TC2_TEST_BUILD=<main checkout>/build` reuses that checkout's folders, server and upstream release.
 - **Checks:** the game's own link state (alive, errors, cabinet sides, re-linking) and the voice counts.
 
 | Scenario | What happens |

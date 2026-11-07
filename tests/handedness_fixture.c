@@ -338,9 +338,8 @@ int main(void){
     assert(fabsf(gun_position.x-base.x-delta.x)<1e-6f&&fabsf(gun_position.z-base.z-delta.z)<1e-6f);
     set_world_scale(400);tick();assert(fabsf(gun_position.x-base.x-delta.x)<1e-6f);
     click(pitch_reset_action,2);assert(options.gun_offset_y_mm==0&&options.gun_offset_z_mm==0);
-    for(int side=1;side<=2;side++)for(int input=0;input<256;input++){
-        uint8_t result=qtc2_cabinet_switch(input,side);assert((result&~4)==(input&~4));assert(!!(result&4)==(side==1));
-    }
+    /* P1 = Left/Red: Link ID off; P2 = Right/Blue: on (the I/O board pulls bit 2 low). Nothing else selects it. */
+    assert(qtc2_link_id_of(1)==0&&qtc2_link_id_of(2)==1&&qtc2_link_id_of(0)==0&&qtc2_link_id_of(3)==0);
     /* Route selection is bounded, big-endian, and never changes default P1.
      * Out-of-range native state must not become a seemingly valid route. */
     static uint8_t route_ram[0x2f3fd9];route_ram[0x2f3fd8]=0xa5;

@@ -15,8 +15,10 @@ import math, os, re, shutil, struct, subprocess, sys, time, wave
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / 'artifacts/pc/TimeCrisis2VR-PC'
-WORK = ROOT / 'build/online-test'
-SERVER_EXE = ROOT / 'build/nmn-server-head/target/release/nmn-server.exe'   # upstream's current server: it knows Time Crisis 2's 1 KB frames
+# $TC2_TEST_BUILD: another checkout's build folder (a git worktree reuses the cabinet folders Windows' firewall already allows)
+BUILD = Path(os.environ.get('TC2_TEST_BUILD', ROOT / 'build'))
+WORK = BUILD / 'online-test'
+SERVER_EXE = BUILD / 'nmn-server-head/target/release/nmn-server.exe'   # upstream's current server: it knows Time Crisis 2's 1 KB frames
 SERVER_PORT = 27751
 STATUS = re.compile(r'\[ONLINE\] frame (\d+) side P(\d) link (on|off) alive (\d) lag (\d+) state (\d+) tx (\d+) rx (\d+) '
                     r'drop (\d+) bad (\d+)/(\d+) game-errors (\d+) ping (-?\d+) \| voice (on|off) sent (\d+) received (\d+) lost (\d+)')
@@ -132,7 +134,7 @@ def run(name: str, keep: bool):
         time.sleep(0.5)
     procs = []
     for side, script in (('A', script_a), ('B', script_b)):
-        env = dict(os.environ, TCVR_TEST_HIDDEN='1', TC2_REPLAY=str(rec), TC2_NET_STATUS='1', TC2_NET_SCRIPT=script,
+        env = dict(os.environ, SDL_AUDIODRIVER='dummy', TCVR_TEST_HIDDEN='1', TC2_REPLAY=str(rec), TC2_NET_STATUS='1', TC2_NET_SCRIPT=script,
                    TC2_VOICE_IN=str(run_dir / side / 'mic.wav'), TC2_VOICE_OUT=str(run_dir / side / 'voice_out.wav'), **extra)
         if keep:
             env['TCVR_CAPTURE_EVERY'] = '600'
@@ -224,7 +226,7 @@ def run(name: str, keep: bool):
     return not failures
 
 
-UPSTREAM_GAME = ROOT / 'build/upstream-release/windows-release/TimeCrisis2.exe'
+UPSTREAM_GAME = BUILD / 'upstream-release/windows-release/TimeCrisis2.exe'
 
 
 def crossplay(keep: bool):
@@ -244,11 +246,11 @@ def crossplay(keep: bool):
     microphone(run_dir / 'A' / 'mic.wav', frames // 60 + 30, tone=True)
     lobby = subprocess.Popen([str(SERVER_EXE), '--port', str(SERVER_PORT), '--bind', '127.0.0.1', '--quiet'], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
     time.sleep(0.5)
-    env = dict(os.environ, TCVR_TEST_HIDDEN='1', TC2_REPLAY=str(rec), TC2_NET_STATUS='1', TC2_NET_SCRIPT='600:hostroom', TC2_NET_ROOM_CODE='KXQ7',
+    env = dict(os.environ, SDL_AUDIODRIVER='dummy', TCVR_TEST_HIDDEN='1', TC2_REPLAY=str(rec), TC2_NET_STATUS='1', TC2_NET_SCRIPT='600:hostroom', TC2_NET_ROOM_CODE='KXQ7',
                TC2_VOICE_IN=str(run_dir / 'A' / 'mic.wav'))
     ours = subprocess.Popen([str(run_dir / 'A' / 'TimeCrisis2VR.exe'), '--desktop', '--no-dialog', '--frames', str(frames)], cwd=run_dir / 'A', env=env)
     time.sleep(16)                                   # upstream joins the server's fullest open room: ours, once it exists
-    uenv = dict(os.environ, TC2_NET_SERVER=f'127.0.0.1:{SERVER_PORT}', TC2_NET_NAME='UPSTREAM', TC2_NET_AUTOSTART='2', TC2_LINKLOG='1', TC2_REPLAY=str(rec))
+    uenv = dict(os.environ, SDL_AUDIODRIVER='dummy', TC2_NET_SERVER=f'127.0.0.1:{SERVER_PORT}', TC2_NET_NAME='UPSTREAM', TC2_NET_AUTOSTART='2', TC2_LINKLOG='1', TC2_REPLAY=str(rec))
     theirs = subprocess.Popen([str(UPSTREAM_GAME), 'reset', str(frames * 2_900_000)], cwd=UPSTREAM_GAME.parent, env=uenv)
     ours.wait(timeout=frames / 50 + 120)
     theirs.wait(timeout=frames / 50 + 120)

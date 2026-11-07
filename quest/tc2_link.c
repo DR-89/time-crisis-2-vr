@@ -16,21 +16,21 @@
  *
  * On the network the link travels in upstream's Time Crisis 2 payload (below), so VR and desktop cabinets link with each other. */
 #include "tc2_link.h"
+#include "tc2_game.h"                    /* TC2_SRC_C422 */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#define IP_C422     0x2000u
 #define RING        0x1000u
 #define MAXW        0x800u
 #define RXQ         48
 #define RX_BUDGET   2048u                 /* words of received packets held for the game: half its 4096-word ring */
 #define TICK_INS    8000u                 /* instructions between chip ticks (~350 a frame) */
 #define GP          0x802C7820u
-static unsigned tc2_link_frame(void){extern uint32_t rr_frame;return rr_frame;}
+static unsigned link_frame(void){extern uint32_t rr_frame;return rr_frame;}
 
-uint8_t *tc2_c422_ram(void);              /* the 16 KB buffer RAM, big-endian (generated tc2_mem.c adapter) */
-void tc2_irq_line(uint32_t bit,int on);
+uint8_t *tc2_vram_ptr(uint32_t p);       /* the core's chip RAM windows: 0x06200000 is the C422's 16 KB buffer, big-endian */
+void tc2_irq_set(int src,int on);
 extern uint8_t tc2_ram[];
 
 static bool enabled;
@@ -48,9 +48,10 @@ static int self_state=-1;                 /* our state as the partner sees it (i
 static uint32_t partner_frame;
 static void history_add(void);
 
-static uint16_t ram_rd(uint32_t i){const uint8_t *m=tc2_c422_ram();i&=0x1FFF;return (uint16_t)(m[i*2]<<8|m[i*2+1]);}
-static void ram_wr(uint32_t i,uint16_t v){uint8_t *m=tc2_c422_ram();i&=0x1FFF;m[i*2]=(uint8_t)(v>>8);m[i*2+1]=(uint8_t)v;}
-static void set_line(bool on){if(line!=on){line=on;tc2_irq_line(IP_C422,on);}}
+static uint8_t *c422_ram(void){static uint8_t *m;if(!m)m=tc2_vram_ptr(0x06200000u);return m;}
+static uint16_t ram_rd(uint32_t i){const uint8_t *m=c422_ram();i&=0x1FFF;return (uint16_t)(m[i*2]<<8|m[i*2+1]);}
+static void ram_wr(uint32_t i,uint16_t v){uint8_t *m=c422_ram();i&=0x1FFF;m[i*2]=(uint8_t)(v>>8);m[i*2+1]=(uint8_t)v;}
+static void set_line(bool on){if(line!=on){line=on;tc2_irq_set(TC2_SRC_C422,on);}}
 
 void tc2_link_set_enabled(bool on){
     if(on==enabled)return;
@@ -65,7 +66,7 @@ bool tc2_link_enabled(void){return enabled;}
 static void packet_done(void){
     /* Valid packets carry bit 8 on the last word only; anything else cannot be framed as bytes. */
     for(unsigned k=0;k+1<txn;k++)if(txp[k]&0x100){
-        if(st.tx_bad++<5)fprintf(stderr,"[LINK] unframeable packet: %u words, end mark at %u (frame %u)\n",txn,k,tc2_link_frame());
+        if(st.tx_bad++<5)fprintf(stderr,"[LINK] unframeable packet: %u words, end mark at %u (frame %u)\n",txn,k,link_frame());
         txn=0;return;}
     history_add();
     st.tx++;txn=0;
@@ -101,6 +102,12 @@ void tc2_link_write(unsigned r,uint16_t v){
     if(r==5&&(v&0xFF)&&!tx_busy)transmit(v&0x1FF);
 }
 void tc2_link_ack(void){if(enabled)set_line(false);}
+/* The core's C422 entry points (upstream src/tc2_chips.c, src/tc2_main.c); this model replaces upstream's src/tc2_link.c. */
+int tc2_c422_read(unsigned k,uint32_t *v){*v=tc2_link_read(k);return 1;}
+void tc2_c422_write(unsigned k,uint16_t v){tc2_link_write(k,v);}
+void tc2_c422_load(unsigned k,uint16_t v){reg[k&7]=v;}   /* a MAME snapshot's registers */
+void tc2_link_init(void){}                /* the online session is quest/tc2_online.c, driven by the VR host */
+void tc2_link_frame(void){}               /* its per-frame work runs from quest/tc2_window.c (tc2_online_frame) */
 
 static void place(int q){
     uint32_t p=reg[6]&0xFFF;

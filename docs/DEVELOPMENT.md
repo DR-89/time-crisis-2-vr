@@ -2,7 +2,7 @@
 
 ## Active code
 
-- `upstream/`: pinned [namco22-decompile](https://github.com/spacestate1/namco22-decompile) submodule at `0837a397ebe554dbf5341d95629aa1e29fc58a52`.
+- `upstream/`: pinned [namco22-decompile](https://github.com/spacestate1/namco22-decompile) submodule at `8f2ed7f4ed5c3fb5fecbbd29bbf6a6bf13876b2c` (0.10.1 and its follow-up sound fix).
 - `quest/tc2_sources.cmake`: authoritative System 23 source list.
 - `quest/tc2_scene.c` and `quest/tc2_gl.c`: arcade geometry reconstruction and VR rendering.
 - `quest/quest_host.c`: shared OpenXR host, frame pacing and controls.

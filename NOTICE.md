@@ -6,7 +6,7 @@ affiliated with or endorsed by Namco, Bandai Namco, or Meta.
 - **VR port code:** DR-89 and contributors, MIT; see [LICENSE](LICENSE).
 - **Underlying game reconstruction and shared engine:**
   [spacestate1/namco22-decompile](https://github.com/spacestate1/namco22-decompile),
-  pinned at `0837a397ebe554dbf5341d95629aa1e29fc58a52`, using its `tc2/` System 23 core.
+  pinned at `8f2ed7f4ed5c3fb5fecbbd29bbf6a6bf13876b2c` (0.10.1+), using its `tc2/` System 23 core.
   Its MIT notice credits **Copyright (c) 2026 cmcrann** and is preserved in
   the submodule and APK's `assets/licenses/namco22-LICENSE.txt`.
 - **SDL 2.30.11:** zlib license; original notice included in the APK.

@@ -43,6 +43,12 @@ void tc2_window_frame(void) {
     }
     tc2_online_frame();   /* the link's network side, once per arcade frame (docs/ONLINE.md) */
 }
+/* The desktop host's hooks the core calls (upstream src/tc2_window.c, tc2_out.c, tc2_subs.c, eng/eng_cfg.c). The VR host has no
+ * mid-slice present tick, no output listeners, no subtitle table (Angler King only) and no tc2.cfg: every setting is its default. */
+void (*tc2_present_hook)(void);
+void tc2_out_close(void) {}
+void tc2_subs_frame(uint32_t frame) { (void)frame; }
+int eng_cfg_int(const char *key,int fallback) { (void)key; return fallback; }
 void tc2_out_poll(uint16_t value) {
     /* TC2's solenoid is bit zero (TC1 used bit one). */
     void ss22_out_poll(uint16_t);

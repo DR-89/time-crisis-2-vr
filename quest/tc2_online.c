@@ -48,8 +48,9 @@ static void net_hint(const char *text,int frames);
 /* Game id "t2" with upstream namco22-decompile's own Time Crisis 2 payload (tc2_link.c): a VR cabinet and the upstream desktop
  * game share rooms and link with each other. Voice rides in a block upstream's parser never reads (tc2_voice.c). */
 #define GAME_ID         "t2"
+static const char *slot_label(int slot){return slot==0?"Left / Red (Keith)":slot==1?"Right / Blue (Robert)":"";}   /* the slot IS the side */
 static const eng_net_game game={GAME_ID,LINK_VERSION,2,TC2_LINK_PAYLOAD,"TC2_NET","game",0,
-    session_begin,session_end,frame_out,frame_in,net_hint};
+    session_begin,session_end,frame_out,frame_in,net_hint,slot_label};
 
 static char name[NAME_MAX_LEN+1]="PLAYER";
 static char server[64]=DEFAULT_SERVER;
@@ -439,7 +440,7 @@ static void start_hold_tick(void){
     const uint32_t left_ms=(uint32_t)(wait*1000/60),in_ms=SDL_GetTicks()-p_since_ms;
     const bool left_done=pst==4&&(rr_frame-p_since>=(uint32_t)wait||in_ms>=left_ms);
     bool h=eng_net_session_active()&&eng_net_slot()==1&&self>=0&&self!=4&&!left_done;
-    const int c=tc2_inputs&0x0001;                       /* the raw coin, before the hold (qtc2_online_inputs) */
+    const int c=tc2_inputs&0x0001;                       /* the raw coin, before the hold (tc2_h8.c reads it through tc2_link_hold_start) */
     if(h&&c&&!prev_coin)coin_pending++;
     prev_coin=c;
     if(coin_pulse>0){if(--coin_pulse==0)coin_pulse=-36;}
@@ -455,11 +456,9 @@ static void start_hold_tick(void){
         snprintf(t,sizeof t,"P1 IS STARTING - YOU JOIN IN %u S",(unsigned)r);say(t,2500);
     }
 }
-uint16_t qtc2_online_inputs(uint16_t raw){
-    if(holding)raw&=(uint16_t)~(0x0001|0x0010|0x0020);   /* coin, trigger, pedal */
-    if(coin_pulse>0)raw|=0x0001;
-    return raw;
-}
+/* The I/O board's reads (upstream src/tc2_h8.c io_switches): the coin, trigger and pedal held, and a held coin paid in. */
+int tc2_link_hold_start(void){return holding;}
+int tc2_link_coin_inject(void){return coin_pulse>0;}
 /* stall-and-wait, as upstream: neither cabinet runs more than a few frames ahead of the other. The VR host asks before each
  * arcade frame and keeps rendering the headset meanwhile (upstream blocks in eng_net_wait; a headset must not). */
 bool tc2_online_may_advance(void){
