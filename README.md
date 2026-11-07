@@ -10,9 +10,9 @@ Built on the native System 23 reconstruction in **[spacestate1/namco22-decompile
 
 *Actual Quest 3 recording. The headset renders a separate tracked view for each eye.*
 
-## Online 2-player (this fork)
+## Online 2-player
 
-**New in 0.4.0-online:** play the arcade's real **twin-cabinet mode** online, with voice chat. Each player runs the full game as Keith (P1) or Robert (P2), and the System 23 C422 link chip between the two cabinets is emulated and carried over the network. Quest, PCVR and desktop all play together. It is wire-compatible with the desktop Time Crisis 2 online play of [namco22-decompile](https://github.com/spacestate1/namco22-decompile) (0.9.3+, tested with 0.10.1), so VR and desktop players share rooms.
+**New in 0.4.0:** play the arcade's real **twin-cabinet mode** online, with voice chat. Each player runs the full game as Keith (P1) or Robert (P2), and the System 23 C422 link chip between the two cabinets is emulated and carried over the network. Quest, PCVR and desktop all play together. It is wire-compatible with the desktop Time Crisis 2 online play of [namco22-decompile](https://github.com/spacestate1/namco22-decompile) (0.9.3+, tested with 0.10.1), so VR and desktop players share rooms.
 
 - **Options page 4/4 ONLINE 2-PLAYER:**
   - **HOST ONLINE ROOM** shows a four-character room code; your friend picks **JOIN ROOM CODE**.
@@ -25,7 +25,7 @@ Built on the native System 23 reconstruction in **[spacestate1/namco22-decompile
 - **While linked**, the game keeps running behind menus and with the headset off, and dropped partners reconnect by themselves.
 - **Offline**, the emulated link chip is the plain register stub the core has without it. The one visible difference: a shot at the crossed-out SOLO/LINKED opens the ONLINE page.
 
-See **[docs/ONLINE.md](docs/ONLINE.md)** for setup, how it works and the test suite. This build is a drop-in replacement for the original: same app (**Time Crisis II VR (Test)**, `org.timecrisis2.arcadevr`), same settings and cabinet files. It is signed with a different key, so Android won't update an official release with it in place: uninstall the official app once, which deletes its settings, then install this one (and the other way round).
+See **[docs/ONLINE.md](docs/ONLINE.md)** for setup, how it works and the test suite.
 
 ## Downloads and installation
 

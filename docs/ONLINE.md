@@ -113,7 +113,7 @@ Logs: the Quest log (`Export-Quest-Diagnostics.ps1`) and Windows `tc2.log` conta
 Beside the settings file (Quest: the app's files folder; Windows: next to the executable). It is created on first start.
 
 ```
-name=MRSCO              # shown to your partner
+name=PLAYER             # shown to your partner
 server=zonesync.net     # room codes, the browser and QUICK MATCH: host or host:port
 join=192.168.1.20:27750 # the last JOIN IP address
 voice=1                 # voice chat on
