@@ -5,6 +5,7 @@
 #include "tc2_scene.h"
 #include "tc2_host.h"
 #include "tc2_weapon.h"
+#include "tc2_online.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <SDL2/SDL.h>
@@ -40,6 +41,7 @@ void tc2_window_frame(void) {
         fprintf(stderr,"[TC2VR] normal shutdown at frame %u\n",rr_frame);
         tc2_on_exit();ss22_host_close();exit(0);
     }
+    tc2_online_frame();   /* the link's network side, once per arcade frame (docs/ONLINE.md) */
 }
 void tc2_out_poll(uint16_t value) {
     /* TC2's solenoid is bit zero (TC1 used bit one). */
