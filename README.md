@@ -10,6 +10,17 @@ Built on the native System 23 reconstruction in **[spacestate1/namco22-decompile
 
 *Actual Quest 3 recording. The headset renders a separate tracked view for each eye.*
 
+## Online 2-player (this fork)
+
+**New in 0.4.0-online:** play the arcade's real **twin-cabinet mode** online. Each player runs the full game as Keith (P1) or Robert (P2), and the System 23 C422 link chip between the two cabinets is emulated and carried over your network. Quest, PCVR and desktop all play together.
+
+- Options page **4/4 ONLINE 2-PLAYER**: **HOST A GAME**, **FIND LAN GAMES**, **JOIN IP** or **QUICK MATCH**. The two games link automatically.
+- It's free: same Wi-Fi, Tailscale/ZeroTier, a forwarded UDP port 27750, or the community lobby server. There are no accounts and nothing to host.
+- While linked, the game keeps running behind menus and with the headset off. Dropped partners reconnect by themselves.
+- Offline play is unchanged, bit for bit.
+
+See **[docs/ONLINE.md](docs/ONLINE.md)** for setup, internet options, how it works and the test suite. This build installs as **Time Crisis II VR Online (Test)** (`org.timecrisis2.arcadevr.online`), alongside the original.
+
 ## Downloads and installation
 
 | Platform | Download | Start playing |

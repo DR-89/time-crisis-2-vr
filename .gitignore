@@ -5,3 +5,7 @@ __pycache__/
 *.log
 *.keystore
 quest/assets/roms/
+# Arcade ROM sets and local planning notes never belong in the repository.
+timecrs2.zip
+*.zip
+ONLINE-MULTIPLAYER-PLAN.md
