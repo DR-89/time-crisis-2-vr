@@ -52,6 +52,8 @@ static int coin_cost=4;                   /* coins a credit takes, as last seen 
 static int repay;                         /* coins to pay back after a restart the SOLO/LINKED shot asked for (repay_tick) */
 #define REPAY_AFTER_FRAMES 720             /* attract is back ~600 frames after a TEST restart; coins at +900 counted (modescreen) */
 static bool await_trigger;                /* the repay waits for the trigger: SELECT GAME MODE ran out (menu_timeout_tick) */
+static bool repay_restart;                /* the repay is the menu's RESTART GAME (tc2_online_restart_game) */
+static void rejoin_tick(void);
 #define COINS_AFTER_RESTART 40             /* coins 30 frames after a TEST restart counted (measured 2026-11-08) */
 #define MENU_TIMEOUT_LEAD 30               /* frames before SELECT GAME MODE would choose by itself that the restart begins */
 #define LINK_INIT_FRAMES 880               /* the game shakes hands on its link ~920 frames after power-on (measured) */
@@ -361,23 +363,19 @@ void tc2_online_toggle_mute(void){
 }
 
 /* ---- the browser ---- */
-static enum { SCREEN_MAIN,SCREEN_BROWSE } screen;
+static bool browsing;                     /* the menu's BROWSE GAMES or LOCAL NETWORK screen is up */
 static uint32_t browse_ms;
 static void browse_open(void){
-    screen=SCREEN_BROWSE;browse_ms=SDL_GetTicks();
+    browsing=true;browse_ms=SDL_GetTicks();
     if(!tc2_rooms_query(server,LINK_VERSION))say("CANNOT REACH THE SERVER - LAN ONLY",4000);
     eng_net_discover();
 }
 static void browse_tick(void){
-    if(screen!=SCREEN_BROWSE)return;
+    if(!browsing)return;
     tc2_rooms_poll();
     if(SDL_GetTicks()-browse_ms>4000){browse_ms=SDL_GetTicks();tc2_rooms_query(server,LINK_VERSION);if(!eng_net_discovering())eng_net_discover();}
 }
 
-/* ---- the ONLINE page's items (the page itself is below) ---- */
-enum { ITEM_HOST_ROOM,ITEM_JOIN_CODE,ITEM_BROWSE,ITEM_HOST_LAN,ITEM_JOIN_IP,ITEM_QUICK,ITEM_VOICE,ITEM_MIC,ITEM_VOLUME,ITEM_NAME,
-       ITEM_LEAVE,ITEM_REFRESH,ITEM_BACK,ITEM_ROOM0=100,ITEM_LAN0=200 };
-static int cursor,edit_item=-1,edit_pos;
 
 /* ---- the arcade's own way in: SOLO/LINKED on SELECT GAME MODE (measured on US TSS3 Ver. B, 2026-11-07) ----
  * The screen comes up when the first credit goes in; it waits with 0x2CE92B = 1 and 0x2F3930 = 1 (a choice moves 0x2F3930 on to 2,
@@ -444,7 +442,6 @@ static void mode_screen_tick(void){
     }
     fprintf(stderr,"[ONLINE] frame %u: SOLO/LINKED shot without a partner (%d,%d): the ONLINE page opens\n",sim_frames,x,y);
     menu_from_mode=true;
-    if(!connected_any()){screen=SCREEN_MAIN;cursor=0;edit_item=-1;}
     qhost_online_menu(true);
     say(connected_any()?"WAITING FOR YOUR PARTNER":"HOST A ROOM - YOUR PARTNER JOINS YOU",5000);
 }
@@ -520,13 +517,13 @@ static void mode_restart_tick(void){
     if(mode_restart>0){tc2_inputs|=0x0008;pressing=true;mode_restart--;}
     else if(pressing){tc2_inputs&=(uint16_t)~0x0008;pressing=false;}
 }
-static int current_items(int *items);
 static bool holding;                       /* the agreed start (below) */
 
 /* ---- test switches (desktop automation; see tests/test_online.py) ----
  * TC2_NET_SCRIPT="<frame>:<action>[=arg];..." (or t<ms>: milliseconds after start, for a headset nobody wears). Actions: host
- * (LAN), join=<addr>, discover, quick, hostroom, joincode=<code>, browse, mute, voice=0|1, leave, freeze=<ms> (the whole app
- * stalls, as a backgrounded headset does). The menu path runs exactly as a player's selection would.
+ * (LAN), join=<addr>, discover, quick, hostroom, joincode=<code>, browse, pickroom, rejoin, restart, mute, voice=0|1, leave,
+ * freeze=<ms> (the whole app stalls, as a backgrounded headset does), and the menu's (quest_host.c qhost_test): menu=<tab>,
+ * resume, restartgame, restartapp. The menu path runs exactly as a player's selection would.
  * On a headset there is no environment: online-test.txt beside the settings (adb run-as on this debuggable build) may hold
  * "script=<as TC2_NET_SCRIPT>" and "status=1". */
 static void test_file(int *status,const char **script){
@@ -563,14 +560,16 @@ static void test_switches_at(bool timed){
         else if(!strcmp(action,"joincode")&&arg)join_code(arg);
         else if(!strcmp(action,"browse"))browse_open();
         else if(!strcmp(action,"pickroom")){   /* the browser's first joinable room, chosen the way the menu does */
-            int items[40],count=current_items(items);
-            for(int i=0;i<count;i++)if(items[i]>=ITEM_ROOM0&&items[i]<ITEM_LAN0){const tc2_room *r=tc2_rooms_get(items[i]-ITEM_ROOM0);
-                if(r&&r->version==LINK_VERSION&&!r->state&&r->players<r->max_players){cursor=i;tc2_online_menu_select();break;}}
+            tc2_online_game g[40];const int count=tc2_online_games(g,40);
+            for(int i=0;i<count;i++)if(!g[i].lan&&g[i].status==TC2G_JOIN){tc2_online_join_game(i);break;}
         }
+        else if(!strcmp(action,"rejoin"))tc2_online_rejoin();
+        else if(!strcmp(action,"restart"))tc2_online_restart_game();
         else if(!strcmp(action,"mute"))tc2_online_toggle_mute();
         else if(!strcmp(action,"voice")&&arg){cfg_voice=atoi(arg)!=0;apply_voice_cfg();}
         else if(!strcmp(action,"leave"))leave();
         else if(!strcmp(action,"freeze")&&arg)SDL_Delay((Uint32)atoi(arg));
+        else{extern void qhost_test(const char *action,const char *arg);qhost_test(action,arg);}   /* menu, resume, restartgame, restartapp */
     }
     if(!timed&&test_status&&sim_frames%300==0){
         tc2_link_status s;tc2_link_get_status(&s);char net[96];eng_net_status(net,sizeof net);
@@ -579,7 +578,7 @@ static void test_switches_at(bool timed){
                 " | voice %s sent %u received %u lost %u | room %d %s | partner-state %d self %d hold %d partner-voice %d | %s\n",
             sim_frames,qtc2_cabinet_side,s.enabled?(tc2_link_ghost()?"stand-in":"on"):"off",s.alive,s.lag,s.state,s.tx,s.rx,s.rx_dropped,s.tx_bad,s.rx_bad,s.game_errors,eng_net_ping_ms(),
             v.active?"on":"off",v.sent,v.received,v.lost,room_id,room_code[0]?room_code:"-",tc2_ram[0x2F3502],tc2_link_self_state(),holding?1:0,v.partner_has_voice?1:0,net);
-        if(screen==SCREEN_BROWSE)for(int i=0;i<tc2_rooms_count();i++){const tc2_room *r=tc2_rooms_get(i);
+        if(browsing)for(int i=0;i<tc2_rooms_count();i++){const tc2_room *r=tc2_rooms_get(i);
             fprintf(stderr,"[ONLINE] room %d '%s' code %s %d/%d %s v%d\n",r->id,r->name,r->code[0]?r->code:"-",r->players,r->max_players,r->state?"playing":"lobby",r->version);}
     }
 }
@@ -646,8 +645,9 @@ static void repay_tick(void){
     if(!repay||mode_restart||sim_frames-init_frame<REPAY_AFTER_FRAMES)return;
     const bool open=eng_net_my_room()>0||eng_net_session_active()||(mode==MODE_LAN_HOST&&eng_net_hosting());
     if(!open&&host_waiting()&&sim_frames-init_frame<REPAY_AFTER_FRAMES+900)return;   /* the server is slow: wait up to 15 s more */
-    fprintf(stderr,"[ONLINE] frame %u: %d coins paid back (%s)\n",sim_frames,repay,open?"room open":"no room");
+    fprintf(stderr,"[ONLINE] frame %u: %d coins paid back (%s)\n",sim_frames,repay,repay_restart?"menu restart":open?"room open":"no room");
     coin_pending+=repay;repay=0;
+    if(repay_restart){repay_restart=false;say("YOUR COINS ARE BACK",3000);return;}
     char s[64];snprintf(s,sizeof s,"ROOM %s: SHOOT SOLO/LINKED - FRIENDS JOIN ANY TIME",room_code);
     say(!open?"COULD NOT OPEN A ROOM - SOLO ONLY THIS TIME":room_code[0]?s:"SHOOT SOLO/LINKED - YOUR PARTNER JOINS ANY TIME",8000);
 }
@@ -699,194 +699,149 @@ void tc2_online_service(void){
     episode_tick();
     code_join_tick();
     browse_tick();
+    rejoin_tick();
     last_poll_ms=now;
 }
 
-/* ---- the ONLINE page ---- */
-static char edit_buf[24];
-static const char name_chars[]=" ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
-
-static bool connected_any(void){return eng_net_hosting()||eng_net_connected()||mode!=MODE_NONE||episode;}
-static int current_items(int *items){
-    int n=0;
-    if(connected_any()){
-        items[n++]=ITEM_VOICE;if(cfg_voice){items[n++]=ITEM_MIC;items[n++]=ITEM_VOLUME;}
-        items[n++]=ITEM_LEAVE;return n;
-    }
-    if(screen==SCREEN_BROWSE){
-        for(int i=0;i<tc2_rooms_count()&&n<20;i++)items[n++]=ITEM_ROOM0+i;
-        for(int i=0;i<eng_net_found_count()&&i<6;i++)items[n++]=ITEM_LAN0+i;
-        items[n++]=ITEM_REFRESH;items[n++]=ITEM_BACK;return n;
-    }
-    items[n++]=ITEM_HOST_ROOM;items[n++]=ITEM_JOIN_CODE;items[n++]=ITEM_BROWSE;items[n++]=ITEM_HOST_LAN;items[n++]=ITEM_JOIN_IP;
-    items[n++]=ITEM_QUICK;items[n++]=ITEM_VOICE;items[n++]=ITEM_NAME;return n;
-}
-bool tc2_online_menu_editing(void){return edit_item>=0;}
+/* ---- the pause menu's ONLINE tab (quest_menu.c): a view of the state above, and the player's actions ---- */
 static void set_voice(bool on){cfg_voice=on;apply_voice_cfg();save_cfg();say(on?"VOICE CHAT ON":"VOICE CHAT OFF",2000);}
 static void set_volume(int v){cfg_volume=v<0?0:v>200?200:v;tc2_voice_set_volume(cfg_volume);save_cfg();}
-void tc2_online_menu_move(int d){
-    if(edit_item>=0){
-        if(edit_item==ITEM_JOIN_IP){
-            int octet=edit_pos/3,digit=edit_pos%3,v=join_ip[octet];int scale=digit==0?100:digit==1?10:1;
-            int cur=(v/scale)%10,next=(cur+(d>0?1:9))%10;v+= (next-cur)*scale;if(v>255)v=255;if(v<0)v=0;join_ip[octet]=(uint8_t)v;
-        }else{
-            const char *set=edit_item==ITEM_JOIN_CODE?tc2_room_code_chars:name_chars;
-            const char *p=edit_buf[edit_pos]?strchr(set,edit_buf[edit_pos]):NULL;int i=p?(int)(p-set):0,n=(int)strlen(set);
-            i=(i+(d>0?1:n-1))%n;edit_buf[edit_pos]=set[i];
-        }
-        return;
-    }
-    int items[40],n=current_items(items);cursor=(cursor-d+n)%n;   /* stick up = previous item */
+static bool connected_any(void){return eng_net_hosting()||eng_net_connected()||mode!=MODE_NONE||episode;}
+
+/* REJOIN: the room the player left (or restarted out of) while linked, offered for as long as the server still lists it */
+static int last_room_id,last_side;static char last_code[5],last_partner[24];
+static bool menu_online;static uint32_t menu_online_ms,last_check_ms;
+static void remember_room(void){
+    if(!episode||mode!=MODE_ROOM||room_id<=0||!room_code[0])return;
+    last_room_id=room_id;last_side=qtc2_cabinet_side;snprintf(last_code,sizeof last_code,"%s",room_code);
+    char p[24];partner_name(p,sizeof p);snprintf(last_partner,sizeof last_partner,"%s",strcmp(p,"PARTNER")?p:"");
+    fprintf(stderr,"[ONLINE] left room %d (%s): REJOIN offered while it is open\n",last_room_id,last_code);
 }
-void tc2_online_menu_adjust(int d){
-    if(edit_item<0){
-        int items[40],n=current_items(items);if(cursor>=n)return;
-        if(items[cursor]==ITEM_VOLUME)set_volume(cfg_volume+d*10);
-        return;
-    }
-    int max=edit_item==ITEM_JOIN_IP?11:edit_item==ITEM_JOIN_CODE?3:NAME_MAX_LEN-1;
-    edit_pos+=d;if(edit_pos<0)edit_pos=0;if(edit_pos>max)edit_pos=max;
+static void forget_room(void){last_room_id=0;last_code[0]=0;last_partner[0]=0;}
+static void rejoin_tick(void){
+    if(!last_room_id||connected_any()||!menu_online||SDL_GetTicks()-menu_online_ms>500)return;
+    if(browsing||pending_code[0])return;   /* those queries answer this one too */
+    const uint32_t now=SDL_GetTicks();
+    if(!last_check_ms||now-last_check_ms>5000){last_check_ms=now;tc2_rooms_query(server,LINK_VERSION);return;}
+    tc2_rooms_poll();
+    if(!tc2_rooms_answered())return;
+    for(int i=0;i<tc2_rooms_count();i++)if(tc2_rooms_get(i)->id==last_room_id)return;
+    fprintf(stderr,"[ONLINE] room %s is gone: no REJOIN\n",last_code);
+    forget_room();
 }
-void tc2_online_menu_select(void){
-    if(edit_item==ITEM_JOIN_IP){
-        edit_item=-1;save_cfg();char a[32];snprintf(a,sizeof a,"%u.%u.%u.%u:%d",join_ip[0],join_ip[1],join_ip[2],join_ip[3],join_port);join_address(a);return;
+void tc2_online_menu_shown(bool online_tab){if(online_tab){menu_online=true;menu_online_ms=SDL_GetTicks();}else menu_online=false;}
+
+void tc2_online_get_view(tc2_online_view *v){
+    memset(v,0,sizeof *v);
+    v->side=qtc2_cabinet_side;v->home_side=home_side;v->ping_ms=-1;v->volume=cfg_volume;v->voice=cfg_voice;v->muted=cfg_muted;
+    snprintf(v->name,sizeof v->name,"%s",name);snprintf(v->server,sizeof v->server,"%s",server);
+    snprintf(v->join_ip,sizeof v->join_ip,"%u.%u.%u.%u",join_ip[0],join_ip[1],join_ip[2],join_ip[3]);
+    if(!inited)return;
+    tc2_voice_status vs;tc2_voice_get_status(&vs);
+    v->mic_denied=vs.mic_denied;v->partner_voice=vs.partner_has_voice;
+    v->level=cfg_muted?0:vs.level/350>8?8:vs.level/350;v->partner_level=vs.partner_level*3/350>8?8:vs.partner_level*3/350;
+    if(episode)v->state=eng_net_session_active()?TC2V_LINKED:TC2V_RECONNECTING;
+    else if(pending_code[0]){v->state=TC2V_JOINING;snprintf(v->joining,sizeof v->joining,"%s",pending_code);snprintf(v->code,sizeof v->code,"%s",pending_code);}
+    else if(mode==MODE_LAN_HOST&&eng_net_hosting())v->state=TC2V_LAN_HOSTING;
+    else if(mode==MODE_ROOM&&room_owner){v->state=TC2V_ROOM_WAITING;v->opening=eng_net_my_room()<=0;}
+    else if(mode==MODE_ROOM){v->state=TC2V_JOINING;snprintf(v->joining,sizeof v->joining,"%s",room_code[0]?room_code:"THE ROOM");}
+    else if(mode==MODE_QUICK){v->state=TC2V_JOINING;snprintf(v->joining,sizeof v->joining,"QUICK MATCH");}
+    else if(mode!=MODE_NONE||eng_net_connected()||eng_net_hosting()){v->state=TC2V_JOINING;snprintf(v->joining,sizeof v->joining,"%s",target[0]?target:"A GAME");}
+    else v->state=TC2V_OFFLINE;
+    if(v->state!=TC2V_JOINING||mode==MODE_ROOM)snprintf(v->code,sizeof v->code,"%s",room_code);
+    partner_name(v->partner,sizeof v->partner);
+    v->ping_ms=eng_net_ping_ms();
+    tc2_link_status s;tc2_link_get_status(&s);v->link_alive=s.alive;v->link_lagging=s.alive&&s.lag>6;
+    static uint32_t gone_since;
+    if(v->state==TC2V_RECONNECTING){if(!gone_since)gone_since=SDL_GetTicks();v->gone_s=(int)((SDL_GetTicks()-gone_since)/1000);}else gone_since=0;
+    for(int i=0;i<eng_net_roster_count();i++){
+        int ready,self;char nm[24];if(!eng_net_roster(i,nm,sizeof nm,&ready,&self))continue;
+        const int at=eng_net_roster_slot(i)==1?1:0;snprintf(v->players[at],sizeof v->players[at],"%s",nm);v->player_self[at]=self!=0;
     }
-    if(edit_item==ITEM_NAME){
-        edit_item=-1;edit_buf[NAME_MAX_LEN]=0;clean_name(edit_buf);save_cfg();eng_net_set_name(name);return;
+    if(v->state==TC2V_LAN_HOSTING){
+        if(!address_count)find_addresses();
+        v->address_count=address_count;
+        for(int i=0;i<address_count;i++){snprintf(v->address[i],sizeof v->address[i],"%s",addresses[i]);v->address_vpn[i]=vpn_address(addresses[i]);}
     }
-    if(edit_item==ITEM_JOIN_CODE){edit_item=-1;edit_buf[4]=0;join_code(edit_buf);return;}
-    int items[40],n=current_items(items);if(cursor>=n)cursor=n-1;
-    int it=items[cursor];
-    switch(it){
-    case ITEM_HOST_ROOM:host_room();break;
-    case ITEM_JOIN_CODE:edit_item=ITEM_JOIN_CODE;edit_pos=0;memset(edit_buf,0,sizeof edit_buf);memcpy(edit_buf,"AAAA",4);break;
-    case ITEM_BROWSE:browse_open();cursor=0;break;
-    case ITEM_HOST_LAN:host_lan();break;
-    case ITEM_JOIN_IP:edit_item=ITEM_JOIN_IP;edit_pos=0;break;
-    case ITEM_QUICK:quick_match();break;
-    case ITEM_VOICE:set_voice(!cfg_voice);break;
-    case ITEM_MIC:tc2_online_toggle_mute();break;
-    case ITEM_VOLUME:set_volume(cfg_volume>=200?50:cfg_volume+25);break;
-    case ITEM_NAME:edit_item=ITEM_NAME;edit_pos=0;memset(edit_buf,0,sizeof edit_buf);snprintf(edit_buf,sizeof edit_buf,"%-12s",name);break;
-    case ITEM_LEAVE:leave();cursor=0;screen=SCREEN_MAIN;break;
-    case ITEM_REFRESH:browse_open();break;
-    case ITEM_BACK:screen=SCREEN_MAIN;cursor=2;tc2_rooms_close();break;
-    default:
-        if(it>=ITEM_LAN0){char addr[64];if(eng_net_found(it-ITEM_LAN0,NULL,0,addr,sizeof addr)){screen=SCREEN_MAIN;cursor=0;join_address(addr);}}
-        else if(it>=ITEM_ROOM0){
-            const tc2_room *r=tc2_rooms_get(it-ITEM_ROOM0);if(!r)break;
-            if(r->version!=LINK_VERSION)say("THAT ROOM RUNS ANOTHER VERSION",4000);
-            else if(r->state)say("THAT ROOM IS ALREADY PLAYING",4000);
-            else if(r->players>=r->max_players)say("THAT ROOM IS FULL",4000);
-            else{char code[5];snprintf(code,sizeof code,"%s",r->code);screen=SCREEN_MAIN;cursor=0;tc2_rooms_close();join_room(r->id,code);}
-        }
-    }
-}
-void tc2_online_menu_back(void){
-    if(edit_item>=0){edit_item=-1;load_cfg();return;}
-    if(screen==SCREEN_BROWSE){screen=SCREEN_MAIN;cursor=2;tc2_rooms_close();}
+    v->can_rejoin=last_room_id>0&&v->state==TC2V_OFFLINE;
+    if(v->can_rejoin){snprintf(v->rejoin_code,sizeof v->rejoin_code,"%s",last_code);snprintf(v->rejoin_partner,sizeof v->rejoin_partner,"%s",last_partner);v->rejoin_side=last_side;}
+    v->browse_answered=tc2_rooms_answered();v->browse_busy=tc2_rooms_busy();v->discovering=eng_net_discovering();
+    snprintf(v->server_name,sizeof v->server_name,"%s",tc2_rooms_server_name());v->server_players=tc2_rooms_server_players();v->server_rooms=tc2_rooms_count();
 }
 
-static void upper(char *s){for(;*s;s++)*s=(char)toupper((unsigned char)*s);}
-static void meter(char *out,int level){int bars=level/350;if(bars>8)bars=8;for(int i=0;i<8;i++)out[i]=i<bars?'|':'.';out[8]=0;}
-unsigned tc2_online_menu_lines(char text[TC2_ONLINE_LINES][TC2_ONLINE_COLUMNS],int style[TC2_ONLINE_LINES]){
-    char status[10][TC2_ONLINE_COLUMNS];int status_style[10],ns=0;
-    #define STATUS(st,...) do{if(ns<10){snprintf(status[ns],TC2_ONLINE_COLUMNS,__VA_ARGS__);upper(status[ns]);status_style[ns++]=(st);}}while(0)
-    int items[40],count=current_items(items);if(cursor>=count)cursor=count-1;if(cursor<0)cursor=0;
-    tc2_voice_status v;tc2_voice_get_status(&v);
-    if(tc2_online_session()){
-        tc2_link_status s;tc2_link_get_status(&s);
-        if(eng_net_session_active())STATUS(TC2_LINE_GOOD,"LINKED - YOU ARE P%d %s",qtc2_cabinet_side,qtc2_cabinet_side==2?"ROBERT":"KEITH");
-        else STATUS(TC2_LINE_WARN,"%s - YOU ARE P%d",eng_net_connected()||eng_net_hosting()?"WAITING FOR PARTNER":"RECONNECTING",qtc2_cabinet_side);
-        for(int i=0;i<eng_net_roster_count();i++){int r,self;char nm[24];if(eng_net_roster(i,nm,sizeof nm,&r,&self)&&!self)STATUS(TC2_LINE_TEXT,"PARTNER: %s (P%d)",nm,eng_net_roster_slot(i)==1?2:1);}
-        int ping=eng_net_ping_ms();
-        if(ping>=0)STATUS(s.alive?TC2_LINE_TEXT:TC2_LINE_WARN,"PING %d MS  LINK %s",ping,s.alive?(s.lag>6?"LAGGING":"GOOD"):"WAITING");
-        else STATUS(s.alive?TC2_LINE_TEXT:TC2_LINE_WARN,"LINK %s",s.alive?"GOOD":"WAITING");
-        if(room_code[0])STATUS(TC2_LINE_TEXT,"ROOM CODE %s",room_code);
-        if(cfg_voice&&v.active&&!v.partner_has_voice&&eng_net_session_active())STATUS(TC2_LINE_HINT,"PARTNER'S GAME HAS NO VOICE CHAT");
-        else if(cfg_voice&&v.active){char a[10],b[10];meter(a,cfg_muted?0:v.level);meter(b,v.partner_level*3);
-            STATUS(v.mic_denied?TC2_LINE_WARN:TC2_LINE_TEXT,"YOU %s  PARTNER %s",v.mic_denied?"NO MIC  ":cfg_muted?"MUTED   ":a,b);}
-        STATUS(TC2_LINE_HINT,"THE GAME RUNS ON WHILE THIS IS OPEN");
-    }else if(connected_any()){
-        if(eng_net_hosting()){
-            STATUS(TC2_LINE_GOOD,"HOSTING ON PORT 27750");
-            if(!address_count)find_addresses();
-            for(int i=0;i<address_count;i++)STATUS(TC2_LINE_TEXT,"ADDRESS: %s%s",addresses[i],vpn_address(addresses[i])?" (VPN)":"");
-        }else if(mode==MODE_ROOM&&room_code[0]){
-            STATUS(eng_net_connected()?TC2_LINE_GOOD:TC2_LINE_WARN,"ROOM CODE:  %s",room_code);
-            STATUS(TC2_LINE_HINT,eng_net_connected()?"YOUR FRIEND: JOIN ROOM CODE":"OPENING THE ROOM...");
-            if(menu_from_mode&&eng_net_connected())STATUS(TC2_LINE_HINT,"THEN THEY PUT COINS IN");
-        }else if(eng_net_connected())STATUS(TC2_LINE_GOOD,"CONNECTED TO %s",mode==MODE_QUICK?server:"HOST");
-        else STATUS(TC2_LINE_WARN,eng_net_discovering()?"SEARCHING...":"CONNECTING...");
-        int rc=eng_net_roster_count();
-        for(int i=0;i<rc;i++){int r,self;char nm[24];if(eng_net_roster(i,nm,sizeof nm,&r,&self))STATUS(TC2_LINE_TEXT,"P%d %s%s",eng_net_roster_slot(i)==1?2:1,nm,self?" (YOU)":"");}
-        if(eng_net_connected())STATUS(TC2_LINE_HINT,rc<2?"WAITING FOR A PARTNER...":"STARTING LINK...");
-    }else if(screen==SCREEN_BROWSE){
-        const char *sn=tc2_rooms_server_name();
-        if(tc2_rooms_answered())STATUS(TC2_LINE_TEXT,"%s: %d ROOMS, %d ONLINE",sn[0]?sn:server,tc2_rooms_count(),tc2_rooms_server_players());
-        else STATUS(TC2_LINE_WARN,tc2_rooms_busy()?"ASKING %s...":"%s DOES NOT ANSWER",server);
-        if(eng_net_discovering())STATUS(TC2_LINE_HINT,"SEARCHING THE LOCAL NETWORK...");
-        if(!tc2_rooms_count()&&!eng_net_found_count()&&!tc2_rooms_busy())STATUS(TC2_LINE_HINT,"NO GAMES YET - HOST ONE!");
-    }else{
-        STATUS(TC2_LINE_HINT,"NAME: %s",name);
-        if(menu_from_mode)STATUS(TC2_LINE_GOOD,"HOST: YOU ARE P1, YOUR PARTNER JOINS");
-        if(pending_code[0])STATUS(TC2_LINE_WARN,"LOOKING FOR ROOM %s...",pending_code);
+/* the browser's list: server rooms, then games found on the local network */
+static int game_room[40],game_lan[40],game_n;
+int tc2_online_games(tc2_online_game *out,int max){
+    game_n=0;
+    for(int i=0;i<tc2_rooms_count()&&game_n<max&&game_n<40;i++){
+        const tc2_room *r=tc2_rooms_get(i);if(!r)continue;
+        tc2_online_game *g=&out[game_n];memset(g,0,sizeof *g);
+        snprintf(g->name,sizeof g->name,"%.23s",r->name);
+        if(!r->code[0])snprintf(g->detail,sizeof g->detail,"no code");
+        g->players=r->players;g->max_players=r->max_players;
+        g->status=r->version!=LINK_VERSION?TC2G_OLD:r->state?TC2G_PLAYING:r->players>=r->max_players?TC2G_FULL:TC2G_JOIN;
+        if(g->status==TC2G_OLD)snprintf(g->detail,sizeof g->detail,"another version");
+        game_room[game_n]=i;game_lan[game_n]=-1;game_n++;
     }
-    #undef STATUS
-
-    for(int i=0;i<TC2_ONLINE_LINES;i++){text[i][0]=0;style[i]=TC2_LINE_TEXT;}
-    int n=0;
-    #define LINE(st,...) do{if(n<TC2_ONLINE_LINES){snprintf(text[n],TC2_ONLINE_COLUMNS,__VA_ARGS__);upper(text[n]);style[n++]=(st);}}while(0)
-    LINE(TC2_LINE_TITLE,screen==SCREEN_BROWSE&&!connected_any()?"ONLINE 4/4 - FIND A GAME":"ONLINE 2-PLAYER  4/4");
-    for(int i=0;i<ns;i++)LINE(status_style[i],"%s",status[i]);
-    LINE(TC2_LINE_TEXT,"%s","");
-    /* the items, scrolled so the cursor stays visible above the hint line */
-    int room=TC2_ONLINE_LINES-n-1;if(room<3)room=3;
-    int first=cursor-room/2;if(first>count-room)first=count-room;if(first<0)first=0;
-    for(int i=first;i<count&&i<first+room;i++){
-        char label[TC2_ONLINE_COLUMNS];int it=items[i];
-        switch(it){
-        case ITEM_HOST_ROOM:snprintf(label,sizeof label,"HOST ONLINE ROOM (CODE)");break;
-        case ITEM_JOIN_CODE:
-            if(edit_item==ITEM_JOIN_CODE){char m[16];int k=0;for(int j=0;j<4;j++){char c=edit_buf[j]?edit_buf[j]:'A';if(j==edit_pos){m[k++]='[';m[k++]=c;m[k++]=']';}else{m[k++]=' ';m[k++]=c;m[k++]=' ';}}m[k]=0;snprintf(label,sizeof label,"ROOM CODE %s",m);}
-            else snprintf(label,sizeof label,"JOIN ROOM CODE");
-            break;
-        case ITEM_BROWSE:snprintf(label,sizeof label,"BROWSE GAMES");break;
-        case ITEM_HOST_LAN:snprintf(label,sizeof label,"HOST ON THIS NETWORK");break;
-        case ITEM_JOIN_IP:
-            if(edit_item==ITEM_JOIN_IP){char ip[16];snprintf(ip,sizeof ip,"%03u.%03u.%03u.%03u",join_ip[0],join_ip[1],join_ip[2],join_ip[3]);
-                char marked[24];int k=0;for(int j=0;ip[j];j++){int dpos=j-j/4;if(ip[j]!='.'&&dpos==edit_pos){marked[k++]='[';marked[k++]=ip[j];marked[k++]=']';}else marked[k++]=ip[j];}marked[k]=0;
-                snprintf(label,sizeof label,"JOIN %s",marked);}
-            else snprintf(label,sizeof label,"JOIN IP %u.%u.%u.%u",join_ip[0],join_ip[1],join_ip[2],join_ip[3]);
-            break;
-        case ITEM_QUICK:snprintf(label,sizeof label,"QUICK MATCH (ANYONE)");break;
-        case ITEM_VOICE:snprintf(label,sizeof label,"VOICE CHAT: %s",cfg_voice?"ON":"OFF");break;
-        case ITEM_MIC:snprintf(label,sizeof label,"MICROPHONE: %s",cfg_muted?"MUTED":"ON");break;
-        case ITEM_VOLUME:snprintf(label,sizeof label,"PARTNER VOLUME: %d%%  < >",cfg_volume);break;
-        case ITEM_NAME:
-            if(edit_item==ITEM_NAME){char m[40];int k=0;for(int j=0;j<NAME_MAX_LEN;j++){char c=edit_buf[j]?edit_buf[j]:' ';if(j==edit_pos){m[k++]='[';m[k++]=c;m[k++]=']';}else m[k++]=c;}m[k]=0;snprintf(label,sizeof label,"NAME %s",m);}
-            else snprintf(label,sizeof label,"CHANGE NAME");
-            break;
-        case ITEM_LEAVE:snprintf(label,sizeof label,episode?"LEAVE ONLINE GAME":eng_net_hosting()||mode==MODE_ROOM?"CLOSE ROOM":"CANCEL");break;
-        case ITEM_REFRESH:snprintf(label,sizeof label,"REFRESH");break;
-        case ITEM_BACK:snprintf(label,sizeof label,"BACK");break;
-        default:
-            if(it>=ITEM_LAN0){char l[96],a[64];eng_net_found(it-ITEM_LAN0,l,sizeof l,a,sizeof a);
-                char nm[20];sscanf(l,"%19s",nm);snprintf(label,sizeof label,"LAN %.12s %.18s",nm,a);}
-            else{const tc2_room *r=tc2_rooms_get(it-ITEM_ROOM0);
-                if(r)snprintf(label,sizeof label,"%-17.17s %d/%d %s",r->name,r->players,r->max_players,
-                              r->version!=LINK_VERSION?"OLD":r->state?"PLAYING":r->players>=r->max_players?"FULL":"JOIN");
-                else snprintf(label,sizeof label,"-");}
-        }
-        LINE(i==cursor?TC2_LINE_SELECTED:TC2_LINE_ITEM,"%c %s",i==cursor?'>':' ',label);
+    for(int i=0;i<eng_net_found_count()&&i<6&&game_n<max&&game_n<40;i++){
+        char label[96],addr[64];if(!eng_net_found(i,label,sizeof label,addr,sizeof addr))continue;
+        tc2_online_game *g=&out[game_n];memset(g,0,sizeof *g);
+        sscanf(label,"%23s",g->name);snprintf(g->detail,sizeof g->detail,"%.39s",addr);
+        g->players=1;g->max_players=2;g->status=TC2G_JOIN;g->lan=true;
+        game_room[game_n]=-1;game_lan[game_n]=i;game_n++;
     }
-    if(edit_item>=0)LINE(TC2_LINE_HINT,"STICK: EDIT TRIGGER: OK L-CLICK: BACK");
-    else LINE(TC2_LINE_HINT,count>room?"R-STICK: MORE  TRIGGER: SELECT":"R-STICK UP/DOWN + TRIGGER: SELECT");
-    #undef LINE
-    /* a content hash: the panel uploads only on change */
-    unsigned h=2166136261u;
-    for(int i=0;i<TC2_ONLINE_LINES;i++){for(const char *c=text[i];*c;c++)h=(h^(unsigned char)*c)*16777619u;h=(h^(unsigned)style[i])*16777619u;}
-    return h;
+    return game_n;
+}
+void tc2_online_join_game(int index){
+    if(!inited||index<0||index>=game_n)return;
+    if(game_lan[index]>=0){
+        char addr[64];if(eng_net_found(game_lan[index],NULL,0,addr,sizeof addr)){forget_room();browsing=false;join_address(addr);}
+        return;
+    }
+    const tc2_room *r=tc2_rooms_get(game_room[index]);if(!r)return;
+    if(r->version!=LINK_VERSION){say("THAT ROOM RUNS ANOTHER VERSION",4000);return;}
+    if(r->state){say("THAT ROOM IS ALREADY PLAYING",4000);return;}
+    if(r->players>=r->max_players){say("THAT ROOM IS FULL",4000);return;}
+    char code[5];snprintf(code,sizeof code,"%s",r->code);browsing=false;tc2_rooms_close();forget_room();join_room(r->id,code);
+}
+void tc2_online_browse(bool open){if(!inited)return;if(open)browse_open();else if(browsing){browsing=false;tc2_rooms_close();}}
+void tc2_online_refresh(void){if(inited)browse_open();}
+void tc2_online_host_room(void){if(inited&&!connected_any()){forget_room();host_room();}}
+void tc2_online_join_code(const char *code){if(inited&&!connected_any()){forget_room();join_code(code);}}
+void tc2_online_quick(void){if(inited&&!connected_any()){forget_room();quick_match();}}
+void tc2_online_host_lan(void){if(inited&&!connected_any()){forget_room();host_lan();}}
+void tc2_online_set_join_ip(const char *address){
+    unsigned a,b,c,d;int port=27750;char rest;
+    const int n=sscanf(address,"%u.%u.%u.%u:%d%c",&a,&b,&c,&d,&port,&rest);
+    if((n!=4&&n!=5)||a>255||b>255||c>255||d>255||port<=0||port>65535){say("THAT ADDRESS IS NOT VALID",4000);return;}
+    join_ip[0]=(uint8_t)a;join_ip[1]=(uint8_t)b;join_ip[2]=(uint8_t)c;join_ip[3]=(uint8_t)d;join_port=port;save_cfg();
+}
+void tc2_online_join_ip(void){
+    if(!inited||connected_any())return;
+    char a[32];snprintf(a,sizeof a,"%u.%u.%u.%u:%d",join_ip[0],join_ip[1],join_ip[2],join_ip[3],join_port);
+    forget_room();join_address(a);
+}
+void tc2_online_set_voice(bool on){if(inited)set_voice(on);}
+void tc2_online_set_volume(int percent){if(inited)set_volume(percent);}
+void tc2_online_set_name(const char *n){
+    if(!inited)return;
+    char tmp[32];snprintf(tmp,sizeof tmp,"%s",n);clean_name(tmp);save_cfg();eng_net_set_name(name);
+}
+void tc2_online_leave(void){if(inited&&connected_any()){remember_room();leave();}}
+void tc2_online_rejoin(void){
+    if(!inited||!last_room_id||connected_any())return;
+    char code[5];snprintf(code,sizeof code,"%s",last_code);const int id=last_room_id;forget_room();
+    fprintf(stderr,"[ONLINE] rejoining room %d (%s)\n",id,code);join_room(id,code);
+}
+/* RESTART GAME: the arcade's own TEST restart, as the drop-in uses; the coins in the machine are paid back once attract is up */
+void tc2_online_restart_game(void){
+    if(!inited)return;
+    extern uint8_t tc2_ram[];
+    if(connected_any()){remember_room();leave();}
+    repay+=tc2_ram[0x2CE7B7];repay_restart=true;await_trigger=false;
+    mode_restart=MODE_RESTART_FRAMES;init_frame=sim_frames;
+    fprintf(stderr,"[ONLINE] frame %u: RESTART GAME from the menu (TEST), %d coins paid back after\n",sim_frames,repay);
+    say(repay?"THE ARCADE RESTARTS - YOUR COINS ARE KEPT":"THE ARCADE RESTARTS",5000);
 }
 
 bool tc2_online_toast(char *text,size_t n,unsigned *serial){

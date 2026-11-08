@@ -10,6 +10,10 @@ affiliated with or endorsed by Namco, Bandai Namco, or Meta.
   Its MIT notice credits **Copyright (c) 2026 cmcrann** and is preserved in
   the submodule and APK's `assets/licenses/namco22-LICENSE.txt`.
 - **SDL 2.30.11:** zlib license; original notice included in the APK.
+- **Chakra Petch** (the pause menu's typeface): Copyright 2018 The Chakra Petch Project Authors
+  ([m4rc1e/Chakra-Petch](https://github.com/m4rc1e/Chakra-Petch)), SIL Open Font License 1.1. The font files are in
+  `tools/fonts`; `tools/bake_ui_font.py` turns them into the bitmaps in `quest/ui_font_data.h`. The license is included in
+  the APK and the Windows package as `ChakraPetch-OFL.txt`.
 - **Khronos OpenXR loader 1.1.43:** its original license notice is included in the APK.
 - **Windows OpenGL loader:** generated with [glad 2.0.8](https://github.com/Dav1dde/glad);
   generated code and Khronos declarations retain their notices in `pc/vendor/glad`.

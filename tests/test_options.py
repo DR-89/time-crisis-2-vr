@@ -5,7 +5,10 @@ from PIL import Image
 ROOT=Path(__file__).resolve().parents[1];out=ROOT/'build/options-test';out.mkdir(parents=True,exist_ok=True)
 vswhere=Path(os.environ['ProgramFiles(x86)'])/'Microsoft Visual Studio/Installer/vswhere.exe'
 vs=Path(subprocess.check_output([str(vswhere),'-latest','-products','*','-requires','Microsoft.VisualStudio.Component.VC.Tools.x86.x64','-property','installationPath'],text=True).strip())
-angle=next((Path(os.environ['LOCALAPPDATA'])/'Programs/Microsoft VS Code').glob('*/libEGL.dll')).parent
+# ANGLE (libEGL + libGLESv2): TCVR_ANGLE, else VS Code's, else any other Electron app's (they all ship it)
+programs=Path(os.environ['LOCALAPPDATA'])/'Programs'
+angle=Path(os.environ['TCVR_ANGLE']) if os.environ.get('TCVR_ANGLE') else next(
+    (p.parent for p in [*(programs/'Microsoft VS Code').glob('*/libEGL.dll'),*programs.glob('*/libEGL.dll')] if (p.parent/'libGLESv2.dll').is_file()))
 headers=ROOT/'.tools/ndk/android-ndk-r27c/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/include'
 if not headers.is_dir():
     headers=next((Path(os.environ.get('ANDROID_SDK_ROOT',ROOT/'.tools/android-sdk'))/'ndk').glob('*/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/include'))
@@ -17,7 +20,7 @@ def run(lines):
 run([f'dumpbin /nologo /exports "{angle / "libGLESv2.dll"}" > exports.txt'])
 exports=re.findall(r'^\s*\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(gl\w+)\s*$',(out/'exports.txt').read_text(),re.M);assert len(exports)>100
 (out/'gles.def').write_text('LIBRARY libGLESv2.dll\nEXPORTS\n'+'\n'.join(exports))
-run(['lib /nologo /def:gles.def /machine:x64 /out:gles.lib',f'cl /nologo /std:c11 /O2 /LD /I"{out / "include"}" /I"{ROOT / "quest"}" /I"{ROOT / "upstream/include"}" "{ROOT / "quest/quest_ui.c"}" "{ROOT / "quest/quest_options.c"}" "{ROOT / "quest/quest_cover.c"}" "{ROOT / "tests/options_fixture.c"}" gles.lib /Fe:options.dll /link /EXPORT:qoptions_load /EXPORT:qoptions_save /EXPORT:qcover_calibrate /EXPORT:qcover_pedal'])
+run(['lib /nologo /def:gles.def /machine:x64 /out:gles.lib',f'cl /nologo /std:c11 /O2 /LD /I"{out / "include"}" /I"{ROOT / "quest"}" /I"{ROOT / "upstream/include"}" "{ROOT / "quest/quest_ui.c"}" "{ROOT / "quest/quest_menu.c"}" "{ROOT / "quest/quest_canvas.c"}" "{ROOT / "quest/quest_options.c"}" "{ROOT / "quest/quest_cover.c"}" "{ROOT / "tests/options_fixture.c"}" gles.lib /Fe:options.dll /link /EXPORT:qoptions_load /EXPORT:qoptions_save /EXPORT:qcover_calibrate /EXPORT:qcover_pedal'])
 directory=os.add_dll_directory(str(angle));egl=C.WinDLL(str(angle/'libEGL.dll'));lib=C.CDLL(str(out/'options.dll'))
 P=C.c_void_p;I=C.c_int;U=C.c_uint
 def bind(lib,name,result,*args):
@@ -109,39 +112,18 @@ attributes=(I*13)(0x3033,1,0x3040,0x40,0x3024,8,0x3023,8,0x3022,8,0x3021,8,0x303
 config=P();count=I();assert bind(egl,'eglChooseConfig',U,P,P,P,I,P)(display,attributes,C.byref(config),1,C.byref(count)) and count.value
 current=bind(egl,'eglMakeCurrent',U,P,P,P,P);render=bind(lib,'options_fixture',I,I,I,I,P)
 images=[];w=h=800
-for variant in range(38):
+for variant in range(8):
     surface=bind(egl,'eglCreatePbufferSurface',P,P,P,P)(display,config,(I*5)(0x3057,w,0x3056,h,0x3038))
     context=bind(egl,'eglCreateContext',P,P,P,P,P)(display,config,None,(I*3)(0x3098,3,0x3038));assert surface and context and current(display,surface,surface,context)
     pixels=(C.c_ubyte*(w*h*4))();status=render(variant,w,h,pixels);assert status==1,(variant,status)
     image=Image.frombytes('RGBA',(w,h),bytes(pixels)).transpose(Image.Transpose.FLIP_TOP_BOTTOM).convert('RGB');images.append(image)
     assert sum(p!=image.getpixel((0,0)) for p in image.get_flattened_data())>10000
-    image.save(ROOT/f'artifacts/options-preview-{variant}.png')
+    image.save(ROOT/f'artifacts/menu-preview-{variant}.png')
     current(display,None,None,None);bind(egl,'eglDestroyContext',U,P,P)(display,context);bind(egl,'eglDestroySurface',U,P,P)(display,surface)
-assert images[0].tobytes()!=images[1].tobytes(),'ON and OFF must be visually distinct'
-assert images[1].tobytes()!=images[2].tobytes(),'Both cover modes must be visually distinct'
-assert images[2].tobytes()!=images[3].tobytes(),'The panel must have stereo disparity'
-assert images[2].tobytes()!=images[4].tobytes(),'Save errors must be visible'
-assert images[1].tobytes()!=images[5].tobytes(),'Left-handed default/laser/credit labels must change'
-assert images[2].tobytes()!=images[6].tobytes(),'Left-handed physical/recenter labels must change'
-assert images[6].tobytes()!=images[7].tobytes(),'Left-handed panel must also have stereo disparity'
-assert images[5].tobytes()!=images[8].tobytes(),'Changing hands must invalidate the cached menu texture'
-assert images[5].tobytes()!=images[9].tobytes()!=images[10].tobytes(),'Gun angle values must be visible'
-assert images[9].tobytes()==images[11].tobytes(),'Angle changes must invalidate the cached menu texture'
-assert images[12].tobytes()!=images[5].tobytes()!=images[13].tobytes(),'Scale range and labels must be visible'
-assert images[13].tobytes()==images[14].tobytes(),'Scale changes must invalidate the cached menu texture'
-assert images[15].tobytes()==images[16].tobytes()!=images[5].tobytes(),'Distance changes must refresh the panel'
-assert images[17].tobytes()!=images[18].tobytes()!=images[19].tobytes()!=images[20].tobytes(),'Tracer, offsets and pending player labels must render'
-assert images[21].tobytes()!=images[22].tobytes()==images[23].tobytes(),'Live filtering toggle must refresh the menu'
-assert images[24].tobytes()!=images[25].tobytes(),'Filtering state must appear on every menu page'
+assert images[0].tobytes()!=images[1].tobytes(),'The panel must have stereo disparity'
+assert images[2].tobytes()==images[3].tobytes(),'A changed value must refresh the cached menu texture'
+assert images[0].tobytes()!=images[3].tobytes(),'Gun angle values must be visible'
+assert len({im.tobytes() for im in (images[0],images[4],images[5],images[6])})==4,'Every tab must look different'
+assert images[0].tobytes()!=images[7].tobytes(),'Save errors must be visible'
 bind(egl,'eglTerminate',U,P)(display)
-print('PASS: saved angle/option combinations, old-config migration, malformed settings, cover traces, 38 GLES menu views including gun fit/player, scale/angle/hand texture refresh and stereo; no GL errors.')
-
-print('PASS: filtering defaults ON, migrates old configs, rejects malformed values, persists OFF and refreshes both menu pages.')
-
-assert len({im.tobytes() for im in images[26:32]})==6,'All six presets must have distinct visible selections'
-assert images[32].tobytes()==images[29].tobytes(),'A cached resolution change must repaint the selection'
-assert images[33].tobytes()==images[29].tobytes(),'Graphics must repaint after the gun/options page'
-assert images[34].tobytes()!=images[29].tobytes(),'Active resolution and pending restart must differ'
-assert images[35].tobytes()!=images[34].tobytes()!=images[36].tobytes(),'Fallback and save failures must be visible'
-assert images[37].tobytes()!=images[26].tobytes(),'Graphics page must show filtering OFF'
-print('PASS: six saved resolution presets, old configs, strict validation, graphics page/cache, active size, pending restart, limit fallback and save-error display.')
+print('PASS: saved angle/option combinations, old-config migration, malformed settings, cover traces; the GLES menu panel: stereo, texture refresh, every tab, save errors; no GL errors.')

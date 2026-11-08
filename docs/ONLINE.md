@@ -9,10 +9,10 @@ Quest, Windows PCVR and the Windows desktop mode all play with each other. **The
 ## Quick start
 
 1. Both players install **the same build** of Time Crisis II VR Online.
-2. Press the **left menu button** to open options, then **left stick up / down** to reach page **4/4 ONLINE 2-PLAYER**.
-3. One player chooses **HOST ONLINE ROOM (CODE)**. The page shows a four-character room code, for example `KXQ7`.
+2. Press the **left menu button** to open the menu and pick the **ONLINE** tab (point the laser and pull the trigger, or squeeze the right grip to step through the tabs).
+3. One player chooses **HOST A ROOM**. The tab shows a four-character room code in large letters, for example `KXQ7`.
 4. **The host can play straight away.** Close the menu, insert credits (**A**) and shoot **SOLO/LINKED** ("SOLO START, BUT PERMITS 2P JOIN-IN"). Your friend can join that game whenever they arrive, as at a linked arcade. **SOLO ONLY** is there too: it locks out a second player for that game.
-5. The other player chooses **JOIN ROOM CODE** and enters it, at any time. Alternatively, **BROWSE GAMES** lists every open room on the server and every game hosted on your local network; select one to join.
+5. The other player chooses **JOIN WITH CODE** and types it on the on-screen keyboard, at any time. Alternatively, **BROWSE GAMES** lists every open room on the server and every game hosted on your local network; select one to join.
 6. The games link automatically: the host becomes **P1 Keith**, the joiner **P2 Robert**. A banner confirms it: `LINKED WITH <NAME> - P2 ROBERT`. Voice chat starts at the same moment. On Quest, the first time, allow microphone access.
 7. **P2's arcade restarts once** (`JOINING P1 - THE ARCADE RESTARTS, THEN COIN IN`): the warning screen, then attract, about 10 seconds. The arcade only takes in a second cabinet that shook hands on the link when it powered on, and the restart does that handshake. A P2 still in a game of its own finishes it first.
 8. **P2 joins P1's game.** P2 inserts credits and pulls the trigger. If P1's game started less than 25 seconds ago, P2's coin, trigger and pedal are held until it has run that long. Banners count down (`P1 IS STARTING - YOU JOIN IN 12 S`), and coins put in meanwhile are paid in automatically.
@@ -23,7 +23,7 @@ Either player can leave at any time. The other's game carries on, and the room s
 
 ### Or start from the arcade's own screen
 
-You don't have to open the menu first. **SOLO/LINKED is always open** on SELECT GAME MODE, from power-on, because a stand-in answers on the link as an idle second cabinet (see [Drop in at any time](#drop-in-at-any-time-the-stand-in-partner)). Put coins in and shoot **SOLO/LINKED**; the game starts at once, as SOLO/LINKED does at a linked arcade, and **a room opens for it by itself** (`ROOM KXQ7 - FRIENDS JOIN ANY TIME`). Friends join with the code, or from **BROWSE GAMES**, whenever they arrive. The code is also on the ONLINE page.
+You don't have to open the menu first. **SOLO/LINKED is always open** on SELECT GAME MODE, from power-on, because a stand-in answers on the link as an idle second cabinet (see [Drop in at any time](#drop-in-at-any-time-the-stand-in-partner)). Put coins in and shoot **SOLO/LINKED**; the game starts at once, as SOLO/LINKED does at a linked arcade, and **a room opens for it by itself** (`ROOM KXQ7 - FRIENDS JOIN ANY TIME`). Friends join with the code, or from **BROWSE GAMES**, whenever they arrive. The code is also on the ONLINE tab.
 
 **SOLO ONLY** opens no room and locks out a second player for that game. **The menu never chooses for you.** If nobody shoots before its 15 seconds run out, the arcade goes back to its intro (the warning screen, then attract) with your coins kept (`COINS KEPT - PULL THE TRIGGER TO PLAY`). Pull the trigger at any time and SELECT GAME MODE is back within a second, with its full 15 seconds. If the server cannot be reached, the game goes on alone and the banner says so.
 
@@ -31,30 +31,21 @@ Room codes go through the lobby server, so they work across the internet with no
 
 | Item | What it does |
 | --- | --- |
-| **HOST ONLINE ROOM (CODE)** | Opens a room on the lobby server and shows its code |
-| **JOIN ROOM CODE** | Joins the room with that code |
-| **BROWSE GAMES** | Lists the server's rooms (name, players, `JOIN` / `PLAYING` / `FULL` / `OLD` version) and LAN games; refreshes every 4 seconds |
-| **HOST ON THIS NETWORK** | The built-in host on UDP 27750; lists your addresses for **JOIN IP** |
-| **JOIN IP** | Joins a built-in host by address, on the LAN or over the internet |
-| **QUICK MATCH (ANYONE)** | Joins whoever is waiting on the server |
+| **HOST A ROOM** | Opens a room on the lobby server and shows its code |
+| **JOIN WITH CODE** | Joins the room with that code (an on-screen keyboard) |
+| **BROWSE GAMES** | Lists the server's rooms (name, players, `JOIN` / `PLAYING` / `FULL` / `OLD` version) and local-network games, five to a page; refreshes every 4 seconds |
+| **LOCAL NETWORK** | **HOST ON THIS NETWORK** (the built-in host on UDP 27750; it lists your addresses, VPN ones marked), the games found on your network, and **JOIN BY IP** with a number pad, on the LAN or over the internet |
+| **QUICK MATCH** | Joins whoever is waiting on the server |
+| **REJOIN** | After you leave a room you were linked in (or restart out of it), takes you back while the room is still open |
 
-| ONLINE page control | Quest | Desktop |
-| --- | --- | --- |
-| Move through the menu | Right stick up / down | Up / Down |
-| Select | Either trigger | Enter |
-| Edit a code, address or name (in the field) | Right stick: character up / down, left / right: move | Arrows |
-| Partner volume | Right stick left / right on **PARTNER VOLUME** | Left / Right |
-| Back / cancel editing | Left stick click | Backspace or Home |
-| Change page | Left stick up / down | Tab |
-
-**CHANGE NAME** sets the name your partner sees (letters, digits, `-`, `_`; 12 characters).
+The menu works the same on every tab (see the [README](../README.md#the-menu)): point the gun's laser and pull the trigger, or move with either stick, **A** to select and **B** to go back; the desktop uses the mouse, the arrows, Enter and Backspace. Codes, names and addresses are typed on an on-screen keyboard. **CHANGE** next to your name sets the name your partner sees (letters, digits, `-`, `_`; 12 characters).
 
 ## Voice chat
 
-- **On by default.** It is live only while you are linked to a partner. Turn it off with **VOICE CHAT: ON/OFF** on the ONLINE page.
-- **Mute** with a **left stick click** during play, **M** on the desktop, or **MICROPHONE** on the ONLINE page. A banner confirms `MICROPHONE MUTED` / `MICROPHONE ON`.
-- **Partner volume** is 0-200%, set with **PARTNER VOLUME**. Your partner's voice is mixed into the game's sound.
-- While linked, the ONLINE page shows a level meter for you and for your partner.
+- **On by default.** It is live only while you are linked to a partner. Turn it off with **Voice chat ON / OFF** on the ONLINE tab.
+- **Mute** with a **left stick click** during play, **M** on the desktop, or **MUTE** on the ONLINE tab. A banner confirms `MICROPHONE MUTED` / `MICROPHONE ON`.
+- **Partner volume** is 0-200%, set with **Partner volume**. Your partner's voice is mixed into the game's sound.
+- While linked, the ONLINE tab shows a level meter for you and for your partner.
 - **Open microphone with a voice gate:** only speech is sent, starting above about -42 dBFS and staying open 0.4 s after you stop. Silence costs nothing.
 - **Echo:** Quest uses Android's voice-communication input. The Quest 3 offers no separate echo-canceller effect (measured), so the gate also needs four times the level while your partner is speaking. Their voice coming out of your speakers is not sent back to them, while talking over each other still works (tested).
 - On Quest, if microphone access is refused, the banner says `NO MICROPHONE ACCESS - LISTEN ONLY`. You still hear your partner. Allow it later in the headset's app permissions.
@@ -64,7 +55,7 @@ Room codes go through the lobby server, so they work across the internet with no
 
 - **The game keeps running while the menu is open, while the headset is off and while the app is in the background.** Your partner's cabinet needs yours, exactly as at the arcade. Your controls are released while you are away. On Quest this holds until the headset goes to sleep; after that the reconnection below takes over.
 - **If your partner drops** (Wi-Fi gap, headset asleep, app restarted), the game behaves like a twin cabinet whose other half was switched off. P1's game goes on alone. The host reopens the room by itself, and a joiner keeps reconnecting to the same room or address for a minute. When the partner returns, the banner shows `<NAME> IS BACK - LINKED AGAIN`.
-- **Leaving:** ONLINE page, **LEAVE ONLINE GAME**. You go back to single-player on your usual cabinet side.
+- **Leaving:** ONLINE tab, **LEAVE ONLINE GAME**, or **RESTART & LEAVE** at the bottom of the menu. You go back to single-player on your usual cabinet side, and **REJOIN** waits on the ONLINE tab while the room stays open.
 - A banner warns `PARTNER CONNECTION IS LAGGING` when the arcade link has been more than six frames behind for over a second and a half.
 
 ## Playing over the internet
@@ -91,7 +82,7 @@ The arcade's own link driver declares the partner lost after **16 frames (about 
 | --- | --- |
 | `NO ROOM WITH THAT CODE` | Check the code on the host's page. Both players must use the same server (`server=` in `online.cfg`). |
 | `THAT ROOM RUNS ANOTHER VERSION` / `OLD` in the browser | Both players need the same build of the game. |
-| `NO ANSWER - CHECK ADDRESS / PORT 27750` | Check the host's address on their ONLINE page. Over the internet, the host must forward **UDP** 27750, or both of you must be on the same Tailscale/ZeroTier network. Room codes avoid this. |
+| `NO ANSWER - CHECK ADDRESS / PORT 27750` | Check the host's address on their ONLINE tab. Over the internet, the host must forward **UDP** 27750, or both of you must be on the same Tailscale/ZeroTier network. Room codes avoid this. |
 | A Windows host is never found | When Windows asks whether `TimeCrisis2VR.exe` may use the network, allow it on **Private networks**. Otherwise add an inbound rule for UDP 27750. |
 | A LAN game is not listed | Some routers block broadcasts between Wi-Fi clients ("AP/client isolation") or between 2.4 and 5 GHz bands. Use a room code, or **JOIN IP** with the address shown on the host's page. |
 | `CANNOT HOST: PORT 27750 IS IN USE` | Another copy of the game (or an `nmn-server`) is already hosting on this machine. |
@@ -134,7 +125,7 @@ The System 23 board's C422 is an RS-422 serial controller with 16 KB of buffer R
 | `8000BD24` | Receive: scans back from register 6 (the last word written in the 4096-word ring at words `0x1000-0x1FFF`) for the bit-8 trailer `[length hi][length lo]`, then checks the `0x5A` sync byte |
 | `8000BF38` | Once a frame from the main loop: validates queued packets (byte sum 0) and builds the next one, sent three times |
 
-Its variables (gp `0x802C7820`) give the link state shown on the ONLINE page: `0x802F3502` alive, `0x802F3504` frames behind the partner (lost above 16), `gp+0x75BC` state (0 linked, 2 lost) and three error counters.
+Its variables (gp `0x802C7820`) give the link state shown on the ONLINE tab: `0x802F3502` alive, `0x802F3504` frames behind the partner (lost above 16), `gp+0x75BC` state (0 linked, 2 lost) and three error counters.
 
 `quest/tc2_link.c` implements the chip. Register 1 is an interrupt mask that the chip sets as it interrupts and the handler clears to re-arm. Register 6 points at the last word received. Received packets enter the ring one per chip tick (about 350 a frame); after a stall only the newest half-ring's worth (2048 words) is kept, because a burst of backlog would wrap the ring over packets the game has queued but not read. **While no session has started the chip is exactly the plain register stub** that MAME and upstream's unarmed model are, so single-player play is unchanged by it.
 
@@ -213,7 +204,8 @@ cd build/nmn-server-head/server; $env:CARGO_TARGET_DIR="../target"; cargo build 
 # optional, for the cross-play scenario: upstream's own Windows release, extracted, with timecrs2.zip in its roms folder
 gh release download 0.10.1 -R spacestate1/namco22-decompile -p "windows-release-0.10.1.zip" -D build/upstream-release
 python -X utf8 tests/test_online.py            # 20 scenarios + crossplay, about 40 minutes in real time
-python -X utf8 tests/test_handedness.py        # includes the ONLINE page's input routing
+python -X utf8 tests/test_handedness.py        # the host's input: menu laser, sticks, grips, A / B, the ONLINE tab's open / close
+python -X utf8 tests/test_menu.py             # every menu tab and online state fits; its controls work
 ```
 
 `tests/test_online.py` starts two real desktop instances, both booted as P1:
@@ -255,7 +247,7 @@ Test switches, read by `quest/tc2_online.c` and `quest/tc2_voice.c`:
 - `TC2_NET_ROOM_CODE=KXQ7`: a fixed code for hosted rooms.
 - `TC2_VOICE_IN=<wav>`, `TC2_VOICE_OUT=<wav>`: 48 kHz mono 16-bit files in place of the microphone, and a recording of what is played.
 - `TC2_NET_DEBUG=1`, `TC2_NET_SIM=loss%,stall_ms`: the library's own logging and simulated bad network.
-- `TCVR_TEST_MENU=3@60`: open the ONLINE page at desktop frame 60.
+- `TCVR_TEST_MENU=3@60`: open the menu on its ONLINE tab at desktop frame 60 (0 GUN, 1 PLAYER, 2 GRAPHICS, 3 ONLINE).
 - `TCVR_RAMWATCH=2CE92B,2F3930`: log each main-RAM byte (hex offsets) whenever it changes.
 - `TC2_NO_MODE_MENU=1`: a shot at the crossed-out SOLO/LINKED does nothing, as at the arcade (`late` links into a game on purpose).
 - `TC2_MENU_TIMEOUT=1`: SELECT GAME MODE chooses by itself when it runs out, as at the arcade.

@@ -33,6 +33,14 @@ public final class MainActivity extends SDLActivity {
         super.onCreate(state);
     }
     private WifiManager.MulticastLock multicast;
+    // RESTART APP (the pause menu): called by quest_host.c just before this process exits; RestartActivity opens the game again.
+    public void relaunch() {
+        try {
+            startActivity(new android.content.Intent(this, RestartActivity.class)
+                .putExtra("pid", android.os.Process.myPid())
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (Exception e) { android.util.Log.w("TCVR", "restart: " + e); }
+    }
     @Override protected void onDestroy() {
         if(multicast!=null&&multicast.isHeld())multicast.release();
         voiceStop();

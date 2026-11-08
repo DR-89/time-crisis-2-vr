@@ -1,10 +1,10 @@
 # Time Crisis II VR - Windows v0.3.0
 
-**Render resolution:** open options with the **left menu button**, then use **left stick up/down** to find **GRAPHICS**. Move the **right stick left/right** to choose **Default**, **1280 x 1344**, **1680 x 1760**, **2550 x 2640**, **2940 x 3080** or **3360 x 3520** pixels per eye, matching the NFSU VR ports. Click the **left stick** to restore Default. Each change saves automatically; **fully close and restart the app** to apply it. The panel shows the active size and a restart reminder. Default preserves the previous resolution (runtime recommendation capped at 1440 pixels on the longer side on Quest, 2160 on PCVR). Unsupported presets fall back to Default. Higher resolutions require more GPU time and memory; the highest setting is not a performance recommendation. Texture filtering stays enabled by default and still switches immediately.
+**Render resolution:** open the menu with the **left menu button** (Escape on the keyboard) and pick **GRAPHICS**. Choose **Default**, **1280 x 1344**, **1680 x 1760**, **2550 x 2640**, **2940 x 3080** or **3360 x 3520** pixels per eye, matching the NFSU VR ports. Each change saves automatically and applies after **RESTART APP**; the running size is underlined. Default preserves the previous resolution (runtime recommendation capped at 1440 pixels on the longer side on Quest, 2160 on PCVR). Unsupported presets fall back to Default. Higher resolutions require more GPU time and memory; the highest setting is not a performance recommendation. Texture filtering stays enabled by default and still switches immediately.
 
-Keyboard: **Tab** changes the options page; on **GRAPHICS**, **Left/Right** selects resolution and **Home** restores Default. Resolution presets affect OpenXR VR rendering; desktop mode continues to follow the window size.
+Keyboard in the menu: the mouse points and clicks; arrows move and change, **Enter** selects, **Backspace** goes back, **Tab** / **Shift+Tab** switch tabs. Resolution presets affect OpenXR VR rendering; desktop mode continues to follow the window size.
 
-**Texture filtering:** texture filtering defaults to ON and is saved in `quest-options.cfg`. With options open, squeeze the **left grip**, or press **F** on the keyboard, to toggle it immediately. The left grip keeps its cover function during gameplay.
+**Texture filtering:** texture filtering defaults to ON and is saved in `quest-options.cfg`. Switch it on the menu's **GRAPHICS** tab; it applies immediately.
 
 Extract the entire Windows ZIP to a writable folder. Keep `TimeCrisis2VR.exe`, the OpenXR loader, `models/` and `extracted/` together; do not rename the game files. No separate ROM import is required for the release package. A package built without game files (`tools/build_pc.py --no-roms`) has a `roms/` folder instead: put your own `timecrs2.zip` (US TSS3 Ver. B MAME set) there, and the first start checks it and unpacks it into `extracted/`.
 
@@ -20,17 +20,17 @@ Extract the entire Windows ZIP to a writable folder. Keep `TimeCrisis2VR.exe`, t
 
 ## Controls
 
-After the arcade startup, press **A** for credits and either trigger to start. Either trigger selects that hand and shoots. Hold either grip to leave cover; release both to hide/reload. **B** cycles LASER / OFF / TRACER, **X** recenters, and the left menu button opens options. Options include default hand, physical ducking, gun angle, world size, view distance, gun fit and player route. Saved left-hand mode swaps the face-button layout: X credits, Y aim mode, A recenter, B cover mode.
+After the arcade startup, press **A** for credits and either trigger to start. Either trigger selects that hand and shoots. Hold either grip to leave cover; release both to hide/reload. **B** cycles LASER / OFF / TRACER, **X** recenters, and the left menu button opens the menu: default hand, aim guide, physical ducking, gun angle, gun fit, player route, world size, view distance, graphics and online play, plus RESUME, RESTART GAME, RECENTER and RESTART APP. Point the gun and pull the trigger, or use either stick with A / B; the grips switch tabs. Saved left-hand mode swaps the face-button layout: X credits, Y aim mode, A recenter.
 
 The machine gun is equipped automatically in scripted sections. Hold the trigger outside cover for automatic fire. The tracked weapon changes model, and shots have recoil and muzzle flash; the Namco gun uses whole-model recoil. The older pistol remains a fallback.
 
-**World scale:** in the first options page, right stick left/right adjusts WORLD SIZE (25â€“400%); left stick left/right adjusts VIEW DISTANCE (0â€“100 cm). Start with 100% / 0 cm.
+**World scale:** on the menu's **PLAYER** tab, World size (25-400%) and View distance (0-100 cm). Start with 100% / 0 cm.
 
-**Gun fit / player:** left stick up/down switches pages. Right stick up/down adjusts height, right/left pulls the gun back/forward, and left click resets both offsets. Left stick left/right selects Keith/P1 or Robert/P2; fully restart the app to apply. Robert uses the original alternate route in standalone mode and remains experimental, with the original local HUD/input slot.
+**Gun fit / player:** Gun height and Gun depth on the **GUN** tab; Player (Keith/P1 or Robert/P2) on the **PLAYER** tab, applied by RESTART APP. Robert uses the original alternate route in standalone mode and remains experimental, with the original local HUD/input slot.
 
-Keyboard controls while paused: Tab switches pages; arrows adjust the right-stick settings; Home resets pitch or both fit offsets. Page Up/Down adjusts distance on page one or chooses P2/P1 on page two. L cycles the aim mode. Tracer Squeeze is a tracked-VR effect and flashes for 65 ms on accepted shots.
+L cycles the aim mode. Tracer Squeeze is a tracked-VR effect and flashes for 65 ms on accepted shots.
 
-**Play Desktop.cmd** runs without a headset. Mouse aims, left mouse shoots, right mouse or Space operates the pedal, **5** inserts credits and **Escape** opens options.
+**Play Desktop.cmd** runs without a headset. Mouse aims, left mouse shoots, right mouse or Space operates the pedal, **5** inserts credits and **Escape** opens the menu, where the mouse points and clicks.
 
 ## Troubleshooting and diagnostics
 

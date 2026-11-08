@@ -1,49 +1,54 @@
+/* The pause menu's panel through the real GLES path (quest_ui.c): per-eye stereo, texture refresh on change, every tab. */
 #include <GLES3/gl3.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 #include "quest_ui.h"
-static void legacy_view(const float *v,const float *p,V3 head,Q4 rotation,bool laser,bool physical,bool left,int pitch,int scale,int distance,bool saved){
-    QOptions o={.laser_enabled=laser,.physical_crouch=physical,.left_handed=left,.gun_pitch=pitch,.world_scale=scale,.view_distance=distance,.texture_filtering=true,.player_side=1};
-    qui_draw(v,p,head,rotation,&o,0,1,saved);
-}
-#define qui_draw legacy_view
+#include "tc2_online.h"
+
+/* an idle online module */
+void tc2_online_get_view(tc2_online_view *v){memset(v,0,sizeof *v);v->side=v->home_side=1;v->voice=true;v->volume=100;v->ping_ms=-1;snprintf(v->name,sizeof v->name,"PLAYER");}
+int tc2_online_games(tc2_online_game *out,int max){(void)out;(void)max;return 0;}
+void tc2_online_browse(bool open){(void)open;}
+void tc2_online_refresh(void){}
+void tc2_online_join_game(int i){(void)i;}
+void tc2_online_host_room(void){}
+void tc2_online_join_code(const char *c){(void)c;}
+void tc2_online_quick(void){}
+void tc2_online_host_lan(void){}
+void tc2_online_set_join_ip(const char *a){(void)a;}
+void tc2_online_join_ip(void){}
+void tc2_online_set_voice(bool on){(void)on;}
+void tc2_online_set_volume(int p){(void)p;}
+void tc2_online_set_name(const char *n){(void)n;}
+void tc2_online_leave(void){}
+void tc2_online_rejoin(void){}
+void tc2_online_restart_game(void){}
+void tc2_online_toggle_mute(void){}
+void tc2_online_menu_shown(bool t){(void)t;}
+
+static int opt[QOPT_COUNT];
+static int get(int o){return opt[o];}
+static void set(int o,int v){opt[o]=v;}
+static void act(int a){(void)a;}
+/* 0 GUN left eye, 1 GUN right eye, 2 GUN angle 0 then -30 (one texture, refreshed), 3 GUN angle -30 fresh, 4 PLAYER,
+ * 5 GRAPHICS with a preset waiting for a restart, 6 ONLINE, 7 GUN after a failed save */
 __declspec(dllexport) int options_fixture(int variant,int w,int h,uint8_t *pixels){
     if(!qui_init())return 0;
-    float view[16],proj[16];view_matrix(view,v3(variant==3||variant==7?.032f:-.032f,0,0),(Q4){0,0,0,1});projection(proj,-.65f,.65f,-.65f,.65f);
+    QMenuHost host={get,set,act,0,0,1680,1760,false,variant!=7};
+    memset(opt,0,sizeof opt);opt[QOPT_HAND]=1;opt[QOPT_WORLD]=100;
+    if(variant==3)opt[QOPT_PITCH]=-30;
+    if(variant==5)opt[QOPT_RESOLUTION]=3;
+    float view[16],proj[16];view_matrix(view,v3(variant==1?.032f:-.032f,0,0),(Q4){0,0,0,1});projection(proj,-.65f,.65f,-.65f,.65f);
     glViewport(0,0,w,h);glClearColor(.08f,.12f,.16f,1);glClear(GL_COLOR_BUFFER_BIT);
-    bool physical=(variant>=2&&variant<=4)||variant==6||variant==7;
-    qui_draw(view,proj,v3(0,0,0),(Q4){0,0,0,1},variant>=1,physical,variant>=5,variant==9?-45:variant==10?60:0,variant==12?25:variant==13?400:100,variant==15?100:40,variant!=4);
-    if(variant==8)qui_draw(view,proj,v3(0,0,0),(Q4){0,0,0,1},true,false,false,0,100,40,true);
-    if(variant==11){glClear(GL_COLOR_BUFFER_BIT);qui_draw(view,proj,v3(0,0,0),(Q4){0,0,0,1},true,false,true,-45,100,40,true);}
-    if(variant==14){glClear(GL_COLOR_BUFFER_BIT);qui_draw(view,proj,v3(0,0,0),(Q4){0,0,0,1},true,false,true,0,400,40,true);}
-    if(variant==16){glClear(GL_COLOR_BUFFER_BIT);qui_draw(view,proj,v3(0,0,0),(Q4){0,0,0,1},true,false,true,0,100,100,true);}
-#undef qui_draw
-    if(variant>=17){
-        QOptions o={.world_scale=100,.view_distance=0,.texture_filtering=true,.player_side=1,.tracer_enabled=true};
-        int page=variant>=18;
-        if(variant>=19){o.gun_offset_y_mm=20;o.gun_offset_z_mm=40;o.player_side=2;}
-        glClear(GL_COLOR_BUFFER_BIT);qui_draw(view,proj,v3(0,0,0),(Q4){0,0,0,1},&o,page,1,true);
-        if(variant==20){o.gun_offset_y_mm=-200;o.gun_offset_z_mm=200;}
-        glClear(GL_COLOR_BUFFER_BIT);qui_draw(view,proj,v3(0,0,0),(Q4){0,0,0,1},&o,page,1,true);
+    qmenu_open(variant==4?QMENU_TAB_PLAYER:variant==5?QMENU_TAB_GRAPHICS:variant==6?QMENU_TAB_ONLINE:QMENU_TAB_GUN);
+    QMenuInput in={0};in.now=variant*10.0;qmenu_update(&host,&in);
+    const V3 center=v3(0,0,-1.6f);const Q4 facing={0,0,0,1};
+    if(variant==2){
+        qui_draw_menu(view,proj,center,facing,&host,in.now);
+        opt[QOPT_PITCH]=-30;in.now+=1;qmenu_update(&host,&in);
+        glClear(GL_COLOR_BUFFER_BIT);
     }
-    if(variant>=21){
-        for(int pass=0;pass<(variant==23?2:1);pass++){
-            bool enabled=variant==21||variant==24||(variant==23&&pass==0);
-            glClear(GL_COLOR_BUFFER_BIT);QOptions o={.laser_enabled=true,.world_scale=100,.view_distance=40,.player_side=1,.texture_filtering=enabled};qui_draw(view,proj,v3(0,0,0),(Q4){0,0,0,1},&o,variant>=24,1,true);
-        }
-    }
-    if(variant>=26){
-        QOptions o={.laser_enabled=true,.world_scale=100,.view_distance=40,.texture_filtering=true};
-        o.resolution=variant<=31?variant-26:3;
-        qui_set_resolution(0,1360,1440);
-        if(variant==32){
-            o.resolution=5;qui_draw(view,proj,v3(0,0,0),(Q4){0,0,0,1},&o,QOPTIONS_PAGE_GRAPHICS,1,true);
-            o.resolution=3;
-        }
-        if(variant==33){qui_draw(view,proj,v3(0,0,0),(Q4){0,0,0,1},&o,1,1,true);}
-        if(variant==34)qui_set_resolution(3,2550,2640);
-        if(variant==35)qui_set_resolution(3,1360,1440);
-        if(variant==37){o.resolution=0;o.texture_filtering=false;}
-        glClear(GL_COLOR_BUFFER_BIT);qui_draw(view,proj,v3(0,0,0),(Q4){0,0,0,1},&o,QOPTIONS_PAGE_GRAPHICS,1,variant!=36);
-    }
+    qui_draw_menu(view,proj,center,facing,&host,in.now);
     glReadPixels(0,0,w,h,GL_RGBA,GL_UNSIGNED_BYTE,pixels);GLenum error=glGetError();qui_shutdown();return error?-(int)error:1;
 }
