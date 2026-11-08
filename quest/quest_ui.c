@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include "quest_ui.h"
 #include "font_data.h"
 
@@ -66,10 +67,35 @@ static void quad(GLuint tex,const float view[16],const float projection[16],V3 c
     glEnableVertexAttribArray(0);glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,5*sizeof(float),0);glEnableVertexAttribArray(1);glVertexAttribPointer(1,2,GL_FLOAT,GL_FALSE,5*sizeof(float),(void*)(3*sizeof(float)));
     glDrawArrays(GL_TRIANGLES,0,6);glDisable(GL_BLEND);glBindTexture(GL_TEXTURE_2D,bound);glActiveTexture(unit);
 }
+/* The menu's texture: only the box that changed goes up, then its smaller copies (mipmaps) are rebuilt on the GPU, so the text
+ * stays steady instead of shimmering as the head moves. */
+static void upload_menu(const int box[4]){
+    GLint bound;glGetIntegerv(GL_TEXTURE_BINDING_2D,&bound);glBindTexture(GL_TEXTURE_2D,texture);
+    GLint row_length;glGetIntegerv(GL_UNPACK_ROW_LENGTH,&row_length);
+    GLint align;glGetIntegerv(GL_UNPACK_ALIGNMENT,&align);glPixelStorei(GL_UNPACK_ALIGNMENT,4);
+    if(!texture_ready){
+        glPixelStorei(GL_UNPACK_ROW_LENGTH,0);
+        glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,QMENU_W,QMENU_H,0,GL_RGBA,GL_UNSIGNED_BYTE,pixels);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+        texture_ready=true;
+    }else if(box[2]>0&&box[3]>0){
+        glPixelStorei(GL_UNPACK_ROW_LENGTH,QMENU_W);
+        glTexSubImage2D(GL_TEXTURE_2D,0,box[0],box[1],box[2],box[3],GL_RGBA,GL_UNSIGNED_BYTE,pixels+((size_t)box[1]*QMENU_W+box[0])*4);
+    }
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH,row_length);glPixelStorei(GL_UNPACK_ALIGNMENT,align);glBindTexture(GL_TEXTURE_2D,bound);
+}
 void qui_draw_menu(const float view[16],const float projection[16],V3 center,Q4 rotation,const QMenuHost *host,double now){
     if(!program)return;
     /* both eyes draw the same frame: the second finds nothing new */
-    if(qmenu_render(host,pixels,now)||!texture_ready){upload(texture,QMENU_W,QMENU_H,pixels,!texture_ready);texture_ready=true;}
+    int box[4]={0,0,QMENU_W,QMENU_H};
+    struct timespec t0,t1;timespec_get(&t0,TIME_UTC);
+    const bool drew=qmenu_render(host,pixels,now,box);
+    timespec_get(&t1,TIME_UTC);
+    const double ms=(t1.tv_sec-t0.tv_sec)*1e3+(t1.tv_nsec-t0.tv_nsec)/1e6;
+    if(drew&&ms>2){static unsigned slow;if(slow++<200)fprintf(stderr,"[MENU] slow redraw %.1f ms (%dx%d)\n",ms,box[2],box[3]);}
+    if(drew||!texture_ready)upload_menu(box);
     quad(texture,view,projection,center,rotation,QUI_PANEL_W/2,QUI_PANEL_H/2,0,0);
 }
 void qui_draw_toast(const float view[16],const float projection[16],V3 head,Q4 rotation,const char *message,unsigned serial){

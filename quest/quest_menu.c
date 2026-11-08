@@ -68,6 +68,7 @@ static int tab,screen,page,modal;
 static char kbuf[24];
 static int hover,pressed,focus;
 static bool stick_mode;
+static bool have_pointer;static float ptr_x,ptr_y;   /* the laser on the panel, smoothed */
 static double repeat_at,last_draw;
 static int stick_dx,stick_dy;static double stick_next;
 static const QMenuHost *H;
@@ -90,11 +91,14 @@ void qmenu_open(int t){
     if(t==QMENU_TAB_ONLINE)focus=ID(K_TABS,0);
 }
 int qmenu_tab(void){return tab;}
+bool qmenu_pointer(float *px,float *py){if(!have_pointer)return false;*px=ptr_x;*py=ptr_y;return true;}
 bool qmenu_modal(void){return modal!=M_NONE;}
 
 /* ---- layout primitives ---- */
 static bool drawing(void){return pass==PASS_DRAW;}
 static bool is_hover(int id){return !stick_mode&&hover==id;}
+/* the pointer is somewhere in this box (a row stays lit over its own buttons) */
+static bool pointer_in(float x,float y,float w,float h){return !stick_mode&&have_pointer&&hover&&ptr_x>=x&&ptr_x<x+w&&ptr_y>=y&&ptr_y<y+h;}
 static bool is_focus(int id){return stick_mode&&focus==id;}
 static void hit(int id,int x,int y,int w,int h){if(nhits<(int)(sizeof hits/sizeof *hits))hits[nhits++]=(Hit){id,x,y,w,h};}
 static void focusable(int id,int kind,int cx){if(nfoci<(int)(sizeof foci/sizeof *foci))foci[nfoci++]=(Focus){id,frow,cx,kind};}
@@ -314,7 +318,7 @@ static void settings_row(const RowDef *r,float y,float h){
     hit(row,CX0,(int)y,CW,(int)h);focusable(row,d->type==T_SLIDER?F_SLIDER:F_SEG,CX0+CW/2);
     char tip[200];snprintf(tip,sizeof tip,"%s",locked?"Online, the room decides the cabinet: the host plays P1 Keith, the joiner P2 Robert. Your own side comes back when you leave.":r->help);
     say_help(row,tip);
-    const bool hot=is_hover(row)||is_focus(row);
+    const bool hot=pointer_in(CX0,y,CW,h)||is_focus(row);
     if(hot)rrect(CX0,y,CW,h,14,HOVER);
     if(is_focus(row))rline(CX0,y,CW,h,14,2,ACCENT);
     /* the label, its line and a chip */
@@ -717,15 +721,23 @@ static void keyboard(void){
 }
 
 /* ---- the whole menu ---- */
+/* The panel's background, frame and body never change: drawn once, then copied under every redraw (only inside the limit). */
+static uint8_t base_px[QMENU_W*QMENU_H*4];static bool base_ready;
+static void restore_base(void){
+    if(!base_ready){
+        QCanvas b;qc_init(&b,base_px,QMENU_W,QMENU_H);
+        qc_fill(&b,qrgba(54,183,207,0));
+        qc_rrect(&b,0,0,QMENU_W,QMENU_H,22,PANEL);
+        qc_rrect(&b,3,BODY_Y,QMENU_W-6,BODY_H,0,BODY);
+        qc_rrect_line(&b,0,0,QMENU_W,QMENU_H,22,3,EDGE);
+        base_ready=true;
+    }
+    for(int y=cv.ly0;y<cv.ly1;y++)memcpy(cv.px+((size_t)y*QMENU_W+cv.lx0)*4,base_px+((size_t)y*QMENU_W+cv.lx0)*4,(size_t)(cv.lx1-cv.lx0)*4);
+}
 static void layout(int which){
     pass=which;nhits=0;nfoci=0;frow=0;
     snprintf(help,sizeof help,"%s",stick_mode?"Stick: move and change \xC2\xB7 A: select \xC2\xB7 B: back \xC2\xB7 grips: tabs":"Point at anything and pull the trigger.");
-    if(drawing()){
-        qc_fill(&cv,qrgba(54,183,207,0));
-        qc_rrect(&cv,0,0,QMENU_W,QMENU_H,22,PANEL);
-        qc_rrect(&cv,3,BODY_Y,QMENU_W-6,BODY_H,0,BODY);
-        qc_rrect_line(&cv,0,0,QMENU_W,QMENU_H,22,3,EDGE);
-    }
+    if(drawing())restore_base();
     const bool m=modal!=M_NONE;
     const int saved_click=ev_click,saved_adjust=ev_adjust,saved_drag=ev_drag;
     if(m){ev_click=ev_adjust=ev_drag=0;}   /* the page under a dialog is inert */
@@ -776,6 +788,19 @@ static int pick(float x,float y){
     for(int i=nhits-1;i>=0;i--)if(x>=hits[i].x&&x<hits[i].x+hits[i].w&&y>=hits[i].y&&y<hits[i].y+hits[i].h)return hits[i].id;
     return 0;
 }
+static const Hit *find_hit(int id){for(int i=nhits-1;i>=0;i--)if(hits[i].id==id)return &hits[i];return NULL;}
+static bool inside_box(const Hit *in,const Hit *box){return in->x>=box->x&&in->y>=box->y&&in->x+in->w<=box->x+box->w&&in->y+in->h<=box->y+box->h;}
+/* what the smoothed pointer is on; at an edge the current one holds for 6 more pixels, so a trembling hand doesn't flicker
+ * between neighbours (going into something inside the current box, a button in its row, is immediate) */
+static int sticky_pick(void){
+    const int next=pick(ptr_x,ptr_y);
+    if(!hover||next==hover)return next;
+    const Hit *now=find_hit(hover),*cand=next?find_hit(next):NULL;
+    if(!now||(cand&&inside_box(cand,now)))return next;
+    const float m=6;
+    if(ptr_x>=now->x-m&&ptr_x<now->x+now->w+m&&ptr_y>=now->y-m&&ptr_y<now->y+now->h+m)return hover;
+    return next;
+}
 static int axis_step(float v,float other,int *held,double now,double *next){
     int d=fabsf(v)>=.65f&&fabsf(v)>=fabsf(other)?(v>0?1:-1):0;
     if(fabsf(v)<.25f||fabsf(v)<fabsf(other))*held=0;
@@ -790,19 +815,25 @@ void qmenu_update(const QMenuHost *host,const QMenuInput *in){
     tc2_online_menu_shown(tab==QMENU_TAB_ONLINE);
     ev_click=ev_adjust=ev_drag=0;ev_adjust_dir=0;
     /* the laser */
-    static float last_px=-1,last_py=-1;
+    static float last_px=-1,last_py=-1;static double last_now;
     if(in->pointer){
         if(fabsf(in->px-last_px)>3||fabsf(in->py-last_py)>3||in->press)stick_mode=false;
         last_px=in->px;last_py=in->py;
-        hover=pick(in->px,in->py);
-    }else{hover=0;last_px=last_py=-1;}
+        /* a hand is never still: follow the laser a little behind (~35 ms), jump on big moves */
+        const double dt=in->now-last_now;
+        if(!have_pointer||fabsf(in->px-ptr_x)>80||fabsf(in->py-ptr_y)>80||dt<=0||dt>.25){ptr_x=in->px;ptr_y=in->py;}
+        else{const float a=(float)(1-exp(-dt/.035));ptr_x+=(in->px-ptr_x)*a;ptr_y+=(in->py-ptr_y)*a;}
+        have_pointer=true;
+        hover=sticky_pick();
+    }else{hover=0;have_pointer=false;last_px=last_py=-1;}
+    last_now=in->now;
     if(in->press&&!stick_mode){
         pressed=hover;repeat_at=in->now+.4;
         if(KIND(pressed)==K_STEP||KIND(pressed)==K_VOL||(KIND(pressed)==K_ON&&(ARG(pressed)==ON_PREV||ARG(pressed)==ON_NEXT)))ev_click=pressed;
-        if(KIND(pressed)==K_TRACK){ev_drag=pressed;ev_drag_x=in->px;}
+        if(KIND(pressed)==K_TRACK){ev_drag=pressed;ev_drag_x=ptr_x;}
     }
     if(in->held&&pressed&&!in->press){
-        if(KIND(pressed)==K_TRACK&&in->pointer){ev_drag=pressed;ev_drag_x=in->px;}
+        if(KIND(pressed)==K_TRACK&&in->pointer){ev_drag=pressed;ev_drag_x=ptr_x;}
         else if((KIND(pressed)==K_STEP||KIND(pressed)==K_VOL)&&hover==pressed&&in->now>=repeat_at){ev_click=pressed;repeat_at=in->now+.09;}
     }
     if(in->release){
@@ -831,26 +862,65 @@ void qmenu_update(const QMenuHost *host,const QMenuInput *in){
     ev_click=ev_adjust=ev_drag=0;
     layout(PASS_LAYOUT);
     if(!find_focus(focus)&&nfoci)focus=modal?ID(K_MBTN,1):ID(K_FOOT,0);
-    if(in->pointer)hover=pick(in->px,in->py);
+    if(in->pointer)hover=sticky_pick();
 }
 
 /* ---- drawing ---- */
 static uint32_t mix(uint32_t h,const void *p,size_t n){const uint8_t *b=p;for(size_t i=0;i<n;i++)h=(h^b[i])*16777619u;return h;}
-bool qmenu_render(const QMenuHost *host,uint8_t *pixels,double now){
+/* the boxes a pointer or highlight change touches: the thing itself, grown for its outline, and any box it sits in (its row) */
+static void dirty_add(int id,int *x0,int *y0,int *x1,int *y1){
+    if(!id)return;
+    Hit box;const Hit *h=find_hit(id);
+    if(id==ID(K_TABS,0)){box=(Hit){id,0,60,QMENU_W,BODY_Y-60+4};h=&box;}
+    if(!h)return;
+    Hit grown={id,h->x-8,h->y-8,h->w+16,h->h+16};
+    for(int i=0;i<nhits;i++)if(hits[i].id!=id&&inside_box(h,&hits[i])&&hits[i].w<QMENU_W-40){
+        const Hit *o=&hits[i];
+        if(o->x-8<grown.x){grown.w+=grown.x-(o->x-8);grown.x=o->x-8;}
+        if(o->y-8<grown.y){grown.h+=grown.y-(o->y-8);grown.y=o->y-8;}
+        if(o->x+o->w+8>grown.x+grown.w)grown.w=o->x+o->w+8-grown.x;
+        if(o->y+o->h+8>grown.y+grown.h)grown.h=o->y+o->h+8-grown.y;
+    }
+    if(grown.x<*x0)*x0=grown.x;if(grown.y<*y0)*y0=grown.y;
+    if(grown.x+grown.w>*x1)*x1=grown.x+grown.w;if(grown.y+grown.h>*y1)*y1=grown.y+grown.h;
+}
+bool qmenu_render(const QMenuHost *host,uint8_t *pixels,double now,int dirty[4]){
     H=host;
-    /* what is shown, minus the live readings (voice levels, ping, a dropped partner's clock) */
-    struct { int tab,screen,page,modal,hover,pressed,focus,stick;char kbuf[24];int opt[QOPT_COUNT];int boot_p,boot_r;unsigned aw,ah;bool unsup,saved; } s;
+    /* what is shown, minus the live readings (voice levels, ping, a dropped partner's clock) and the pointer / highlight */
+    struct { int tab,screen,page,modal,stick;char kbuf[24];int opt[QOPT_COUNT];int boot_p,boot_r;unsigned aw,ah;bool unsup,saved; } s;
     memset(&s,0,sizeof s);
-    s.tab=tab;s.screen=screen;s.page=page;s.modal=modal;s.hover=stick_mode?0:hover;s.pressed=pressed;s.focus=stick_mode?focus:0;s.stick=stick_mode;
+    s.tab=tab;s.screen=screen;s.page=page;s.modal=modal;s.stick=stick_mode;
     memcpy(s.kbuf,kbuf,sizeof s.kbuf);for(int i=0;i<QOPT_COUNT;i++)s.opt[i]=H->get(i);
     s.boot_p=H->boot_player;s.boot_r=H->boot_resolution;s.aw=H->active_w;s.ah=H->active_h;s.unsup=H->preset_unsupported;s.saved=H->saved;
     tc2_online_view v=V;const int live[]={v.level,v.partner_level,v.ping_ms/10,v.gone_s,v.link_alive,v.link_lagging};
     v.level=v.partner_level=v.ping_ms=v.gone_s=0;v.link_alive=v.link_lagging=false;
-    uint32_t h=mix(2166136261u,&s,sizeof s);h=mix(h,&v,sizeof v);h=mix(h,games,sizeof games[0]*game_count);h=mix(h,&game_count,sizeof game_count);h=mix(h,help,strlen(help));
+    uint32_t h=mix(2166136261u,&s,sizeof s);h=mix(h,&v,sizeof v);h=mix(h,games,sizeof games[0]*game_count);h=mix(h,&game_count,sizeof game_count);
+    const int point[3]={stick_mode?0:hover,pressed,stick_mode?focus:0};
+    uint32_t p=mix(2166136261u,point,sizeof point);p=mix(p,help,strlen(help));
     const uint32_t l=mix(2166136261u,live,sizeof live);
-    if(h==drawn_hash&&(l==drawn_live||now-last_draw<.15))return false;
-    drawn_hash=h;drawn_live=l;last_draw=now;
+    static uint32_t drawn_point;static int drawn_ids[3];
+    const bool live_due=tab==QMENU_TAB_ONLINE&&l!=drawn_live&&now-last_draw>=.15;   /* only the ONLINE tab shows them */
+    if(h==drawn_hash&&p==drawn_point&&!live_due)return false;
     qc_init(&cv,pixels,QMENU_W,QMENU_H);
-    layout(PASS_DRAW);
+    int x0=QMENU_W,y0=QMENU_H,x1=0,y1=0;
+    if(h==drawn_hash){
+        /* only the pointer or the highlight moved: the old and new boxes, and the help line; live readings: the tab's body */
+        for(int i=0;i<3;i++){dirty_add(drawn_ids[i],&x0,&y0,&x1,&y1);dirty_add(point[i],&x0,&y0,&x1,&y1);}
+        if(live_due){if(BODY_Y<y0)y0=BODY_Y;if(FOOT_Y>y1)y1=FOOT_Y;}
+        if(x0>3)x0=3;if(x1<QMENU_W-3)x1=QMENU_W-3;   /* full width: rows and the help line span it */
+        if(FOOT_Y+4<y0)y0=FOOT_Y+4;if(FOOT_Y+40>y1)y1=FOOT_Y+40;
+        if(x0<0)x0=0;if(y0<0)y0=0;if(x1>QMENU_W)x1=QMENU_W;if(y1>QMENU_H)y1=QMENU_H;
+        if((y1-y0)*(x1-x0)>QMENU_W*QMENU_H*3/5){x0=y0=0;x1=QMENU_W;y1=QMENU_H;}
+        else{
+            /* the help line and the boxes are apart: two strips are cheaper than everything between them */
+            qc_limit(&cv,0,FOOT_Y+4,QMENU_W,36);layout(PASS_DRAW);
+            if(y0<FOOT_Y+4){const int top=y0,bottom=y1<FOOT_Y+4?y1:FOOT_Y+4;qc_limit(&cv,x0,top,x1-x0,bottom-top);layout(PASS_DRAW);}
+            if(y1>FOOT_Y+40){qc_limit(&cv,x0,FOOT_Y+40,x1-x0,y1-(FOOT_Y+40));layout(PASS_DRAW);}
+        }
+    }else{x0=y0=0;x1=QMENU_W;y1=QMENU_H;}
+    if(x0==0&&y0==0&&x1==QMENU_W&&y1==QMENU_H)layout(PASS_DRAW);
+    drawn_hash=h;drawn_point=p;memcpy(drawn_ids,point,sizeof point);
+    if(live_due||y1-y0==QMENU_H){drawn_live=l;last_draw=now;}
+    if(dirty){dirty[0]=x0;dirty[1]=y0;dirty[2]=x1-x0;dirty[3]=y1-y0;}
     return true;
 }

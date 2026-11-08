@@ -340,6 +340,9 @@ static void menu_input(double now,bool has_ray,V3 from,V3 dir,bool press,bool he
     kb_nav_x=kb_nav_y=kb_tab=0;kb_select=kb_back=false;
     menu_host_refresh();
     qmenu_update(&menu_host,&in);
+    /* the laser ends where the menu's steadied pointer is, not on every tremor of the hand */
+    float px,py;
+    if(in.pointer&&qmenu_pointer(&px,&py))menu_end=add(menu_center,rotate(menu_rotation,v3((px/QMENU_W-.5f)*QUI_PANEL_W,(.5f-py/QMENU_H)*QUI_PANEL_H,0)));
 }
 static void shot_feedback(uint64_t now){
     recoil_started=now;

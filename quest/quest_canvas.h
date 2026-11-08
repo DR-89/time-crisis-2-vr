@@ -5,14 +5,15 @@
 #include <stdint.h>
 
 typedef struct QColor { uint8_t r,g,b,a; } QColor;
-typedef struct QCanvas { uint8_t *px; int w,h; int cx0,cy0,cx1,cy1; } QCanvas;   /* clip: [cx0,cx1) x [cy0,cy1) */
+typedef struct QCanvas { uint8_t *px; int w,h; int cx0,cy0,cx1,cy1; int lx0,ly0,lx1,ly1; } QCanvas;   /* clip [cx0,cx1) x [cy0,cy1), within the limit l */
 
 static inline QColor qrgb(int r,int g,int b){return (QColor){(uint8_t)r,(uint8_t)g,(uint8_t)b,255};}
 static inline QColor qrgba(int r,int g,int b,int a){return (QColor){(uint8_t)r,(uint8_t)g,(uint8_t)b,(uint8_t)a};}
 
 void qc_init(QCanvas *c,uint8_t *px,int w,int h);
-void qc_clip(QCanvas *c,int x,int y,int w,int h);    /* intersected with the canvas; qc_unclip restores the whole canvas */
+void qc_clip(QCanvas *c,int x,int y,int w,int h);    /* intersected with the limit; qc_unclip restores the limit */
 void qc_unclip(QCanvas *c);
+void qc_limit(QCanvas *c,int x,int y,int w,int h);   /* nothing outside this box is touched (a partial redraw); qc_init: all */
 void qc_fill(QCanvas *c,QColor color);               /* replaces every pixel, alpha included */
 void qc_rrect(QCanvas *c,float x,float y,float w,float h,float radius,QColor color);
 void qc_rrect_line(QCanvas *c,float x,float y,float w,float h,float radius,float width,QColor color);   /* a border inside the box */

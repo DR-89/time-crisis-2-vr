@@ -5,25 +5,32 @@
 #include <math.h>
 #include <string.h>
 
-void qc_init(QCanvas *c,uint8_t *px,int w,int h){c->px=px;c->w=w;c->h=h;qc_unclip(c);}
-void qc_unclip(QCanvas *c){c->cx0=c->cy0=0;c->cx1=c->w;c->cy1=c->h;}
+void qc_init(QCanvas *c,uint8_t *px,int w,int h){c->px=px;c->w=w;c->h=h;qc_limit(c,0,0,w,h);}
+void qc_limit(QCanvas *c,int x,int y,int w,int h){
+    c->lx0=x>0?x:0;c->ly0=y>0?y:0;c->lx1=x+w<c->w?x+w:c->w;c->ly1=y+h<c->h?y+h:c->h;
+    if(c->lx1<c->lx0)c->lx1=c->lx0;if(c->ly1<c->ly0)c->ly1=c->ly0;
+    qc_unclip(c);
+}
+void qc_unclip(QCanvas *c){c->cx0=c->lx0;c->cy0=c->ly0;c->cx1=c->lx1;c->cy1=c->ly1;}
 void qc_clip(QCanvas *c,int x,int y,int w,int h){
     qc_unclip(c);
-    c->cx0=x>0?x:0;c->cy0=y>0?y:0;c->cx1=x+w<c->w?x+w:c->w;c->cy1=y+h<c->h?y+h:c->h;
+    if(x>c->cx0)c->cx0=x;if(y>c->cy0)c->cy0=y;if(x+w<c->cx1)c->cx1=x+w;if(y+h<c->cy1)c->cy1=y+h;
     if(c->cx1<c->cx0)c->cx1=c->cx0;if(c->cy1<c->cy0)c->cy1=c->cy0;
 }
 void qc_fill(QCanvas *c,QColor k){
-    for(int i=0;i<c->w*c->h;i++){uint8_t *p=c->px+i*4;p[0]=k.r;p[1]=k.g;p[2]=k.b;p[3]=k.a;}
+    for(int y=c->cy0;y<c->cy1;y++)for(int x=c->cx0;x<c->cx1;x++){uint8_t *p=c->px+((size_t)y*c->w+x)*4;p[0]=k.r;p[1]=k.g;p[2]=k.b;p[3]=k.a;}
 }
 static inline void blend(QCanvas *c,int x,int y,QColor k,float cover){
     if(x<c->cx0||x>=c->cx1||y<c->cy0||y>=c->cy1||cover<=0)return;
-    if(cover>1)cover=1;
-    const float a=k.a/255.f*cover;if(a<=0)return;
     uint8_t *p=c->px+((size_t)y*c->w+x)*4;
-    const float da=p[3]/255.f,oa=a+da*(1-a);
-    if(oa<=0)return;
-    p[0]=(uint8_t)((k.r*a+p[0]*da*(1-a))/oa+.5f);p[1]=(uint8_t)((k.g*a+p[1]*da*(1-a))/oa+.5f);p[2]=(uint8_t)((k.b*a+p[2]*da*(1-a))/oa+.5f);
-    p[3]=(uint8_t)(oa*255+.5f);
+    if(cover>=1&&k.a==255){p[0]=k.r;p[1]=k.g;p[2]=k.b;p[3]=255;return;}   /* the common case: a solid pixel */
+    if(cover>1)cover=1;
+    /* straight alpha "over", in 8-bit fixed point */
+    const int a=(int)(k.a*cover+.5f);if(!a)return;
+    const int da=p[3],ia=255-a,oa=a*255+da*ia;   /* x 255 */
+    if(!oa)return;
+    p[0]=(uint8_t)((k.r*a*255+p[0]*da*ia+oa/2)/oa);p[1]=(uint8_t)((k.g*a*255+p[1]*da*ia+oa/2)/oa);p[2]=(uint8_t)((k.b*a*255+p[2]*da*ia+oa/2)/oa);
+    p[3]=(uint8_t)((oa+127)/255);
 }
 static void bounds(QCanvas *c,float x0,float y0,float x1,float y1,int *ix0,int *iy0,int *ix1,int *iy1){
     *ix0=(int)floorf(x0)-1;*iy0=(int)floorf(y0)-1;*ix1=(int)ceilf(x1)+1;*iy1=(int)ceilf(y1)+1;
@@ -35,26 +42,43 @@ static inline float rbox(float px,float py,float cx,float cy,float hw,float hh,f
     float ox=qx>0?qx:0,oy=qy>0?qy:0,in=qx>qy?qx:qy;if(in>0)in=0;
     return sqrtf(ox*ox+oy*oy)+in-r;
 }
+/* Rows clear of the corners need no distance field: coverage is the nearer straight edge (and is 1 in between). */
 void qc_rrect(QCanvas *c,float x,float y,float w,float h,float r,QColor k){
     if(w<=0||h<=0)return;
     if(r>w/2)r=w/2;if(r>h/2)r=h/2;if(r<0)r=0;
     int x0,y0,x1,y1;bounds(c,x,y,x+w,y+h,&x0,&y0,&x1,&y1);
     const float cx=x+w/2,cy=y+h/2;
-    for(int py=y0;py<y1;py++)for(int px=x0;px<x1;px++){
-        float d=rbox(px+.5f,py+.5f,cx,cy,w/2,h/2,r);
-        if(d<.5f)blend(c,px,py,k,.5f-d);
+    for(int py=y0;py<y1;py++){
+        const float fy=py+.5f;
+        if(fy>=y+r&&fy<=y+h-r){
+            const float vy=fminf(fy-y,y+h-fy);
+            for(int px=x0;px<x1;px++){const float fx=px+.5f;blend(c,px,py,k,.5f+fminf(vy,fminf(fx-x,x+w-fx)));}
+            continue;
+        }
+        for(int px=x0;px<x1;px++){
+            const float fx=px+.5f;
+            if(fx>=x+r&&fx<=x+w-r){blend(c,px,py,k,.5f+fminf(fy-y,y+h-fy));continue;}
+            float d=rbox(fx,fy,cx,cy,w/2,h/2,r);
+            if(d<.5f)blend(c,px,py,k,.5f-d);
+        }
     }
 }
+/* A border: only the pixels within reach of the edge. */
 void qc_rrect_line(QCanvas *c,float x,float y,float w,float h,float r,float t,QColor k){
     if(w<=0||h<=0)return;
     if(r>w/2)r=w/2;if(r>h/2)r=h/2;
     float ri=r-t;if(ri<0)ri=0;
     int x0,y0,x1,y1;bounds(c,x,y,x+w,y+h,&x0,&y0,&x1,&y1);
-    const float cx=x+w/2,cy=y+h/2;
-    for(int py=y0;py<y1;py++)for(int px=x0;px<x1;px++){
-        float o=.5f-rbox(px+.5f,py+.5f,cx,cy,w/2,h/2,r);if(o<=0)continue;if(o>1)o=1;
-        float i=.5f-rbox(px+.5f,py+.5f,cx,cy,w/2-t,h/2-t,ri);if(i<0)i=0;if(i>1)i=1;
-        blend(c,px,py,k,o-i);
+    const float cx=x+w/2,cy=y+h/2,reach=(r>t?r:t)+2;
+    for(int py=y0;py<y1;py++){
+        const float fy=py+.5f;const bool band=fy<y+reach||fy>y+h-reach;
+        for(int px=x0;px<x1;px++){
+            if(!band&&px>=x+reach&&px+1<x+w-reach){const int skip=(int)(x+w-reach)-1;if(skip>px)px=skip;continue;}   /* the hollow middle */
+            const float fx=px+.5f;
+            float o=.5f-rbox(fx,fy,cx,cy,w/2,h/2,r);if(o<=0)continue;if(o>1)o=1;
+            float i=.5f-rbox(fx,fy,cx,cy,w/2-t,h/2-t,ri);if(i<0)i=0;if(i>1)i=1;
+            blend(c,px,py,k,o-i);
+        }
     }
 }
 void qc_circle(QCanvas *c,float cx,float cy,float r,QColor k){

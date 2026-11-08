@@ -33,7 +33,9 @@ typedef struct QMenuInput {
 enum { QMENU_TAB_GUN,QMENU_TAB_PLAYER,QMENU_TAB_GRAPHICS,QMENU_TAB_ONLINE,QMENU_TAB_COUNT };
 void qmenu_open(int tab);               /* the menu button: focus on RESUME; -1 keeps the last tab */
 void qmenu_update(const QMenuHost *host,const QMenuInput *in);
-/* Draws into pixels (QMENU_W*QMENU_H*4) if anything changed since the last call; returns true when it did. */
-bool qmenu_render(const QMenuHost *host,uint8_t *pixels,double now);
+/* Draws into pixels (QMENU_W*QMENU_H*4) if anything changed since the last call; returns true when it did, with the box it
+ * changed in dirty (x, y, w, h; may be NULL). A pointer or highlight moving redraws only the few boxes it touches. */
+bool qmenu_render(const QMenuHost *host,uint8_t *pixels,double now,int dirty[4]);
 int  qmenu_tab(void);
+bool qmenu_pointer(float *px,float *py);   /* the steadied laser point on the panel (menu pixels); false: none */
 bool qmenu_modal(void);                 /* a confirm dialog or keyboard is open */

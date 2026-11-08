@@ -44,7 +44,7 @@ static QMenuHost host={get,set,action,0,0,1680,1760,false,true};
 
 static uint8_t pixels[QMENU_W*QMENU_H*4];
 static double clock_s=1;
-static void frame(QMenuInput in){clock_s+=1/72.;in.now=clock_s;qmenu_update(&host,&in);qmenu_render(&host,pixels,clock_s);}
+static void frame(QMenuInput in){clock_s+=1/72.;in.now=clock_s;qmenu_update(&host,&in);qmenu_render(&host,pixels,clock_s,NULL);}
 static void idle(void){frame((QMenuInput){0});}
 /* pressing something: find its box, point at it, pull and release the trigger */
 static bool find(int id,float *x,float *y){for(int i=0;i<nhits;i++)if(hits[i].id==id){*x=hits[i].x+hits[i].w/2.f;*y=hits[i].y+hits[i].h/2.f;return true;}return false;}
@@ -59,7 +59,7 @@ static void stick(float x,float y){frame((QMenuInput){.stick_x=x,.stick_y=y});fr
 static int problems;
 static void save(const char *name){
     /* force a redraw */
-    drawn_hash^=1;qmenu_render(&host,pixels,clock_s+=1);
+    drawn_hash^=1;qmenu_render(&host,pixels,clock_s+=1,NULL);
     char path[256];snprintf(path,sizeof path,"%s.rgba",name);
     FILE *f=fopen(path,"wb");if(!f){perror(path);exit(1);}fwrite(pixels,1,sizeof pixels,f);fclose(f);
     /* every pressable thing inside its area */
@@ -167,7 +167,34 @@ int main(void){
     /* a locked player row ignores everything */
     session(TC2V_LINKED);tab_to(QMENU_TAB_PLAYER);idle();opt[QOPT_PLAYER]=0;
     {float x,y;assert(!find(ID(K_SEG,QOPT_PLAYER*8+1),&x,&y));}
-    if(problems){fprintf(stderr,"%d widgets outside their area\n",problems);return 1;}
-    printf("menu fixture: all states fit, controls work\n");
+    /* A sweeping laser and a moving highlight redraw only small boxes: the picture must match a full redraw exactly. */
+    static uint8_t partial[sizeof pixels];
+    for(int t=0;t<QMENU_TAB_COUNT;t++)for(int scn=0;scn<2;scn++){
+        if(scn)session(TC2V_LINKED);else base_view();
+        qmenu_open(t);idle();drawn_hash^=1;qmenu_render(&host,pixels,clock_s+=1,NULL);
+        for(int i=0;i<300;i++){
+            frame((QMenuInput){.pointer=true,.px=60+(i*37)%1000,.py=90+(i*53)%620});
+            if(i%50==49){stick(0,1);stick(1,0);}
+            sv.level=i%9;sv.partner_level=(i/3)%9;sv.ping_ms=40+i%30;   /* live readings */
+        }
+        memcpy(partial,pixels,sizeof pixels);
+        drawn_hash^=1;qmenu_render(&host,pixels,clock_s,NULL);
+        if(memcmp(partial,pixels,sizeof pixels)){fprintf(stderr,"tab %d (%s): partial redraws differ from a full one\n",t,scn?"linked":"offline");problems++;}
+    }
+    /* A trembling hand at the edge between two buttons does not flicker between them; a real move does. */
+    base_view();qmenu_open(QMENU_TAB_GUN);idle();
+    {
+        const Hit *laser=find_hit(ID(K_SEG,QOPT_AIM*8)),*tracer=find_hit(ID(K_SEG,QOPT_AIM*8+1));assert(laser&&tracer);
+        const float edge=laser->x+laser->w,y=laser->y+laser->h/2.f;
+        for(int i=0;i<20;i++)frame((QMenuInput){.pointer=true,.px=edge-3,.py=y});
+        assert(hover==laser->id);
+        for(int i=0;i<40;i++)frame((QMenuInput){.pointer=true,.px=edge+(i%2?3:-2),.py=y+(i%3)-1});
+        assert(hover==laser->id);
+        for(int i=0;i<20;i++)frame((QMenuInput){.pointer=true,.px=edge+20,.py=y});
+        assert(hover==tracer->id);
+        (void)tracer;
+    }
+    if(problems){fprintf(stderr,"%d problems\n",problems);return 1;}
+    printf("menu fixture: all states fit, controls work, partial redraws match full ones, the pointer holds steady at edges\n");
     return 0;
 }
