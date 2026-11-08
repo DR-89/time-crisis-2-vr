@@ -94,7 +94,7 @@ void qui_draw_menu(const float view[16],const float projection[16],V3 center,Q4 
     const bool drew=qmenu_render(host,pixels,now,box);
     timespec_get(&t1,TIME_UTC);
     const double ms=(t1.tv_sec-t0.tv_sec)*1e3+(t1.tv_nsec-t0.tv_nsec)/1e6;
-    if(drew&&ms>2){static unsigned slow;if(slow++<200)fprintf(stderr,"[MENU] slow redraw %.1f ms (%dx%d)\n",ms,box[2],box[3]);}
+    if(drew&&ms>6){static unsigned slow;if(slow++<200)fprintf(stderr,"[MENU] slow redraw %.1f ms (%dx%d)\n",ms,box[2],box[3]);}
     if(drew||!texture_ready)upload_menu(box);
     quad(texture,view,projection,center,rotation,QUI_PANEL_W/2,QUI_PANEL_H/2,0,0);
 }
