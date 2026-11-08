@@ -11,7 +11,8 @@ WAV files (a tone for A, silence for B), so no real microphone is opened; what B
     python -X utf8 tests/test_online.py --keep          # keep screenshots: build/online-test/<scenario>/{A,B}/cap-*.ppm
 """
 from pathlib import Path
-import math, os, re, shutil, struct, subprocess, sys, time, wave
+import math, os, re, shutil, struct, subprocess, sys, threading, time, wave
+from concurrent.futures import ThreadPoolExecutor
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / 'artifacts/pc/TimeCrisis2VR-PC'
@@ -25,10 +26,11 @@ STATUS = re.compile(r'\[ONLINE\] frame (\d+) side P(\d) link (on|off|stand-in) a
 TONE_HZ = 440
 
 
-def recording(path: Path, frames: int, aim_until: int = 0, coins_at: int = 1500, again_at: int = 0, idle: str = ''):
+def recording(path: Path, frames: int, aim_until: int = 0, coins_at: int = 1500, again_at: int = 0, idle: str = '', aim_again: str = ''):
     """Coins and start at 1500 / 1700 (or coins_at / +200), then the pedal held and the trigger pulsed while the aim sweeps
     (held on the mode screen's top panel until aim_until); again_at: coins once more (a cabinet that restarted); idle 'a-b': no
-    trigger, pedal or aim from frame a to b (a player who lets SELECT GAME MODE run out)."""
+    trigger, pedal or aim from frame a to b (a player who lets SELECT GAME MODE run out); aim_again 'a-b': the aim held on the
+    mode screen's top panel again from a to b (a cabinet that restarted and comes back to SOLO/LINKED)."""
     events = [(0, '0000', 457, 161)]
     for at in (coins_at, again_at):
         if not at:
@@ -37,8 +39,10 @@ def recording(path: Path, frames: int, aim_until: int = 0, coins_at: int = 1500,
             events += [(at + 12 * i, '0001', 457, 161), (at + 12 * i + 6, '0000', 457, 161)]
     events += [(coins_at + 200, '0010', 457, 161), (coins_at + 206, '0000', 457, 161)]
     f, k = coins_at + 400, 0
+    again = tuple(int(v) for v in aim_again.split('-')) if aim_again else (0, 0)
     while f < frames:
-        x, y = (457, 161) if f < aim_until else (int(457 + 250 * math.sin(k * .37)), int(161 + 80 * math.sin(k * .23)))
+        held = f < aim_until or again[0] <= f < again[1]
+        x, y = (457, 161) if held else (int(457 + 250 * math.sin(k * .37)), int(161 + 80 * math.sin(k * .23)))
         # release the pedal now and then to reload
         pedal = '0020' if (k % 40) < 34 else '0000'
         fire = '0030' if pedal == '0020' else '0000'
@@ -124,10 +128,57 @@ SCENARIOS = {
                     'A_IDLE': '1600-3000', 'AIM_UNTIL': 3400, 'B_COINS_AT': 4800, 'B_AIM_UNTIL': 7400}, 'menutimeout'),
     'menulinked': (8400, '600:hostroom', '700:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'TCVR_RAMWATCH': '2CE92B,2F3930,2F3502,2CE7B7',
                    'A_IDLE': '1600-3000', 'AIM_UNTIL': 3400, 'B_COINS_AT': 4800, 'B_AIM_UNTIL': 7400}, 'menutimeout'),
+    # Coming back (REJOIN). The server gives a returning player the lowest free slot, and the partner who stayed reconnects to
+    # reopen the room, so slots no longer tell the sides apart: the cabinets agree (tc2_online.c, side block). p1return: the
+    # drop-in game above, then A (P1, the room's host) restarts out of it (RESTART & LEAVE) at 8000 while B plays on, rejoins at
+    # 8300 as P1 again, puts coins in at 9000 and takes LINK PLAY: a game of its own, as a switched-off left cabinet would, while
+    # B's goes on. p2return: B restarts out and rejoins as P2, puts coins in and joins A's game again.
+    'p1return': (13800, '600:hostroom;8000:restart;8300:rejoin', '3600:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7',
+                 'TCVR_RAMWATCH': '2CE92B,2F3930,2F3502,2F3FD3', 'B_COINS_AT': 4800, 'B_AIM_UNTIL': 7400, 'A_COINS_AGAIN': 9000,
+                 'A_AIM_AGAIN': '9000-10800'}, 'return'),
+    # (B comes back while A's game is young: A plays on random inputs, and a P2 can only drop into a game still running)
+    'p2return': (9000, '600:hostroom', '3600:joincode=KXQ7;4000:restart;4300:rejoin', {'TC2_NET_ROOM_CODE': 'KXQ7',
+                 'TCVR_RAMWATCH': '2CE92B,2F3930,2F3502,2F3FD3', 'B_COINS_AT': 5300, 'B_AIM_UNTIL': 7600}, 'return'),
+    # a newcomer where P2 stayed: A leaves for good at 6000 and joins the room afresh by its code at 6300; the server gives A
+    # slot 1, B (who stayed, P2) keeps P2 and A takes P1
+    'newcomer': (9000, '600:hostroom;6000:leave;6300:joincode=KXQ7', '3600:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7',
+                 'TCVR_RAMWATCH': '2F3502,2F3FD3', 'B_COINS_AT': 4800, 'B_AIM_UNTIL': 7400}, 'return'),
+    # REJOIN after an app restart: A starts with online.cfg remembering room 1 as P1. B opens room 1 (slot 0, so the slot alone
+    # would make B P1); A rejoins and asks for P1, B has no claim and takes P2
+    'persist': (4200, '900:rejoin', '600:hostroom', {'TC2_NET_ROOM_CODE': 'KXQ7', 'A_REJOIN': 'rejoin=1 KXQ7 1 {now} CABB'}, 'persist'),
     'dropin': (8400, '600:hostroom', '3600:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'TCVR_RAMWATCH': '2CE92B,2F3930,2F3502',
                'B_COINS_AT': 4800, 'B_AIM_UNTIL': 7400}, 'dropin'),
 }
-ROOM_SCENARIOS = {'room', 'browse', 'mute', 'voicenet', 'duplex', 'roomleave', 'modescreen', 'p2join', 'dropin', 'menutimeout', 'menulinked'}
+ROOM_SCENARIOS = {'room', 'browse', 'mute', 'voicenet', 'duplex', 'roomleave', 'modescreen', 'p2join', 'dropin', 'menutimeout', 'menulinked',
+                  'p1return', 'p2return', 'newcomer', 'persist'}
+
+
+# Lanes, so the scenarios run side by side: lane 0 is the cabinet folders A / B and lobby port 27751 (the LAN scenarios all run
+# there, one after another: the built-in host's UDP 27750 and LAN discovery are fixed); room lanes 1, 2, 3 have their own
+# folders (A1 / B1, ...) and lobby ports. Windows may ask once to allow each new folder's copy of the game: loopback only.
+LANES = 4
+_PRINT = threading.Lock()
+_LINES = threading.local()
+
+
+def report(*args, **kwargs):
+    """Scenario output, kept per thread and printed whole when the scenario ends (parallel lanes do not interleave)."""
+    kwargs.pop('flush', None)
+    if not hasattr(_LINES, 'buf'):
+        _LINES.buf = []
+    _LINES.buf.append(' '.join(str(a) for a in args))
+
+
+def flush_report():
+    with _PRINT:
+        for line in getattr(_LINES, 'buf', []):
+            print(line, flush=True)
+    _LINES.buf = []
+
+
+def lane_cabinets(run_dir: Path, lane: int):
+    suffix = '' if lane == 0 else str(lane)
+    return {'A': run_dir / ('A' + suffix), 'B': run_dir / ('B' + suffix)}, SERVER_PORT + 10 * lane
 
 
 def cabinet(directory: Path, server: str):
@@ -144,39 +195,45 @@ def cabinet(directory: Path, server: str):
     (directory / 'online.cfg').write_text(f'name=CAB{directory.name}\nserver={server}\n')
 
 
-def run(name: str, keep: bool):
+def run(name: str, keep: bool, lane: int = 0):
     frames, script_a, script_b, extra, check = SCENARIOS[name]
     extra = dict(extra)
     base = WORK / name
     run_dir = WORK / 'cabinets'
+    cab, port = lane_cabinets(run_dir, lane)
     rec = base / 'inputs.rec'
     base.mkdir(parents=True, exist_ok=True)
-    server = f'127.0.0.1:{SERVER_PORT}' if name in ROOM_SCENARIOS else 'zonesync.invalid'
+    server = f'127.0.0.1:{port}' if name in ROOM_SCENARIOS else 'zonesync.invalid'
     for side in 'AB':
-        cabinet(run_dir / side, server)
-    recording(rec, frames, int(extra.pop('AIM_UNTIL', 0)), again_at=int(extra.pop('A_COINS_AGAIN', 0)), idle=extra.pop('A_IDLE', ''))
+        cabinet(cab[side], server)
+    recording(rec, frames, int(extra.pop('AIM_UNTIL', 0)), again_at=int(extra.pop('A_COINS_AGAIN', 0)), idle=extra.pop('A_IDLE', ''),
+              aim_again=extra.pop('A_AIM_AGAIN', ''))
     recs = {'A': rec, 'B': rec}
     if 'B_COINS_AT' in extra:                                # B's own inputs: it puts coins in later
         recs['B'] = base / 'inputs_b.rec'
-        recording(recs['B'], frames, int(extra.pop('B_AIM_UNTIL', 0)), int(extra.pop('B_COINS_AT')))
+        recording(recs['B'], frames, int(extra.pop('B_AIM_UNTIL', 0)), int(extra.pop('B_COINS_AT')),
+                  again_at=int(extra.pop('B_COINS_AGAIN', 0)), aim_again=extra.pop('B_AIM_AGAIN', ''))
+    if 'A_REJOIN' in extra:                                  # A remembers a room in online.cfg, as after an app restart
+        with open(cab['A'] / 'online.cfg', 'a') as f:
+            f.write(extra.pop('A_REJOIN').replace('{now}', str(int(time.time()))) + '\n')
     seconds = frames // 60 + 30
-    microphone(run_dir / 'A' / 'mic.wav', seconds, tone=True)
-    microphone(run_dir / 'B' / 'mic.wav', seconds, tone=check == 'duplex')   # both talking at once: the echo safeguard must not mute either
+    microphone(cab['A'] / 'mic.wav', seconds, tone=True)
+    microphone(cab['B'] / 'mic.wav', seconds, tone=check == 'duplex')   # both talking at once: the echo safeguard must not mute either
     lobby = None
     if name in ROOM_SCENARIOS:
         if not SERVER_EXE.exists():
             sys.exit("Build upstream's current lobby server first (see docs/ONLINE.md, Testing)")
-        lobby = subprocess.Popen([str(SERVER_EXE), '--port', str(SERVER_PORT), '--bind', '127.0.0.1', '--max-per-ip', '16', '--quiet'],
+        lobby = subprocess.Popen([str(SERVER_EXE), '--port', str(port), '--bind', '127.0.0.1', '--max-per-ip', '16', '--quiet'],
                                  stdout=open(base / 'server.log', 'w'), stderr=subprocess.STDOUT)
         time.sleep(0.5)
     procs = []
     for side, script in (('A', script_a), ('B', script_b)):
         env = dict(os.environ, SDL_AUDIODRIVER='dummy', TCVR_TEST_HIDDEN='1', TC2_REPLAY=str(recs[side]), TC2_NET_STATUS='1', TC2_NET_SCRIPT=script,
-                   TC2_VOICE_IN=str(run_dir / side / 'mic.wav'), TC2_VOICE_OUT=str(run_dir / side / 'voice_out.wav'), **extra)
+                   TC2_VOICE_IN=str(cab[side] / 'mic.wav'), TC2_VOICE_OUT=str(cab[side] / 'voice_out.wav'), **extra)
         if keep:
             env.setdefault('TCVR_CAPTURE_EVERY', '600')
-        procs.append(subprocess.Popen([str(run_dir / side / 'TimeCrisis2VR.exe'), '--desktop', '--no-dialog', '--frames', str(frames)],
-                                      cwd=run_dir / side, env=env))
+        procs.append(subprocess.Popen([str(cab[side] / 'TimeCrisis2VR.exe'), '--desktop', '--no-dialog', '--frames', str(frames)],
+                                      cwd=cab[side], env=env))
     for p in procs:
         p.wait(timeout=frames / 50 + 120)
     if lobby:
@@ -187,7 +244,7 @@ def run(name: str, keep: bool):
         if out.exists():
             shutil.rmtree(out)
         out.mkdir()
-        for f in [run_dir / side / 'tc2.log', run_dir / side / 'voice_out.wav', *(run_dir / side).glob('cap-*.ppm')]:
+        for f in [cab[side] / 'tc2.log', cab[side] / 'voice_out.wav', *(cab[side]).glob('cap-*.ppm')]:
             if f.exists():
                 shutil.move(str(f), out / f.name)
     logs = {side: (base / side / 'tc2.log').read_text(errors='replace') for side in 'AB'}
@@ -259,6 +316,24 @@ def run(name: str, keep: bool):
                 failures.append(f'{side}: LINK PLAY not taken (mode screen left with {choice or "nothing"})')
     if check == 'rejoin' and logs['A'].count('GO: session') < 2:
         failures.append('A: no second session after B rejoined')
+    for side in 'AB':                                        # a cabinet never changes sides within an episode
+        if 'the lobby moved this cabinet' in logs[side]:
+            failures.append(f'{side}: changed sides mid-session')
+    if check in ('return', 'persist'):
+        for side, want in (('A', 1), ('B', 2)):
+            agreed = re.findall(r'sides agreed: P(\d)', logs[side])
+            if not agreed or any(int(a) != want for a in agreed):
+                failures.append(f'{side}: sides agreed {agreed}, want P{want} every time')
+        if check == 'return' and (logs['A'].count('GO: session') < 2 or logs['B'].count('GO: session') < 2):
+            failures.append('no second session after coming back')
+    if check == 'persist' and 'rejoining room 1 (KXQ7), asking for P1' not in logs['A']:
+        failures.append('A: the remembered room was not rejoined as P1')
+    if name == 'p2return':
+        # B, back after its restart, takes LINK PLAY again on the right (its second mode-screen choice)
+        left = set(re.findall(r'\[RAM\] frame (\d+) 2CE92B: 1 -> 0', logs['B']))
+        choices = [v for f, v in re.findall(r'\[RAM\] frame (\d+) 2F3930: [01] -> (\d+)', logs['B']) if f in left and int(f) > 4300]
+        if '4' not in choices:
+            failures.append(f'B: did not take LINK PLAY after coming back (choices {choices})')
     if name in ROOM_SCENARIOS:
         rooms = set(re.findall(r'in room (\d+) \(code', logs['A']))
         if 'in room' not in logs['A'] or not re.search(r'GO: session', logs['B']):
@@ -286,14 +361,14 @@ def run(name: str, keep: bool):
         elif after and after[-1] - after[0] > 0:
             failures.append(f'{after[-1] - after[0]} voice frames arrived after A muted')
     summary = {side: (rows[side][-1] if rows[side] else None) for side in 'AB'}
-    print(f'[{name}] ' + ('PASS' if not failures else 'FAIL'), flush=True)
+    report(f'[{name}] ' + ('PASS' if not failures else 'FAIL'), flush=True)
     for side in 'AB':
         r = summary[side]
         if r:
-            print(f'    {side}: P{r[1]} link {r[2]} alive {r[3]} lag {r[4]} tx {r[6]} rx {r[7]} dropped {r[8]} ping {r[12]} ms'
+            report(f'    {side}: P{r[1]} link {r[2]} alive {r[3]} lag {r[4]} tx {r[6]} rx {r[7]} dropped {r[8]} ping {r[12]} ms'
                   f' | voice {r[13]} sent {r[14]} received {r[15]} lost {r[16]}', flush=True)
     for f in failures:
-        print('    - ' + f, flush=True)
+        report('    - ' + f, flush=True)
     if not keep:
         for side in 'AB':
             for p in (base / side).glob('cap-*.ppm'):
@@ -304,33 +379,34 @@ def run(name: str, keep: bool):
 UPSTREAM_GAME = BUILD / 'upstream-release/windows-release/TimeCrisis2.exe'
 
 
-def crossplay(keep: bool):
+def crossplay(keep: bool, lane: int = 0):
     """Our cabinet (P1, hosting a room) against upstream namco22-decompile's own released Time Crisis 2 (P2, headless), through
     upstream's server. Needs build/upstream-release (docs/ONLINE.md, Testing). Checks the link from both sides and upstream's own
     agreed start (it holds its start until our game has run 25 s, reading our trailer)."""
     if not UPSTREAM_GAME.exists():
-        print('[crossplay] SKIPPED: no upstream release in build/upstream-release', flush=True)
+        report('[crossplay] SKIPPED: no upstream release in build/upstream-release', flush=True)
         return True
     frames = 6600
     base = WORK / 'crossplay'
     base.mkdir(parents=True, exist_ok=True)
     run_dir = WORK / 'cabinets'
-    cabinet(run_dir / 'A', f'127.0.0.1:{SERVER_PORT}')
+    cab, port = lane_cabinets(run_dir, lane)
+    cabinet(cab['A'], f'127.0.0.1:{port}')
     rec = base / 'inputs.rec'
     recording(rec, frames)
-    microphone(run_dir / 'A' / 'mic.wav', frames // 60 + 30, tone=True)
-    lobby = subprocess.Popen([str(SERVER_EXE), '--port', str(SERVER_PORT), '--bind', '127.0.0.1', '--quiet'], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+    microphone(cab['A'] / 'mic.wav', frames // 60 + 30, tone=True)
+    lobby = subprocess.Popen([str(SERVER_EXE), '--port', str(port), '--bind', '127.0.0.1', '--quiet'], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
     time.sleep(0.5)
     env = dict(os.environ, SDL_AUDIODRIVER='dummy', TCVR_TEST_HIDDEN='1', TC2_REPLAY=str(rec), TC2_NET_STATUS='1', TC2_NET_SCRIPT='600:hostroom', TC2_NET_ROOM_CODE='KXQ7',
-               TC2_VOICE_IN=str(run_dir / 'A' / 'mic.wav'))
-    ours = subprocess.Popen([str(run_dir / 'A' / 'TimeCrisis2VR.exe'), '--desktop', '--no-dialog', '--frames', str(frames)], cwd=run_dir / 'A', env=env)
+               TC2_VOICE_IN=str(cab['A'] / 'mic.wav'))
+    ours = subprocess.Popen([str(cab['A'] / 'TimeCrisis2VR.exe'), '--desktop', '--no-dialog', '--frames', str(frames)], cwd=cab['A'], env=env)
     time.sleep(16)                                   # upstream joins the server's fullest open room: ours, once it exists
-    uenv = dict(os.environ, SDL_AUDIODRIVER='dummy', TC2_NET_SERVER=f'127.0.0.1:{SERVER_PORT}', TC2_NET_NAME='UPSTREAM', TC2_NET_AUTOSTART='2', TC2_LINKLOG='1', TC2_REPLAY=str(rec))
+    uenv = dict(os.environ, SDL_AUDIODRIVER='dummy', TC2_NET_SERVER=f'127.0.0.1:{port}', TC2_NET_NAME='UPSTREAM', TC2_NET_AUTOSTART='2', TC2_LINKLOG='1', TC2_REPLAY=str(rec))
     theirs = subprocess.Popen([str(UPSTREAM_GAME), 'reset', str(frames * 2_900_000)], cwd=UPSTREAM_GAME.parent, env=uenv)
     ours.wait(timeout=frames / 50 + 120)
     theirs.wait(timeout=frames / 50 + 120)
     lobby.terminate(); lobby.wait(timeout=10)
-    shutil.copy2(run_dir / 'A' / 'tc2.log', base / 'ours.log')
+    shutil.copy2(cab['A'] / 'tc2.log', base / 'ours.log')
     shutil.copy2(UPSTREAM_GAME.parent / 'tc2.log', base / 'upstream.log')
     a = (base / 'ours.log').read_text(errors='replace')
     u = (base / 'upstream.log').read_text(errors='replace')
@@ -353,13 +429,17 @@ def crossplay(keep: bool):
         failures.append('CPU traps or FP exceptions')
     if not re.search(r'partner-voice 0', a):
         failures.append('an upstream partner was taken for a voice-chat partner')
-    print('[crossplay] ' + ('PASS' if not failures else 'FAIL'), flush=True)
+    report('[crossplay] ' + ('PASS' if not failures else 'FAIL'), flush=True)
     if rows:
         r = rows[-1]
-        print(f'    ours (P1): link {r[2]} alive {r[3]} lag {r[4]} game-errors {r[11]}; partner states seen {sorted(set(states))}; upstream sees us as {sorted(set(selfs))}', flush=True)
+        report(f'    ours (P1): link {r[2]} alive {r[3]} lag {r[4]} game-errors {r[11]}; partner states seen {sorted(set(states))}; upstream sees us as {sorted(set(selfs))}', flush=True)
     for f in failures:
-        print('    - ' + f, flush=True)
+        report('    - ' + f, flush=True)
     return not failures
+
+
+# --quick: one of each kind (a LAN link, a room with voice, the drop-in, coming back, a newcomer, upstream's desktop game)
+QUICK = ['basic', 'room', 'dropin', 'p1return', 'newcomer', 'crossplay']
 
 
 def main():
@@ -367,8 +447,38 @@ def main():
     keep = '--keep' in sys.argv
     if not (PACKAGE / 'TimeCrisis2VR.exe').exists():
         sys.exit('Build first: python -X utf8 tools/build_pc.py --rom <timecrs2.zip>')
-    names = args or [*SCENARIOS, 'crossplay']
-    ok = all([crossplay(keep) if n == 'crossplay' else run(n, keep) for n in names])
+    names = args or (QUICK if '--quick' in sys.argv else [*SCENARIOS, 'crossplay'])
+    lanes = 1 if '--serial' in sys.argv else LANES
+    # LAN scenarios share lane 0 in turn; room scenarios (and crossplay) take the other lanes, the longest first
+    lan = [n for n in names if n != 'crossplay' and n not in ROOM_SCENARIOS]
+    rooms = sorted([n for n in names if n not in lan], key=lambda n: -(SCENARIOS[n][0] if n in SCENARIOS else 9000))
+    queues = [lan] + [[] for _ in range(max(lanes - 1, 0))]
+    if lanes == 1:
+        queues[0] += rooms
+    else:
+        load = [0] * (lanes - 1)
+        for n in rooms:                                     # the least loaded room lane takes the next scenario
+            i = load.index(min(load))
+            queues[i + 1].append(n)
+            load[i] += SCENARIOS[n][0] if n in SCENARIOS else 9000
+
+    def lane_run(lane: int, queue: list):
+        time.sleep(15 * lane)                              # eight cabinets booting at once starve each other: stagger the lanes
+        results = []
+        for n in queue:
+            try:
+                results.append(crossplay(keep, lane) if n == 'crossplay' else run(n, keep, lane))
+            except Exception as e:                         # one scenario's crash fails it, not the other lanes
+                report(f'[{n}] FAIL\n    - {type(e).__name__}: {e}')
+                results.append(False)
+            flush_report()
+        return results
+
+    t0 = time.time()
+    with ThreadPoolExecutor(max_workers=lanes) as pool:
+        futures = [pool.submit(lane_run, lane, q) for lane, q in enumerate(queues) if q]
+        ok = all(all(f.result()) for f in futures)
+    print(f'{len(names)} scenarios in {(time.time() - t0) / 60:.1f} minutes on {sum(1 for q in queues if q)} lanes: ' + ('PASS' if ok else 'FAIL'), flush=True)
     sys.exit(0 if ok else 1)
 
 

@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -92,12 +93,19 @@ static void say(const char *text,uint32_t ms){
     fprintf(stderr,"[ONLINE] %s\n",toast);
 }
 
+/* REJOIN: the room the player left, restarted out of or lost for over a minute while linked, and the cabinet they had there.
+ * It is kept in online.cfg across app restarts, and offered for as long as the server still lists that room (rejoin_tick). */
+static int last_room_id,last_side;static char last_code[5],last_partner[24];static long long last_time;
+static bool last_seen;                     /* the server listed the room since it was remembered (or it was just left) */
+#define REJOIN_HOURS 12                    /* an older memory is dropped at start, whatever the server says */
+
 /* ---- config ---- */
 static bool cfg_voice=true,cfg_muted=false;static int cfg_volume=100;
 static void save_cfg(void){
     FILE *f=fopen(CFG_PATH,"w");if(!f)return;
     fprintf(f,"name=%s\nserver=%s\njoin=%u.%u.%u.%u:%d\nvoice=%d\nmic_muted=%d\nvoice_volume=%d\n",name,server,
             join_ip[0],join_ip[1],join_ip[2],join_ip[3],join_port,cfg_voice?1:0,cfg_muted?1:0,cfg_volume);
+    if(last_room_id>0)fprintf(f,"rejoin=%d %s %d %lld %s\n",last_room_id,last_code,last_side,last_time,last_partner);
     fclose(f);
 }
 static void clean_name(char *s){
@@ -120,6 +128,14 @@ static void load_cfg(void){
         else if(!strncmp(line,"voice=",6))cfg_voice=atoi(line+6)!=0;
         else if(!strncmp(line,"mic_muted=",10))cfg_muted=atoi(line+10)!=0;
         else if(!strncmp(line,"voice_volume=",13)){cfg_volume=atoi(line+13);if(cfg_volume<0)cfg_volume=0;if(cfg_volume>200)cfg_volume=200;}
+        else if(!strncmp(line,"rejoin=",7)){
+            int id=0,side=0;char code[8]={0},who[32]={0};long long when=0;
+            if(sscanf(line+7,"%d %7s %d %lld %31s",&id,code,&side,&when,who)>=4&&id>0&&tc2_room_code_valid(code)&&(side==1||side==2)&&
+               (long long)time(NULL)-when<REJOIN_HOURS*3600LL){
+                last_room_id=id;last_side=side;last_time=when;last_seen=false;
+                snprintf(last_code,sizeof last_code,"%s",code);snprintf(last_partner,sizeof last_partner,"%s",who);
+            }
+        }
     }
     fclose(f);
 }
@@ -168,6 +184,35 @@ static void partner_name(char *out,size_t n){
     snprintf(out,n,"PARTNER");
     for(int i=0;i<eng_net_roster_count();i++){int ready,self;char nm[24];if(eng_net_roster(i,nm,sizeof nm,&ready,&self)&&!self){snprintf(out,n,"%s",nm);return;}}
 }
+/* ---- which cabinet is which (measured 2026-11-08, tests/test_online.py p1return) ----
+ * The lobby slot used to decide: slot 0 P1, slot 1 P2. But the server gives a player who comes back the lowest free slot, and
+ * the partner who stayed reconnects to reopen the room (episode_tick), so a P1 who left and rejoined found its partner moved
+ * to P1 mid-game and came back as P2. Now the two cabinets agree: each frame carries a side block (4 bytes before the
+ * trailer, where upstream and older builds read nothing) with the side it asks for, whether it stayed (an episode) and the side
+ * it has. A cabinet that stayed keeps its side, one rejoining asks for the side it had, a newcomer takes the other; with
+ * neither, or a partner without the block (upstream's desktop game, an older build), the slot decides as before. The link waits
+ * for that, about one round trip; a cabinet that stayed keeps its link running meanwhile. */
+#define SIDE_AT (TC2_LINK_PAYLOAD-TC2_LINK_TRAILER-4)
+static bool side_pending;static uint32_t side_wait_ms;static int side_slot,my_pref,rejoin_pref;static bool my_staying;
+static bool partner_known,partner_staying,partner_upstream;static int partner_pref,partner_cur,partner_slot=-1;
+static char episode_partner[24];
+static void side_block(uint8_t *buf){
+    uint8_t *b=buf+SIDE_AT;b[0]='S';b[1]='D';
+    b[2]=(uint8_t)((my_pref&3)|(my_staying?4:0)|((side_pending?0:qtc2_cabinet_side)&3)<<3);b[3]=(uint8_t)(b[2]^0x5A);
+}
+static int choose_side(void){
+    const int by_slot=side_slot==1?2:1;
+    if(!partner_known||partner_upstream)return by_slot;
+    if(my_pref&&partner_pref&&my_pref==partner_pref){   /* both ask for the same: who stayed keeps it, else the lower slot */
+        const bool mine=my_staying!=partner_staying?my_staying:side_slot<partner_slot;
+        return mine?my_pref:3-my_pref;
+    }
+    if(my_pref)return my_pref;
+    if(partner_pref)return 3-partner_pref;
+    return by_slot;
+}
+static void settle_side(int side);
+static void remember_room(void);
 static void session_begin(int slot,int players){
     (void)players;
     if(tc2_link_ghost()){
@@ -177,41 +222,67 @@ static void session_begin(int slot,int players){
                 say("PARTNER CONNECTED - CHOOSE YOUR MODE",4000);}
             pending_slot=slot;return;
         }
-        fprintf(stderr,"[ONLINE] frame %u: the partner replaces the stand-in\n",sim_frames);
-        tc2_link_set_ghost(false);
     }
     pending_slot=-1;
-    int side=slot==1?2:1;char partner[24],line[64];partner_name(partner,sizeof partner);
-    if(tc2_link_ghost())tc2_link_set_ghost(false);   /* a real partner replaces the stand-in */
     tc2_link_session_reset();
+    side_slot=slot;my_staying=episode;my_pref=episode?qtc2_cabinet_side:rejoin_pref;
+    partner_known=partner_staying=partner_upstream=false;partner_pref=partner_cur=0;partner_slot=-1;
+    side_pending=true;side_wait_ms=SDL_GetTicks();
+    fprintf(stderr,"[ONLINE] frame %u: session in slot %d: %s P%d, agreeing on the sides\n",sim_frames,slot,my_staying?"keeping":my_pref?"asking for":"no preference,",my_pref?my_pref:slot+1);
+}
+/* the partner's side block arrived (or 1.5 s passed without one): the cabinets settle, then the link starts */
+static void side_tick(void){
+    if(!side_pending)return;
+    if(!eng_net_session_active()){side_pending=false;return;}
+    if(!partner_known&&SDL_GetTicks()-side_wait_ms<1500)return;
+    side_pending=false;
+    const int side=choose_side();
+    fprintf(stderr,"[ONLINE] frame %u: sides agreed: P%d (slot %d; partner %s, asks %s%s)\n",sim_frames,side,side_slot,
+            !partner_known?"silent":partner_upstream?"upstream":"VR",partner_pref==1?"P1":partner_pref==2?"P2":"nothing",partner_staying?", stayed":"");
+    settle_side(side);
+}
+static void settle_side(int side){
+    char partner[24],line[64];partner_name(partner,sizeof partner);
+    if(strcmp(partner,"PARTNER"))snprintf(episode_partner,sizeof episode_partner,"%s",partner);
+    if(tc2_link_ghost()){fprintf(stderr,"[ONLINE] frame %u: the partner replaces the stand-in\n",sim_frames);tc2_link_set_ghost(false);}
     if(episode&&tc2_link_enabled()&&side==qtc2_cabinet_side){snprintf(line,sizeof line,"%s IS BACK - LINKED AGAIN",partner);say(line,4000);}
     else{
         if(episode&&side!=qtc2_cabinet_side)fprintf(stderr,"[ONLINE] the lobby moved this cabinet from P%d to P%d\n",qtc2_cabinet_side,side);
         qtc2_cabinet_side=side;tc2_link_set_enabled(true);
         if(side==2&&sim_frames-init_frame>LINK_INIT_FRAMES)p2_init_pending=true;
-        snprintf(line,sizeof line,"LINKED WITH %s - P%d %s",partner,side,side==2?"ROBERT":"KEITH");say(line,6000);
+        if(my_pref&&!my_staying&&side==1&&partner_staying)   /* back as P1: a left cabinet can't join a game under way */
+            snprintf(line,sizeof line,"BACK AS P1 - START A GAME, %s JOINS AFTER THEIRS",partner);
+        else snprintf(line,sizeof line,"LINKED WITH %s - P%d %s",partner,side,side==2?"ROBERT":"KEITH");
+        say(line,6000);
     }
     if(menu_from_mode){menu_from_mode=false;qhost_online_menu(false);}   /* opened by the SOLO/LINKED shot: back to the arcade */
     if(!eng_net_hosting())snprintf(target,sizeof target,"%s",eng_net_server());   /* also a LAN host found by discovery */
-    episode=true;partner_gone_ms=lost_ms=0;
+    episode=true;partner_gone_ms=lost_ms=0;rejoin_pref=0;
 }
 static void session_end(void){ready_sent=false;start_sent_ms=0;}   /* the link stays up; the lobby re-links (see lobby_tick) */
 /* Each poll sends one frame: link fragments first (the arcade must not wait), voice when the link has nothing new. */
 /* One payload a frame, as upstream: the newest link frames that fit, then (ours only) the voice block, then the trailer. Voice
  * takes room from the repeated older link frames, never from the newest. */
 static int frame_out(uint8_t *buf){
-    if(!tc2_link_enabled())return 0;
-    memset(buf,0,TC2_LINK_PAYLOAD);
-    const int end=TC2_LINK_PAYLOAD-TC2_LINK_TRAILER;
-    int want=tc2_voice_wanted_bytes(),limit=end-want;
-    if(want&&!tc2_link_pack_fits_newest(limit)){limit=end;want=0;}
-    int o=tc2_link_pack(buf,limit);
-    if(want)tc2_voice_pack(buf+o,end-o);
-    tc2_link_trailer(buf);
+    const bool link=tc2_link_enabled();   /* the stand-in's frames go out as before */
+    if(!link&&!side_pending)return 0;
+    memset(buf,0,TC2_LINK_PAYLOAD);   /* agreeing on the sides without a link yet: no link frames, the side block, the trailer */
+    if(link){
+        const int end=SIDE_AT;
+        int want=tc2_voice_wanted_bytes(),limit=end-want;
+        if(want&&!tc2_link_pack_fits_newest(limit)){limit=end;want=0;}
+        int o=tc2_link_pack(buf,limit);
+        if(want)tc2_voice_pack(buf+o,end-o);
+    }
+    side_block(buf);tc2_link_trailer(buf);
     return 1;
 }
 static void frame_in(int slot,const uint8_t *buf,uint32_t seq){
-    (void)slot;(void)seq;
+    (void)seq;
+    const uint8_t *b=buf+SIDE_AT,*t=buf+TC2_LINK_PAYLOAD-TC2_LINK_TRAILER;
+    if(b[0]=='S'&&b[1]=='D'&&(uint8_t)(b[2]^0x5A)==b[3]){partner_pref=b[2]&3;partner_staying=(b[2]&4)!=0;partner_cur=(b[2]>>3)&3;partner_upstream=false;partner_known=true;partner_slot=slot;}
+    else if(t[0]=='T'&&t[1]=='2'&&!partner_known){partner_upstream=true;partner_known=true;partner_slot=slot;}
+    if(side_pending)return;   /* the link starts once the sides are agreed */
     int o=tc2_link_unpack(buf);
     if(o>0)tc2_voice_unpack(buf+o,TC2_LINK_PAYLOAD-TC2_LINK_TRAILER-o);
 }
@@ -241,7 +312,7 @@ static void end_episode(void){
 static void leave(void){
     bool hosting=eng_net_hosting();
     if(hosting)eng_net_host_stop();else eng_net_disconnect();
-    mode=MODE_NONE;ready_sent=false;start_sent_ms=0;join_started_ms=0;pending_code[0]=0;room_code[0]=0;room_id=0;room_owner=false;
+    mode=MODE_NONE;ready_sent=false;start_sent_ms=0;join_started_ms=0;pending_code[0]=0;room_code[0]=0;room_id=0;room_owner=false;rejoin_pref=0;side_pending=false;
     eng_net_room_request=0;eng_net_room_request_name[0]=0;
     bool was=episode;end_episode();
     say(was?"LEFT THE ONLINE GAME - SINGLE PLAYER":hosting?"STOPPED HOSTING":"OFFLINE",3500);
@@ -329,7 +400,7 @@ static void episode_tick(void){
     uint32_t now=SDL_GetTicks();
     if(mode!=MODE_NONE&&!episode&&join_started_ms&&!eng_net_connected()&&!eng_net_hosting()&&!eng_net_discovering()&&now-join_started_ms>8000){
         int was=mode;char why[96];eng_net_status(why,sizeof why);
-        mode=MODE_NONE;join_started_ms=0;eng_net_disconnect();eng_net_room_request=0;room_code[0]=0;room_owner=false;
+        mode=MODE_NONE;join_started_ms=0;eng_net_disconnect();eng_net_room_request=0;room_code[0]=0;room_owner=false;rejoin_pref=0;
         if(strstr(why,"room full")||strstr(why,"full"))say("THAT ROOM IS FULL",6000);
         else if(strstr(why,"no such room"))say("THAT ROOM IS GONE",6000);
         else if(strstr(why,"in progress"))say("THAT ROOM IS ALREADY PLAYING",6000);
@@ -352,7 +423,7 @@ static void episode_tick(void){
     if(!eng_net_connected()&&!eng_net_hosting()){
         if(!lost_ms){lost_ms=now;retry_ms=0;say("CONNECTION LOST - RECONNECTING",5000);}
         if(now-retry_ms>3000){retry_ms=now;connect_to(target);}
-        if(now-lost_ms>60000){eng_net_disconnect();mode=MODE_NONE;eng_net_room_request=0;room_code[0]=0;room_owner=false;end_episode();say("COULD NOT RECONNECT - SINGLE PLAYER",6000);}
+        if(now-lost_ms>60000){remember_room();eng_net_disconnect();mode=MODE_NONE;eng_net_room_request=0;room_code[0]=0;room_owner=false;end_episode();say("COULD NOT RECONNECT - SINGLE PLAYER",6000);}
     }else lost_ms=0;
 }
 
@@ -642,7 +713,8 @@ static void repay_tick(void){
         coin_pending+=repay;coin_fast+=repay;repay=0;await_trigger=false;told=0;pulled=false;
         return;
     }
-    if(!repay||mode_restart||sim_frames-init_frame<REPAY_AFTER_FRAMES)return;
+    /* the menu's restart pays back after the link handshake (~920 frames): credited earlier, a P2 finds LINK PLAY crossed out */
+    if(!repay||mode_restart||sim_frames-init_frame<(repay_restart?LINK_INIT_FRAMES+180:REPAY_AFTER_FRAMES))return;
     const bool open=eng_net_my_room()>0||eng_net_session_active()||(mode==MODE_LAN_HOST&&eng_net_hosting());
     if(!open&&host_waiting()&&sim_frames-init_frame<REPAY_AFTER_FRAMES+900)return;   /* the server is slow: wait up to 15 s more */
     fprintf(stderr,"[ONLINE] frame %u: %d coins paid back (%s)\n",sim_frames,repay,repay_restart?"menu restart":open?"room open":"no room");
@@ -686,6 +758,7 @@ void tc2_online_frame(void){
     code_join_tick();
     browse_tick();
     health_tick();
+    side_tick();
     last_poll_ms=SDL_GetTicks();
 }
 void tc2_online_service(void){
@@ -700,6 +773,7 @@ void tc2_online_service(void){
     code_join_tick();
     browse_tick();
     rejoin_tick();
+    side_tick();
     last_poll_ms=now;
 }
 
@@ -709,15 +783,16 @@ static void set_volume(int v){cfg_volume=v<0?0:v>200?200:v;tc2_voice_set_volume(
 static bool connected_any(void){return eng_net_hosting()||eng_net_connected()||mode!=MODE_NONE||episode;}
 
 /* REJOIN: the room the player left (or restarted out of) while linked, offered for as long as the server still lists it */
-static int last_room_id,last_side;static char last_code[5],last_partner[24];
 static bool menu_online;static uint32_t menu_online_ms,last_check_ms;
 static void remember_room(void){
     if(!episode||mode!=MODE_ROOM||room_id<=0||!room_code[0])return;
     last_room_id=room_id;last_side=qtc2_cabinet_side;snprintf(last_code,sizeof last_code,"%s",room_code);
-    char p[24];partner_name(p,sizeof p);snprintf(last_partner,sizeof last_partner,"%s",strcmp(p,"PARTNER")?p:"");
-    fprintf(stderr,"[ONLINE] left room %d (%s): REJOIN offered while it is open\n",last_room_id,last_code);
+    char p[24];partner_name(p,sizeof p);snprintf(last_partner,sizeof last_partner,"%s",strcmp(p,"PARTNER")?p:episode_partner);
+    for(char *c=last_partner;*c;c++)if(*c==' ')*c='_';   /* one word in online.cfg */
+    last_time=(long long)time(NULL);last_seen=true;save_cfg();
+    fprintf(stderr,"[ONLINE] left room %d (%s) as P%d: REJOIN offered while it is open\n",last_room_id,last_code,last_side);
 }
-static void forget_room(void){last_room_id=0;last_code[0]=0;last_partner[0]=0;}
+static void forget_room(void){const bool had=last_room_id>0;last_room_id=0;last_code[0]=0;last_partner[0]=0;rejoin_pref=0;if(had)save_cfg();}
 static void rejoin_tick(void){
     if(!last_room_id||connected_any()||!menu_online||SDL_GetTicks()-menu_online_ms>500)return;
     if(browsing||pending_code[0])return;   /* those queries answer this one too */
@@ -725,7 +800,7 @@ static void rejoin_tick(void){
     if(!last_check_ms||now-last_check_ms>5000){last_check_ms=now;tc2_rooms_query(server,LINK_VERSION);return;}
     tc2_rooms_poll();
     if(!tc2_rooms_answered())return;
-    for(int i=0;i<tc2_rooms_count();i++)if(tc2_rooms_get(i)->id==last_room_id)return;
+    for(int i=0;i<tc2_rooms_count();i++){const tc2_room *r=tc2_rooms_get(i);if(r->id==last_room_id&&!strcmp(r->code,last_code)){last_seen=true;return;}}
     fprintf(stderr,"[ONLINE] room %s is gone: no REJOIN\n",last_code);
     forget_room();
 }
@@ -763,7 +838,7 @@ void tc2_online_get_view(tc2_online_view *v){
         v->address_count=address_count;
         for(int i=0;i<address_count;i++){snprintf(v->address[i],sizeof v->address[i],"%s",addresses[i]);v->address_vpn[i]=vpn_address(addresses[i]);}
     }
-    v->can_rejoin=last_room_id>0&&v->state==TC2V_OFFLINE;
+    v->can_rejoin=last_room_id>0&&last_seen&&v->state==TC2V_OFFLINE;
     if(v->can_rejoin){snprintf(v->rejoin_code,sizeof v->rejoin_code,"%s",last_code);snprintf(v->rejoin_partner,sizeof v->rejoin_partner,"%s",last_partner);v->rejoin_side=last_side;}
     v->browse_answered=tc2_rooms_answered();v->browse_busy=tc2_rooms_busy();v->discovering=eng_net_discovering();
     snprintf(v->server_name,sizeof v->server_name,"%s",tc2_rooms_server_name());v->server_players=tc2_rooms_server_players();v->server_rooms=tc2_rooms_count();
@@ -830,8 +905,8 @@ void tc2_online_set_name(const char *n){
 void tc2_online_leave(void){if(inited&&connected_any()){remember_room();leave();}}
 void tc2_online_rejoin(void){
     if(!inited||!last_room_id||connected_any())return;
-    char code[5];snprintf(code,sizeof code,"%s",last_code);const int id=last_room_id;forget_room();
-    fprintf(stderr,"[ONLINE] rejoining room %d (%s)\n",id,code);join_room(id,code);
+    char code[5];snprintf(code,sizeof code,"%s",last_code);const int id=last_room_id,side=last_side;forget_room();
+    fprintf(stderr,"[ONLINE] rejoining room %d (%s), asking for P%d\n",id,code,side);join_room(id,code);rejoin_pref=side;
 }
 /* RESTART GAME: the arcade's own TEST restart, as the drop-in uses; the coins in the machine are paid back once attract is up */
 void tc2_online_restart_game(void){

@@ -56,6 +56,16 @@ The menu works the same on every tab (see the [README](../README.md#the-menu)): 
 - **The game keeps running while the menu is open, while the headset is off and while the app is in the background.** Your partner's cabinet needs yours, exactly as at the arcade. Your controls are released while you are away. On Quest this holds until the headset goes to sleep; after that the reconnection below takes over.
 - **If your partner drops** (Wi-Fi gap, headset asleep, app restarted), the game behaves like a twin cabinet whose other half was switched off. P1's game goes on alone. The host reopens the room by itself, and a joiner keeps reconnecting to the same room or address for a minute. When the partner returns, the banner shows `<NAME> IS BACK - LINKED AGAIN`.
 - **Leaving:** ONLINE tab, **LEAVE ONLINE GAME**, or **RESTART & LEAVE** at the bottom of the menu. You go back to single-player on your usual cabinet side, and **REJOIN** waits on the ONLINE tab while the room stays open.
+- **If the connection can't be restored within a minute,** you go back to single-player and **REJOIN** waits for you too.
+
+## Coming back: REJOIN
+
+**REJOIN** on the ONLINE tab takes you back into the room you left, restarted out of or lost the connection to. It is there as long as the server still lists that room (while your partner is in it), and it survives closing the app: after a restart it appears once the server has confirmed the room is still open, for up to 12 hours.
+
+You come back as the same cabinet:
+
+- **As P2,** your arcade restarts once for its handshake and you drop into P1's game, as when you first joined.
+- **As P1,** if your partner is in the middle of a game, you start a new game of your own: a left cabinet that was switched off can't drop back into its partner's game, at the arcade either. Your partner joins your game after theirs ends (the banner says `BACK AS P1 - START A GAME, <NAME> JOINS AFTER THEIRS`). Between games, you simply play together again.
 - A banner warns `PARTNER CONNECTION IS LAGGING` when the arcade link has been more than six frames behind for over a second and a half.
 
 ## Playing over the internet
@@ -110,6 +120,7 @@ join=192.168.1.20:27750 # the last JOIN IP address
 voice=1                 # voice chat on
 mic_muted=0
 voice_volume=100        # the partner's voice, 0-200
+rejoin=12 KXQ7 1 1794200000 SAM   # REJOIN: room id, code, your cabinet, when you left (Unix time), partner; written and removed by the game
 ```
 
 ## How it works
@@ -137,7 +148,9 @@ The pinned core is not modified. Since upstream 0.9.0 the core calls out for its
 
 ### Cabinet side
 
-The lobby slot decides the cabinet: slot 0 is P1, slot 1 is P2. The game reads the TSS I/O cabinet-ID switch continuously, so the side is set when the session starts with no reboot. The single-player Robert-route adapter is not involved. The side is kept until the player leaves, so a dropped and resumed connection never moves a cabinet mid-game.
+The game reads the TSS I/O cabinet-ID switch continuously, so the side is set when the session starts with no reboot. The single-player Robert-route adapter is not involved.
+
+The lobby slot alone can't decide it: the server gives whoever comes back the lowest free slot, and the player who stayed reconnects to reopen the room, so the slots swap (measured: a P1 who restarted out and rejoined came back as P2, and its partner was moved to P1 mid-game). So the two cabinets agree, through a side block in every frame (below). A cabinet that stayed keeps its side; one coming back through REJOIN asks for the side it had; a newcomer takes the other side; with no claim on either side, the slot decides (slot 0 P1), as before. Both ask for the same: the one that stayed keeps it, else the lower slot. The link starts once the sides are agreed, about one round trip after the session begins; a cabinet that stayed keeps its link running meanwhile. A partner without the block (upstream's desktop game, an older build of this one) is recognised by its first frame, and then the slot decides at once. The side is kept until the player leaves.
 
 ### Transport: compatible with upstream
 
@@ -151,6 +164,7 @@ The lobby and relay are upstream's NMN2 protocol (`upstream/docs/NETPLAY.md`): t
 | 0 | k, the number of link frames |
 | then k times | big-endian 16-bit id, big-endian 16-bit length n, n bytes (one byte per word; bit 8 is set only on the last word, so it is rebuilt on receipt) |
 | after the link frames | **the voice block** (this build only): `V` `C`, a 16-bit length, then the Opus frames |
+| 1012-1015 | from this build (upstream and older builds read nothing here): the side block, `S` `D`, a byte with the side asked for (bits 0-1: 0 none, 1, 2), whether the sender stayed (bit 2) and the side it has (bits 3-4, 0 while agreeing), then that byte xor `0x5A` |
 | 1016-1018 | the trailer: `T` `2` and the byte `0x802F3502` the sender sees (its partner's state: 1 attract, 2 credited, 4 in a game), which tells the partner its own state |
 | 1019 | from this build (upstream leaves it 0 and never reads it): `J` our game takes a second player and has run 25 s (P2's agreed start ends at once), `L` our game is SOLO ONLY, `V` otherwise |
 | 1020-1023 | the sender's frame number, big-endian |
@@ -203,10 +217,14 @@ git -C upstream fetch origin; mkdir build/nmn-server-head; git -C upstream archi
 cd build/nmn-server-head/server; $env:CARGO_TARGET_DIR="../target"; cargo build --release; cd ../../..
 # optional, for the cross-play scenario: upstream's own Windows release, extracted, with timecrs2.zip in its roms folder
 gh release download 0.10.1 -R spacestate1/namco22-decompile -p "windows-release-0.10.1.zip" -D build/upstream-release
-python -X utf8 tests/test_online.py            # 20 scenarios + crossplay, about 40 minutes in real time
+python -X utf8 tests/test_online.py            # 25 scenarios + crossplay on four lanes, about 12 minutes in real time
+python -X utf8 tests/test_online.py --quick    # one of each kind (LAN, room and voice, drop-in, coming back, newcomer, crossplay), about 4 minutes
+python -X utf8 tests/test_online.py dropin p1return   # just these; --serial runs one at a time, --keep keeps screenshots
 python -X utf8 tests/test_handedness.py        # the host's input: menu laser, sticks, grips, A / B, the ONLINE tab's open / close
 python -X utf8 tests/test_menu.py             # every menu tab and online state fits; its controls work
 ```
+
+Every scenario runs two whole cabinets in real time (the link, the reconnection timers and the arcade's own timings depend on it), so the scenarios run side by side on lanes: the LAN ones one after another on lane 0 (the built-in host's UDP 27750 and LAN discovery are fixed), the room ones on three more lanes, each with its own lobby port and cabinet folders (`build/online-test/cabinets/A1`, `B1`, ...; Windows may ask once to let each new copy of the game through: loopback only). Keep the PC otherwise idle: a busy CPU makes real-time scenarios fail.
 
 `tests/test_online.py` starts two real desktop instances, both booted as P1:
 
@@ -236,12 +254,16 @@ python -X utf8 tests/test_menu.py             # every menu tab and online state 
 | `menutimeout` | A, credited, lets SELECT GAME MODE run out: back to the intro with 8 coins kept; A's trigger brings the screen back and A takes SOLO/LINKED (a room opens); B joins a while into A's game |
 | `menulinked` | The same with B linked from the start: A restarts with a real partner linked, and B still joins its game |
 | `dropin` | A hosts and takes SOLO/LINKED alone at once (the stand-in); B joins a minute into A's game, restarts once, and takes LINK PLAY with no agreed-start wait |
+| `p1return` | After `dropin`, A (P1) restarts out of the game and rejoins: it is P1 again (the server gave it slot 1), starts a new game of its own and B's goes on, with no link errors |
+| `p2return` | B (P2) restarts out of the game and rejoins: P2 again, and it takes LINK PLAY into A's game once more |
+| `newcomer` | A leaves for good and joins the room afresh while B (P2) stays: B keeps P2, A takes P1 although the server gives it slot 1 |
+| `persist` | A starts with `online.cfg` remembering room 1 as P1 (an app restart); B opens room 1 in slot 0. A rejoins as P1 and B, with no claim, takes P2 |
 | `crossplay` | Our cabinet (P1, hosting a room) against **upstream's released desktop game** (P2, headless, joining by quick match). It checks the link from both sides, 0 link errors, upstream's agreed start holding and releasing on our trailer, and that a desktop partner is not shown voice chat. Skipped without the download |
 
 Test switches, read by `quest/tc2_online.c` and `quest/tc2_voice.c`:
 
 - `TC2_NET_SCRIPT="600:hostroom;2400:mute"`: actions run at those arcade frames, or `t<ms>:` milliseconds after start.
-  - Actions: `host`, `join=<addr>`, `discover`, `quick`, `hostroom`, `joincode=<code>`, `browse`, `pickroom`, `mute`, `voice=0|1`, `leave`, `freeze=<ms>`.
+  - Actions: `host`, `join=<addr>`, `discover`, `quick`, `hostroom`, `joincode=<code>`, `browse`, `pickroom`, `rejoin`, `restart` (RESTART GAME, leaving first when online), `mute`, `voice=0|1`, `leave`, `freeze=<ms>`, and the menu's `menu=<tab>`, `resume`, `restartgame`, `restartapp`.
   - On a headset, `online-test.txt` beside the settings (written with `adb run-as` on this debuggable build) holds `script=...`, `status=1` and `voice_out=<file>`.
 - `TC2_NET_STATUS=1`: a status line every 300 frames.
 - `TC2_NET_ROOM_CODE=KXQ7`: a fixed code for hosted rooms.

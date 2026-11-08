@@ -474,7 +474,8 @@ static void online_offline(void){
         char t[48],s[80];snprintf(t,sizeof t,"REJOIN %s",V.rejoin_code);
         snprintf(s,sizeof s,"%s%s room, still open \xC2\xB7 you were P%d",V.rejoin_partner,V.rejoin_partner[0]?"'s":"The",V.rejoin_side);
         if(!V.rejoin_partner[0])snprintf(s,sizeof s,"The room is still open \xC2\xB7 you were P%d",V.rejoin_side);
-        on_item(ON_REJOIN,CX0,&y,I_REJOIN,t,s,"Back into the room you left, while it is still open.",1);
+        on_item(ON_REJOIN,CX0,&y,I_REJOIN,t,s,V.rejoin_side==2?"Back into the room as P2: your arcade restarts once, then you join their game.":
+            "Back into the room as P1. If they are mid-game you start a new one, and they join yours after theirs.",1);
     }
     on_item(ON_HOST,CX0,&y,I_HOUSE,"HOST A ROOM","Get a code to share \xC2\xB7 you play P1","Opens a room on the lobby server with a 4-letter code for your friend. The host plays P1 Keith.",0);
     on_item(ON_CODE,CX0,&y,I_KEYS,"JOIN WITH CODE","Your friend's 4-letter code \xC2\xB7 you play P2","Opens a keyboard for the code. The joiner plays P2 Robert.",0);
