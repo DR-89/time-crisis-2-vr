@@ -25,7 +25,7 @@ Either player can leave at any time. The other's game carries on, and the room s
 
 You don't have to open the menu first. **SOLO/LINKED is always open** on SELECT GAME MODE, from power-on, because a stand-in answers on the link as an idle second cabinet (see [Drop in at any time](#drop-in-at-any-time-the-stand-in-partner)). Put coins in and shoot **SOLO/LINKED**; the game starts at once, as SOLO/LINKED does at a linked arcade, and **a room opens for it by itself** (`ROOM KXQ7 - FRIENDS JOIN ANY TIME`). Friends join with the code, or from **BROWSE GAMES**, whenever they arrive. The code is also on the ONLINE page.
 
-**SOLO ONLY** opens no room and locks out a second player for that game. When SELECT GAME MODE runs out of time the game picks SOLO/LINKED, which opens a room too. If the server cannot be reached, the game goes on alone and the banner says so.
+**SOLO ONLY** opens no room and locks out a second player for that game. **The menu never chooses for you.** If nobody shoots before its 15 seconds run out, the arcade goes back to its intro (the warning screen, then attract) with your coins kept (`COINS KEPT - PULL THE TRIGGER TO PLAY`). Pull the trigger at any time and SELECT GAME MODE is back within a second, with its full 15 seconds. If the server cannot be reached, the game goes on alone and the banner says so.
 
 Room codes go through the lobby server, so they work across the internet with no router setup, VPN or addresses. Other ways to meet:
 
@@ -179,7 +179,7 @@ Our C422 model differs inside (its interrupt bookkeeping), but the words a cabin
 
 Measured on US TSS3 Ver. B (`quest/tc2_link.c` stand-in, `quest/tc2_online.c` `standin_tick` and `link_contact_tick`):
 
-- **SELECT GAME MODE** comes up with the first credit. It waits with `0x2CE92B` = 1 and `0x2F3930` = 1 and times out to SOLO ONLY after about 15 s. Leaving it, `0x2F3930` goes 1 to 2 for SOLO ONLY and 1 to 4 for SOLO/LINKED.
+- **SELECT GAME MODE** comes up with the first credit. It waits with `0x2CE92B` = 1 and `0x2F3930` = 1 and counts its 900 frames down in the 16-bit word at `0x2F3933`; at 0 the game chooses by itself (SOLO ONLY, or SOLO/LINKED when that is open). The port restarts the arcade (TEST) 30 frames before that and keeps the coins for the trigger (`menu_timeout_tick`). After a TEST restart, coins count again from 30 frames in, during the warning screen, and SELECT GAME MODE comes up as soon as a credit completes; `0x2CE92B` stays 1 and the screen waits with `0x2F3930` = 0. Kept coins go in 6 frames on, 6 off. A pedal held as the game starts opens the game's GUN INITIALIZATION screen (30 s). Leaving the mode screen, `0x2F3930` goes 1 to 2 for SOLO ONLY and 1 to 4 for SOLO/LINKED.
 - **SOLO/LINKED is open only if a partner is linked as the screen comes up** (`0x802F3502`, the partner's state: 0 none, 1 attract, 2 credited, 4 in a game, 5 handshake). A partner appearing later does not open it: the screen re-armed, shots on the panel did nothing, and it ran out into SOLO ONLY. Without a partner the game draws SOLO/LINKED crossed out and ignores a shot at the panel (x 20-632, y 95-258 of the 640x480 picture). With a partner (or the stand-in) it draws the panel plainly, and the screen's timeout picks SOLO/LINKED rather than SOLO ONLY.
 - **The coins** (0 to 9 coins against RAM): `0x2CE7B7` holds the coins in the machine and `0x2F3D27` counts every coin. A fresh cabinet takes 4 coins a credit. SELECT GAME MODE comes up as the first credit completes and takes it then (3 coins leave 3; 4 leave 0; 5 leave 1; 8 leave 4). A TEST restart clears them, so the drop-in restart pays back the credit plus the coins left, through the same coin input P2's held coins use (`repay_tick`). The cost of a credit is read off the counters whenever the game takes one. After the restart, SELECT GAME MODE waits with `0x2F3930` = 0 rather than 1.
 - **The game's mode** is the word at `0x802F3FD0`: 1 SOLO ONLY, 2 SOLO/LINKED, 0 between games. About 30 places in the game branch on it.
@@ -212,7 +212,7 @@ git -C upstream fetch origin; mkdir build/nmn-server-head; git -C upstream archi
 cd build/nmn-server-head/server; $env:CARGO_TARGET_DIR="../target"; cargo build --release; cd ../../..
 # optional, for the cross-play scenario: upstream's own Windows release, extracted, with timecrs2.zip in its roms folder
 gh release download 0.10.1 -R spacestate1/namco22-decompile -p "windows-release-0.10.1.zip" -D build/upstream-release
-python -X utf8 tests/test_online.py            # 18 scenarios + crossplay, about 35 minutes in real time
+python -X utf8 tests/test_online.py            # 20 scenarios + crossplay, about 40 minutes in real time
 python -X utf8 tests/test_handedness.py        # includes the ONLINE page's input routing
 ```
 
@@ -241,6 +241,8 @@ python -X utf8 tests/test_handedness.py        # includes the ONLINE page's inpu
 | `roomleave` | B leaves the room mid-game and rejoins by code |
 | `p2join` | Linked first; A starts LINK PLAY, B puts coins in at 3000 (held, then paid in) and takes LINK PLAY on the right cabinet |
 | `modescreen` | A, credited with no room, finds SOLO/LINKED open (the stand-in from power-on) and takes it: the game starts at once and a room opens, no restart; B joins a while into A's game, restarts once for its handshake, and joins it |
+| `menutimeout` | A, credited, lets SELECT GAME MODE run out: back to the intro with 8 coins kept; A's trigger brings the screen back and A takes SOLO/LINKED (a room opens); B joins a while into A's game |
+| `menulinked` | The same with B linked from the start: A restarts with a real partner linked, and B still joins its game |
 | `dropin` | A hosts and takes SOLO/LINKED alone at once (the stand-in); B joins a minute into A's game, restarts once, and takes LINK PLAY with no agreed-start wait |
 | `crossplay` | Our cabinet (P1, hosting a room) against **upstream's released desktop game** (P2, headless, joining by quick match). It checks the link from both sides, 0 link errors, upstream's agreed start holding and releasing on our trailer, and that a desktop partner is not shown voice chat. Skipped without the download |
 
@@ -256,6 +258,7 @@ Test switches, read by `quest/tc2_online.c` and `quest/tc2_voice.c`:
 - `TCVR_TEST_MENU=3@60`: open the ONLINE page at desktop frame 60.
 - `TCVR_RAMWATCH=2CE92B,2F3930`: log each main-RAM byte (hex offsets) whenever it changes.
 - `TC2_NO_MODE_MENU=1`: a shot at the crossed-out SOLO/LINKED does nothing, as at the arcade (`late` links into a game on purpose).
+- `TC2_MENU_TIMEOUT=1`: SELECT GAME MODE chooses by itself when it runs out, as at the arcade.
 - `TC2_NO_STANDIN=1`: no stand-in partner (SOLO/LINKED then needs a linked partner, crossed out otherwise).
 - `TCVR_LINKDUMP=<file>`: every link packet this cabinet sends, as hex with its frame (how the stand-in was worked out).
 - `TCVR_RAMDUMP=<frame>[,<frame>...]`: main RAM to `ram-<frame>.bin` at those frames (how the coin counters were found, by comparing runs with different coins). `TCVR_RAMWATCH=<addr>[,...]` logs chosen bytes as they change.

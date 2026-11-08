@@ -6,7 +6,7 @@ reads the game's own link state from the [ONLINE] status lines: the C422 driver'
 Room scenarios run upstream's current nmn-server (build/nmn-server-head, see docs/ONLINE.md) on 127.0.0.1 only. Microphones are replaced by
 WAV files (a tone for A, silence for B), so no real microphone is opened; what B plays back is recorded and analysed.
 
-    python -X utf8 tests/test_online.py                 # every scenario (18 scenarios + crossplay, ~35 minutes, real time)
+    python -X utf8 tests/test_online.py                 # every scenario (20 scenarios + crossplay, ~40 minutes, real time)
     python -X utf8 tests/test_online.py basic room      # some
     python -X utf8 tests/test_online.py --keep          # keep screenshots: build/online-test/<scenario>/{A,B}/cap-*.ppm
 """
@@ -25,9 +25,10 @@ STATUS = re.compile(r'\[ONLINE\] frame (\d+) side P(\d) link (on|off|stand-in) a
 TONE_HZ = 440
 
 
-def recording(path: Path, frames: int, aim_until: int = 0, coins_at: int = 1500, again_at: int = 0):
+def recording(path: Path, frames: int, aim_until: int = 0, coins_at: int = 1500, again_at: int = 0, idle: str = ''):
     """Coins and start at 1500 / 1700 (or coins_at / +200), then the pedal held and the trigger pulsed while the aim sweeps
-    (held on the mode screen's top panel until aim_until); again_at: coins once more (a cabinet that restarted)."""
+    (held on the mode screen's top panel until aim_until); again_at: coins once more (a cabinet that restarted); idle 'a-b': no
+    trigger, pedal or aim from frame a to b (a player who lets SELECT GAME MODE run out)."""
     events = [(0, '0000', 457, 161)]
     for at in (coins_at, again_at):
         if not at:
@@ -45,6 +46,11 @@ def recording(path: Path, frames: int, aim_until: int = 0, coins_at: int = 1500,
         f += 8
         k += 1
     events = [e for e in events if not (again_at and again_at <= e[0] < again_at + 96 and e[1] not in ('0001', '0000'))]
+    if idle:
+        a, b = (int(v) for v in idle.split('-'))
+        events = [e for e in events if not (a <= e[0] < b + 300 and e[1] not in ('0001', '0000'))]
+        # then the trigger alone: one pull to come back, one to choose (a pedal held as the game starts opens GUN INITIALIZATION)
+        events += [(b, '0010', 457, 161), (b + 6, '0000', 457, 161), (b + 150, '0010', 457, 161), (b + 156, '0000', 457, 161)]
     events.sort(key=lambda e: e[0])                       # the replay reads in order
     lines = ['# TC2 session: F frame inputs gunx guny off'] + [f'F {f} {i} {x} {y} 0' for f, i, x, y in events]
     path.write_text('\n'.join(lines) + '\n')
@@ -110,10 +116,18 @@ SCENARIOS = {
     # drop-in: A hosts a room and plays alone at once (the stand-in makes SOLO/LINKED available: A takes it at 1700); B joins by
     # code a minute later, A's game well under way: B restarts once for the handshake, puts coins in at 4800 (no agreed-start
     # wait: A's game has run over 25 s) and takes LINK PLAY on the right
+    # nobody chooses: A, credited, lets SELECT GAME MODE run out. Instead of the game choosing, A restarts into its intro with its
+    # 8 coins kept; A's trigger at 3000 pays them back, the screen comes up again and A takes SOLO/LINKED (a room opens). B joins by
+    # code a while into A's game and takes LINK PLAY. menulinked: the same with B linked from the start (a real partner, not the
+    # stand-in, while A restarts)
+    'menutimeout': (8400, '', '3600:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'TCVR_RAMWATCH': '2CE92B,2F3930,2F3502,2CE7B7',
+                    'A_IDLE': '1600-3000', 'AIM_UNTIL': 3400, 'B_COINS_AT': 4800, 'B_AIM_UNTIL': 7400}, 'menutimeout'),
+    'menulinked': (8400, '600:hostroom', '700:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'TCVR_RAMWATCH': '2CE92B,2F3930,2F3502,2CE7B7',
+                   'A_IDLE': '1600-3000', 'AIM_UNTIL': 3400, 'B_COINS_AT': 4800, 'B_AIM_UNTIL': 7400}, 'menutimeout'),
     'dropin': (8400, '600:hostroom', '3600:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'TCVR_RAMWATCH': '2CE92B,2F3930,2F3502',
                'B_COINS_AT': 4800, 'B_AIM_UNTIL': 7400}, 'dropin'),
 }
-ROOM_SCENARIOS = {'room', 'browse', 'mute', 'voicenet', 'duplex', 'roomleave', 'modescreen', 'p2join', 'dropin'}
+ROOM_SCENARIOS = {'room', 'browse', 'mute', 'voicenet', 'duplex', 'roomleave', 'modescreen', 'p2join', 'dropin', 'menutimeout', 'menulinked'}
 
 
 def cabinet(directory: Path, server: str):
@@ -140,7 +154,7 @@ def run(name: str, keep: bool):
     server = f'127.0.0.1:{SERVER_PORT}' if name in ROOM_SCENARIOS else 'zonesync.invalid'
     for side in 'AB':
         cabinet(run_dir / side, server)
-    recording(rec, frames, int(extra.pop('AIM_UNTIL', 0)), again_at=int(extra.pop('A_COINS_AGAIN', 0)))
+    recording(rec, frames, int(extra.pop('AIM_UNTIL', 0)), again_at=int(extra.pop('A_COINS_AGAIN', 0)), idle=extra.pop('A_IDLE', ''))
     recs = {'A': rec, 'B': rec}
     if 'B_COINS_AT' in extra:                                # B's own inputs: it puts coins in later
         recs['B'] = base / 'inputs_b.rec'
@@ -199,7 +213,7 @@ def run(name: str, keep: bool):
         # a frozen cabinet falls behind real time; its partner reaches the frame limit and quits first, so look before that
         lost = max([int(m) for m in re.findall(r'freeze=(\d+)', script_a + script_b)] or [0]) * 60 // 1000
         tail = [r for r in linked if frames - 900 - lost <= r[0] < frames - lost - 60]
-        if check in ('steady', 'rejoin', 'recover', 'late', 'voice', 'mute', 'modescreen') and tail and not all(r[3] for r in tail):
+        if check in ('steady', 'rejoin', 'recover', 'late', 'voice', 'mute', 'modescreen', 'menutimeout') and tail and not all(r[3] for r in tail):
             failures.append(f'{side}: partner not alive near the end')
         if check in ('steady', 'voice'):
             dead = [r[0] for r in linked if r[0] >= 1200 and not r[3]]
@@ -210,6 +224,15 @@ def run(name: str, keep: bool):
             failures.append('A: taking SOLO/LINKED did not host a room')
         if 'SOLO/LINKED shot without a partner' in logs['A']:
             failures.append('A: SOLO/LINKED was crossed out (the stand-in should answer from power-on)')
+    if check == 'menutimeout':
+        ran_out = re.search(r'frame (\d+): SELECT GAME MODE ran out: back to the intro \(TEST\), 8 coins kept', logs['A'])
+        paid = re.search(r'frame (\d+): trigger: 8 coins paid back', logs['A'])
+        if not ran_out:
+            failures.append('A: SELECT GAME MODE running out did not send it back to the intro with 8 coins kept')
+        elif not paid or not 2990 <= int(paid.group(1)) <= 3100:
+            failures.append(f'A: the trigger at 3000 did not pay the coins back ({paid.group(1) if paid else None})')
+        if logs['A'].count('ran out') != 1:
+            failures.append('A: the screen ran out more than once')
     if check in ('modescreen', 'dropin'):
         if 'P2 linked after its power-on handshake' in logs['A']:
             failures.append('A: restarted as if it were P2')
@@ -225,7 +248,7 @@ def run(name: str, keep: bool):
         linked = re.search(r'frame (\d+): the partner replaces the stand-in', logs['A'])
         if not choice or not linked or choice[0] >= int(linked.group(1)):
             failures.append(f'A: LINK PLAY was not taken alone before B linked (choice {choice[:1]}, handover {linked.group(1) if linked else None})')
-    if check in ('modescreen', 'p2join', 'dropin'):
+    if check in ('modescreen', 'p2join', 'dropin', 'menutimeout'):
         # each cabinet's choice, at the frame it leaves SELECT GAME MODE (0x2CE92B 1 -> 0): 0x2F3930 1 -> 4 is LINK PLAY, 1 -> 2
         # SOLO ONLY (also what the ~15 s timeout picks); a TEST restart leaves with 1 -> 0, and the screen after one waits at 0, not 1.
         # (In a game 0x2F3930 means other things.)

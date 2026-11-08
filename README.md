@@ -51,7 +51,7 @@ This is a fork of [DR-89/time-crisis-2-vr](https://github.com/DR-89/time-crisis-
   - LAN hosting, joining by IP and quick match are there too.
   - The two games link automatically.
 - **Drop in, drop out:** the host plays at once with the arcade's own **SOLO/LINKED** ("SOLO START, BUT PERMITS 2P JOIN-IN"), and a friend can join that game whenever they arrive. Until then a stand-in answers on the link as an idle second cabinet, so no second game runs. Either player can leave mid-game and the other plays on.
-- **Or straight from the arcade's own screen:** **SOLO/LINKED** is always open on SELECT GAME MODE. Put coins in and shoot it: the game starts at once and a room opens for it, with its code on screen. **SOLO ONLY** keeps the game to yourself.
+- **Or straight from the arcade's own screen:** **SOLO/LINKED** is always open on SELECT GAME MODE. Put coins in and shoot it: the game starts at once and a room opens for it, with its code on screen. **SOLO ONLY** keeps the game to yourself. The menu never chooses for you: left alone, the arcade goes back to its intro with your coins kept, and the trigger brings the menu back.
 - **Voice chat:** Opus, open mic with a voice gate, mute on the left stick click, partner volume and level meters.
 - **Free to run:** the community lobby server relays rooms, so there are no accounts, no port forwarding and nothing to host.
 - **While linked**, the game keeps running behind menus and with the headset off, and dropped partners reconnect by themselves.

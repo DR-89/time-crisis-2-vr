@@ -51,6 +51,9 @@ static int mode_restart;                 /* frames of TEST still to press: the c
 static int coin_cost=4;                   /* coins a credit takes, as last seen (coins_tick); 4 on a fresh cabinet */
 static int repay;                         /* coins to pay back after a restart the SOLO/LINKED shot asked for (repay_tick) */
 #define REPAY_AFTER_FRAMES 720             /* attract is back ~600 frames after a TEST restart; coins at +900 counted (modescreen) */
+static bool await_trigger;                /* the repay waits for the trigger: SELECT GAME MODE ran out (menu_timeout_tick) */
+#define COINS_AFTER_RESTART 40             /* coins 30 frames after a TEST restart counted (measured 2026-11-08) */
+#define MENU_TIMEOUT_LEAD 30               /* frames before SELECT GAME MODE would choose by itself that the restart begins */
 #define LINK_INIT_FRAMES 880               /* the game shakes hands on its link ~920 frames after power-on (measured) */
 static void session_end(void);
 static int  frame_out(uint8_t *buf);
@@ -405,6 +408,24 @@ static void restart_for_dropin(void){
     char s[64];snprintf(s,sizeof s,"ROOM %s OPEN - THE ARCADE RESTARTS, COINS KEPT",room_code);
     say(room_code[0]?s:"THE ARCADE RESTARTS - YOUR COINS ARE KEPT",9000);
 }
+/* SELECT GAME MODE's timeout (measured 2026-11-08): the 16-bit word at 0x2F3933 counts the screen's 900 frames down, one a frame,
+ * and at 0 the game chooses for the player (SOLO/LINKED when it is open). Instead, just before, the arcade restarts into its intro
+ * (TEST) with the coins kept; the trigger pays them back (repay_tick) and the screen comes up again with its full 15 s. Coins count
+ * from 30 frames after a restart, during the warning screen, so a pull at any time brings the screen back within a second. After a
+ * restart 0x2CE92B stays 1 and the screen waits with 0x2F3930 = 0, so "counting" is the word going down by one a frame. */
+static void menu_timeout_tick(void){
+    extern uint8_t tc2_ram[];
+    static int off=-1;if(off<0)off=getenv("TC2_MENU_TIMEOUT")!=NULL;   /* tests: the game's own timeout */
+    static int prev=-1;
+    const int left=tc2_ram[0x2F3933]<<8|tc2_ram[0x2F3934];
+    const bool counting=tc2_ram[0x2CE92B]==1&&tc2_ram[0x2F3930]<=1&&left==prev-1;
+    prev=left;
+    if(off||!counting||left>MENU_TIMEOUT_LEAD||mode_restart||repay)return;
+    repay=coin_cost+tc2_ram[0x2CE7B7];await_trigger=true;   /* the credit the screen took, and the coins left over */
+    mode_restart=MODE_RESTART_FRAMES;init_frame=sim_frames;
+    fprintf(stderr,"[ONLINE] frame %u: SELECT GAME MODE ran out: back to the intro (TEST), %d coins kept for the trigger\n",sim_frames,repay);
+    say("COINS KEPT - PULL THE TRIGGER TO PLAY",8000);
+}
 static void mode_screen_tick(void){
     extern uint8_t tc2_ram[];extern uint16_t tc2_inputs,g_ss22_gun_x,g_ss22_gun_y;
     static bool prev_trigger;
@@ -582,7 +603,7 @@ static void health_tick(void){
  * trigger and pedal are held until it is in a game, while the left has not been in its game for TC2_JOIN_WAIT frames (1500 = 25 s,
  * or the same in wall-clock time over a slow link). Coins put in meanwhile are counted and paid in afterwards, 4 frames on and 36
  * off each. The right cabinet learns its own state from the left's trailer; without one (unknown), nothing is held. ---- */
-static bool holding;static int coin_pending,coin_pulse,prev_coin;static uint32_t p_since,p_since_ms;static int p_prev=-1;
+static bool holding;static int coin_pending,coin_pulse,coin_fast,prev_coin;static uint32_t p_since,p_since_ms;static int p_prev=-1;
 static void start_hold_tick(void){
     extern uint8_t tc2_ram[];extern uint16_t tc2_inputs;extern uint32_t rr_frame;
     static long wait=-1;if(wait<0){const char *e=getenv("TC2_JOIN_WAIT");wait=e?atol(e):1500;}
@@ -594,9 +615,12 @@ static void start_hold_tick(void){
     const int c=tc2_inputs&0x0001;                       /* the raw coin, before the hold (tc2_h8.c reads it through tc2_link_hold_start) */
     if(h&&c&&!prev_coin)coin_pending++;
     prev_coin=c;
-    if(coin_pulse>0){if(--coin_pulse==0)coin_pulse=-36;}
+    static int gap;
+    if(coin_pulse>0){if(--coin_pulse==0)coin_pulse=gap;}
     else if(coin_pulse<0)coin_pulse++;
-    else if(!h&&coin_pending>0){coin_pending--;coin_pulse=4;}
+    else if(!h&&coin_pending>0){   /* coins kept over a restart go in as a coin mech's (6 on, 6 off): the game counts them all */
+        const bool fast=coin_fast>0;coin_pending--;if(fast)coin_fast--;
+        coin_pulse=fast?6:4;gap=fast?-6:-36;}
     if(h!=holding){
         holding=h;
         fprintf(stderr,"[ONLINE] start %s (we are %d, partner %d)\n",h?"HELD":"free",self,pst);
@@ -610,6 +634,15 @@ static void start_hold_tick(void){
 /* The coins a drop-in restart cleared, paid in as the held ones are once attract is back and the room is open (or could not
  * open): the last one completes the credit and SELECT GAME MODE comes up by itself, now with SOLO/LINKED. */
 static void repay_tick(void){
+    if(repay&&await_trigger){   /* SELECT GAME MODE ran out (menu_timeout_tick): the intro plays until the trigger is pulled */
+        extern uint16_t tc2_inputs;static bool prev,pulled;static uint32_t told;
+        const bool t=(tc2_inputs&0x0010)!=0;if(t&&!prev&&!mode_restart)pulled=true;prev=t;
+        if(mode_restart||sim_frames-init_frame<COINS_AFTER_RESTART)return;
+        if(!pulled){if(sim_frames-told>=1800){told=sim_frames;say("COINS KEPT - PULL THE TRIGGER TO PLAY",6000);}return;}
+        fprintf(stderr,"[ONLINE] frame %u: trigger: %d coins paid back, SELECT GAME MODE again\n",sim_frames,repay);
+        coin_pending+=repay;coin_fast+=repay;repay=0;await_trigger=false;told=0;pulled=false;
+        return;
+    }
     if(!repay||mode_restart||sim_frames-init_frame<REPAY_AFTER_FRAMES)return;
     const bool open=eng_net_my_room()>0||eng_net_session_active()||(mode==MODE_LAN_HOST&&eng_net_hosting());
     if(!open&&host_waiting()&&sim_frames-init_frame<REPAY_AFTER_FRAMES+900)return;   /* the server is slow: wait up to 15 s more */
@@ -643,6 +676,7 @@ void tc2_online_frame(void){
     eng_net_poll();
     start_hold_tick();
     coins_tick();
+    menu_timeout_tick();
     standin_tick();
     link_contact_tick();
     mode_restart_tick();
