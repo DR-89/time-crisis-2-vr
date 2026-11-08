@@ -20,7 +20,7 @@ BUILD = Path(os.environ.get('TC2_TEST_BUILD', ROOT / 'build'))
 WORK = BUILD / 'online-test'
 SERVER_EXE = BUILD / 'nmn-server-head/target/release/nmn-server.exe'   # upstream's current server: it knows Time Crisis 2's 1 KB frames
 SERVER_PORT = 27751
-STATUS = re.compile(r'\[ONLINE\] frame (\d+) side P(\d) link (on|off) alive (\d) lag (\d+) state (\d+) tx (\d+) rx (\d+) '
+STATUS = re.compile(r'\[ONLINE\] frame (\d+) side P(\d) link (on|off|stand-in) alive (\d) lag (\d+) state (\d+) tx (\d+) rx (\d+) '
                     r'drop (\d+) bad (\d+)/(\d+) game-errors (\d+) ping (-?\d+) \| voice (on|off) sent (\d+) received (\d+) lost (\d+)')
 TONE_HZ = 440
 
@@ -102,10 +102,9 @@ SCENARIOS = {
     # P2 the arcade's way: linked first, A starts LINK PLAY, B puts coins in once A's game is under way and takes the top panel
     'p2join': (6000, '600:hostroom', '700:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'TCVR_RAMWATCH': '2CE92B,2F3930,2F3502',
                'AIM_UNTIL': 2600, 'B_COINS_AT': 3000, 'B_AIM_UNTIL': 5000}, 'p2join'),
-    # the arcade's own way in: A, credited without a room, shoots the crossed-out SOLO/LINKED at 1700. That one shot hosts a room
-    # (the stand-in answers) and, as SOLO/LINKED is decided when the screen comes up, A restarts; its 8 coins are paid back once
-    # attract is back, SELECT GAME MODE comes up by itself and A's next shot takes SOLO/LINKED, alone. B joins by code a while into
-    # A's game, restarts once for its handshake, puts coins in at 4800 and takes LINK PLAY on the right
+    # the arcade's own way in: A, credited without a room, finds SOLO/LINKED open (the stand-in answers from power-on) and takes
+    # it at 1700; that choice hosts a room, no restart. B joins by code a while into A's game, restarts once for its handshake,
+    # puts coins in at 4800 and takes LINK PLAY on the right
     'modescreen': (8400, '', '3600:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'TCVR_RAMWATCH': '2CE92B,2F3930,2F3502,2CE7B7',
                    'AIM_UNTIL': 3400, 'B_COINS_AT': 4800, 'B_AIM_UNTIL': 7400}, 'modescreen'),
     # drop-in: A hosts a room and plays alone at once (the stand-in makes SOLO/LINKED available: A takes it at 1700); B joins by
@@ -207,19 +206,15 @@ def run(name: str, keep: bool):
             if dead:
                 failures.append(f'{side}: link down at frames {dead}')
     if check == 'modescreen':
-        if 'SOLO/LINKED shot without a partner (' not in logs['A'] or ': hosting a room' not in logs['A']:
-            failures.append('A: the SOLO/LINKED shot did not host a room')
-        if 'the ONLINE page opens' in logs['A']:
-            failures.append('A: the ONLINE page opened (the shot should host by itself)')
-        if not re.search(r'8 coins paid back after', logs['A']) or '8 coins paid back (room open)' not in logs['A']:
-            failures.append('A: its 8 coins were not paid back once the room was open')
+        if 'SOLO/LINKED taken: hosting a room' not in logs['A']:
+            failures.append('A: taking SOLO/LINKED did not host a room')
+        if 'SOLO/LINKED shot without a partner' in logs['A']:
+            failures.append('A: SOLO/LINKED was crossed out (the stand-in should answer from power-on)')
     if check in ('modescreen', 'dropin'):
         if 'P2 linked after its power-on handshake' in logs['A']:
             failures.append('A: restarted as if it were P2')
-        if check == 'dropin' and 'restarts' in logs['A']:   # hosting before the credit: P1 never restarts
+        if 'restarts' in logs['A']:   # the stand-in answers from power-on: P1 never restarts
             failures.append('A: restarted')
-        if check == 'modescreen' and 'P1 restarts so SOLO/LINKED opens' not in logs['A']:   # credited without a partner: once
-            failures.append('A: did not restart once the room was open')
         if 'P2 linked after its power-on handshake' not in logs['B']:   # B linked long after power-on: one restart to shake hands
             failures.append('B: did not restart for the handshake after linking late')
         if 'drop-in open' not in logs['A']:

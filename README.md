@@ -51,11 +51,11 @@ This is a fork of [DR-89/time-crisis-2-vr](https://github.com/DR-89/time-crisis-
   - LAN hosting, joining by IP and quick match are there too.
   - The two games link automatically.
 - **Drop in, drop out:** the host plays at once with the arcade's own **SOLO/LINKED** ("SOLO START, BUT PERMITS 2P JOIN-IN"), and a friend can join that game whenever they arrive. Until then a stand-in answers on the link as an idle second cabinet, so no second game runs. Either player can leave mid-game and the other plays on.
-- **Or straight from the arcade's own screen:** put coins in and shoot the crossed-out **SOLO/LINKED** on SELECT GAME MODE. That one shot hosts a room and shows its code; the arcade restarts once with your coins kept, and SOLO/LINKED is then open.
+- **Or straight from the arcade's own screen:** **SOLO/LINKED** is always open on SELECT GAME MODE. Put coins in and shoot it: the game starts at once and a room opens for it, with its code on screen. **SOLO ONLY** keeps the game to yourself.
 - **Voice chat:** Opus, open mic with a voice gate, mute on the left stick click, partner volume and level meters.
 - **Free to run:** the community lobby server relays rooms, so there are no accounts, no port forwarding and nothing to host.
 - **While linked**, the game keeps running behind menus and with the headset off, and dropped partners reconnect by themselves.
-- **Offline**, the emulated link chip is the plain register stub the core has without it. The one visible difference: a shot at the crossed-out SOLO/LINKED hosts a room.
+- **Offline**, a stand-in answers on the link as an idle second cabinet, so SOLO/LINKED is open; taking it opens a room. SOLO ONLY plays exactly as before.
 
 See **[docs/ONLINE.md](docs/ONLINE.md)** for setup, how it works and the test suite.
 

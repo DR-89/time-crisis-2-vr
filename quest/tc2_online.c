@@ -167,7 +167,7 @@ static void session_begin(int slot,int players){
     (void)players;
     if(tc2_link_ghost()){
         extern uint8_t tc2_ram[];
-        if(tc2_ram[0x2CE92B]==1&&tc2_ram[0x2F3930]==1){   /* choosing now: a link change would cross SOLO/LINKED out under the player */
+        if(slot==0&&tc2_ram[0x2CE92B]==1&&tc2_ram[0x2F3930]==1){   /* choosing now: a link change would cross SOLO/LINKED out under the player */
             if(pending_slot<0){fprintf(stderr,"[ONLINE] frame %u: partner arrived during SELECT GAME MODE: the stand-in stays until the choice\n",sim_frames);
                 say("PARTNER CONNECTED - CHOOSE YOUR MODE",4000);}
             pending_slot=slot;return;
@@ -229,7 +229,7 @@ bool tc2_online_session(void){return inited&&(eng_net_session_active()||episode)
 bool tc2_online_busy(void){return inited&&(eng_net_hosting()||eng_net_connected()||eng_net_discovering()||mode!=MODE_NONE||episode);}
 
 static void end_episode(void){
-    if(tc2_link_enabled())tc2_link_set_enabled(false);
+    if(tc2_link_enabled()&&!tc2_link_ghost())tc2_link_set_enabled(false);   /* the stand-in stays (standin_tick) */
     tc2_voice_set_active(false);
     qtc2_cabinet_side=home_side;episode=false;partner_gone_ms=lost_ms=retry_ms=0;
 }
@@ -379,8 +379,8 @@ static int cursor,edit_item=-1,edit_pos;
 /* ---- the arcade's own way in: SOLO/LINKED on SELECT GAME MODE (measured on US TSS3 Ver. B, 2026-11-07) ----
  * The screen comes up when the first credit goes in; it waits with 0x2CE92B = 1 and 0x2F3930 = 1 (a choice moves 0x2F3930 on to 2,
  * 3, 255, 0 for SOLO ONLY, 4, 5, ... for LINK PLAY) and times out to SOLO ONLY after ~15 s. Without a partner (0x802F3502 = 0)
- * SOLO/LINKED is crossed out and the game ignores a shot at it (three shots, nothing happened). Such a shot opens the ONLINE page
- * instead: it hosts a room (P1 restarts so the screen comes up again with the stand-in there, and the coins are paid back), or,
+ * SOLO/LINKED is crossed out and the game ignores a shot at it (three shots, nothing happened). The stand-in (below) answers from
+ * power-on, so this only happens without one (a P2 cabinet, TC2_NO_STANDIN). Such a shot opens the ONLINE page instead: it hosts a room (P1 restarts so the screen comes up again with the stand-in there, and the coins are paid back), or,
  * when we are joining someone, opens the ONLINE page (the arcade is held while it is open). The panel is x 20-632, y 95-258 of
  * the 640x480 picture; the game's own gun position is used, so a replayed shot behaves like a real one.
  * The coins (measured 2026-11-08, coins 0..9 against RAM): 0x2CE7B7 holds the coins in the machine and 0x2F3D27 counts every
@@ -431,8 +431,8 @@ static void mode_screen_tick(void){
  * The game decides whether a second player may join when the LEFT cabinet's SELECT GAME MODE comes up: with a partner linked, it
  * offers SOLO/LINKED, "SOLO START, BUT PERMITS 2P JOIN-IN" (mode 2 at 0x802F3FD0); without, only SOLO ONLY. Once a game runs in
  * mode 2 its partner may vanish, and a freshly booted right cabinet that links later still takes LINK PLAY and plays alongside.
- * So while we host and nobody is linked, tc2_link.c's stand-in answers as an idle right cabinet (no second game runs): the player
- * gets SOLO/LINKED, and a partner can join at any time. In an episode (a partner linked before) it returns only between games:
+ * So from power-on, whenever nobody is linked, tc2_link.c's stand-in answers as an idle right cabinet (no second game runs): the
+ * player always gets SOLO/LINKED, taking it opens a room, and a partner can join at any time (~10 us a frame, docs/ONLINE.md). In an episode (a partner linked before) it returns only between games:
  * mid-game the arcade still expects that partner back. A partner arriving while we choose waits for the choice (session_begin). */
 static bool host_waiting(void){return (mode==MODE_LAN_HOST&&eng_net_hosting())||(mode==MODE_ROOM&&room_owner);}
 static void standin_tick(void){
@@ -450,9 +450,18 @@ static void standin_tick(void){
         return;
     }
     const bool partner=eng_net_session_active();
-    const bool want=!off&&qtc2_cabinet_side==1&&!partner&&(episode?game_mode==0:host_waiting());
+    /* from power-on, and after a partner left once a game is over (mid-game the arcade still expects that partner back) */
+    const bool want=!off&&qtc2_cabinet_side==1&&!partner&&(game_mode==0||(!episode&&host_waiting()));
     if(want&&!tc2_link_ghost()){tc2_link_set_ghost(true);fprintf(stderr,"[ONLINE] frame %u: drop-in open: the stand-in answers until a partner links\n",sim_frames);}
-    else if(tc2_link_ghost()&&!partner&&!episode&&!host_waiting())tc2_link_set_ghost(false);
+    else if(tc2_link_ghost()&&!partner&&(off||qtc2_cabinet_side!=1))tc2_link_set_ghost(false);
+    /* SOLO/LINKED taken with nobody online yet: a room opens for this game, and a friend joins it any time */
+    static int prev_choice;
+    if(game_mode==2&&prev_choice==0&&tc2_link_ghost()&&!connected_any()){
+        fprintf(stderr,"[ONLINE] frame %u: SOLO/LINKED taken: hosting a room\n",sim_frames);
+        host_room();
+        if(room_code[0]){char s[48];snprintf(s,sizeof s,"ROOM %s - FRIENDS JOIN ANY TIME",room_code);say(s,8000);}
+    }
+    prev_choice=game_mode;
     /* opened by the SOLO/LINKED shot: once the room is open, back to the arcade (held meanwhile), where SOLO/LINKED now opens */
     if(menu_from_mode&&tc2_link_ghost()&&(mode==MODE_LAN_HOST||eng_net_my_room()>0)){
         menu_from_mode=false;qhost_online_menu(false);
@@ -547,7 +556,7 @@ static void test_switches_at(bool timed){
         tc2_voice_status v;tc2_voice_get_status(&v);extern uint8_t tc2_ram[];
         fprintf(stderr,"[ONLINE] frame %u side P%d link %s alive %d lag %u state %u tx %u rx %u drop %u bad %u/%u game-errors %u ping %d"
                 " | voice %s sent %u received %u lost %u | room %d %s | partner-state %d self %d hold %d partner-voice %d | %s\n",
-            sim_frames,qtc2_cabinet_side,s.enabled?"on":"off",s.alive,s.lag,s.state,s.tx,s.rx,s.rx_dropped,s.tx_bad,s.rx_bad,s.game_errors,eng_net_ping_ms(),
+            sim_frames,qtc2_cabinet_side,s.enabled?(tc2_link_ghost()?"stand-in":"on"):"off",s.alive,s.lag,s.state,s.tx,s.rx,s.rx_dropped,s.tx_bad,s.rx_bad,s.game_errors,eng_net_ping_ms(),
             v.active?"on":"off",v.sent,v.received,v.lost,room_id,room_code[0]?room_code:"-",tc2_ram[0x2F3502],tc2_link_self_state(),holding?1:0,v.partner_has_voice?1:0,net);
         if(screen==SCREEN_BROWSE)for(int i=0;i<tc2_rooms_count();i++){const tc2_room *r=tc2_rooms_get(i);
             fprintf(stderr,"[ONLINE] room %d '%s' code %s %d/%d %s v%d\n",r->id,r->name,r->code[0]?r->code:"-",r->players,r->max_players,r->state?"playing":"lobby",r->version);}
