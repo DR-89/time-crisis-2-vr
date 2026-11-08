@@ -10,6 +10,37 @@ Built on the native System 23 reconstruction in **[spacestate1/namco22-decompile
 
 *Actual Quest 3 recording. The headset renders a separate tracked view for each eye.*
 
+## This fork: online 2-player pre-release
+
+This is a fork of [DR-89/time-crisis-2-vr](https://github.com/DR-89/time-crisis-2-vr) that adds [online 2-player](#online-2-player). It is offered to DR-89 to merge; until then, test builds are published here.
+
+**[Download the 0.4.0 beta 1 pre-release](https://github.com/MrSco/time-crisis-2-vr/releases/tag/v0.4.0-beta.1)** | [Online guide](docs/ONLINE.md) | [Report a problem](https://github.com/MrSco/time-crisis-2-vr/issues)
+
+**This fork's downloads do not include the game files.** DR-89's releases come with them; here you supply your own Time Crisis II arcade ROM set: the MAME `timecrs2.zip`, US TSS3 Ver. B. The game checks all 22 chips by size and checksum before it starts. Nothing is downloaded.
+
+### Quest 3
+
+1. **If DR-89's official Time Crisis II VR is installed, uninstall it first.** Both use the same app id so that this build can replace it, but this one is signed with a different key, and Android will not install over it. Uninstalling removes that app's settings and game files.
+2. Install `TimeCrisis2VR-v0.4.0-beta.1-quest3.apk` with SideQuest or `adb install -r TimeCrisis2VR-v0.4.0-beta.1-quest3.apk`.
+3. Give it your ROM set, once. The app opens on a setup page:
+   - Copy `timecrs2.zip` onto the headset (for example into its Download folder over USB), choose **Select your timecrs2.zip** and pick it. Or:
+   - With the headset on USB, run `.\Install-ROM.ps1 -Rom timecrs2.zip` (attached to the release). It copies the ZIP to the headset and starts the app. Or:
+   - Copy `timecrs2.zip` into `Android/data/org.timecrisis2.arcadevr/files/` with SideQuest's file manager and choose **Check files again**.
+4. After the import the app starts straight into VR, and later updates of this build keep your game files and settings. For online play, allow microphone access when asked (voice chat).
+
+### Windows PCVR / desktop
+
+1. Extract the whole `TimeCrisis2VR-v0.4.0-beta.1-windows-x64.zip` to a writable folder.
+2. Put your `timecrs2.zip` in its `roms` folder.
+3. Run **Play VR.cmd** (or **Play Desktop.cmd** without a headset). The first start checks the ZIP and unpacks it into `extracted/`; after that the ZIP is no longer needed.
+
+### What else differs from DR-89's releases
+
+- **0.4.0 is DR-89's v0.3.3 plus online play**, with the core moved to namco22-decompile [`8f2ed7f4`](https://github.com/spacestate1/namco22-decompile/tree/8f2ed7f4ed5c3fb5fecbbd29bbf6a6bf13876b2c/tc2) (0.10.1+). Everything else in this README applies.
+- **Online partners need this build**, on Quest, PCVR or desktop, or the desktop Time Crisis 2 of namco22-decompile 0.9.3+. DR-89's official v0.3.3 has no online play.
+- **Report problems with this build** in [this fork's issues](https://github.com/MrSco/time-crisis-2-vr/issues), not DR-89's.
+- **To build this fork**, clone `https://github.com/MrSco/time-crisis-2-vr.git` and follow [Build from source](#build-from-source). `tools/build.py` without `--bundle-roms` and `tools/build_pc.py --no-roms` make the downloads without game files.
+
 ## Online 2-player
 
 **New in 0.4.0:** play the arcade's real **twin-cabinet mode** online, with voice chat. Each player runs the full game as Keith (P1) or Robert (P2), and the System 23 C422 link chip between the two cabinets is emulated and carried over the network. Quest, PCVR and desktop all play together. It is wire-compatible with the desktop Time Crisis 2 online play of [namco22-decompile](https://github.com/spacestate1/namco22-decompile) (0.9.3+, tested with 0.10.1), so VR and desktop players share rooms.
@@ -29,6 +60,8 @@ Built on the native System 23 reconstruction in **[spacestate1/namco22-decompile
 See **[docs/ONLINE.md](docs/ONLINE.md)** for setup, how it works and the test suite.
 
 ## Downloads and installation
+
+*This table is DR-89's official v0.3.3 release: it includes the game files but has no online play. For this fork's pre-release, see [above](#this-fork-online-2-player-pre-release).*
 
 | Platform | Download | Start playing |
 | --- | --- | --- |

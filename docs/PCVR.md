@@ -6,7 +6,7 @@ Keyboard: **Tab** changes the options page; on **GRAPHICS**, **Left/Right** sele
 
 **Texture filtering:** texture filtering defaults to ON and is saved in `quest-options.cfg`. With options open, squeeze the **left grip**, or press **F** on the keyboard, to toggle it immediately. The left grip keeps its cover function during gameplay.
 
-Extract the entire Windows ZIP to a writable folder. Keep `TimeCrisis2VR.exe`, the OpenXR loader, `models/` and `extracted/` together; do not rename the game files. No separate ROM import is required for the release package.
+Extract the entire Windows ZIP to a writable folder. Keep `TimeCrisis2VR.exe`, the OpenXR loader, `models/` and `extracted/` together; do not rename the game files. No separate ROM import is required for the release package. A package built without game files (`tools/build_pc.py --no-roms`) has a `roms/` folder instead: put your own `timecrs2.zip` (US TSS3 Ver. B MAME set) there, and the first start checks it and unpacks it into `extracted/`.
 
 ## Start in VR
 
