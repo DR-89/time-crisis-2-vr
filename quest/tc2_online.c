@@ -48,6 +48,9 @@ static uint32_t init_frame;               /* our arcade's last power-on or TEST 
 static bool p2_init_pending;              /* P2 linked after its power-on handshake: it restarts between games (link_contact_tick) */
 static uint32_t game_start_frame;         /* when our current game began (standin_tick) */
 static int mode_restart;                 /* frames of TEST still to press: the cabinet restarts (link_contact_tick) */
+static int coin_cost=4;                   /* coins a credit takes, as last seen (coins_tick); 4 on a fresh cabinet */
+static int repay;                         /* coins to pay back after a restart the SOLO/LINKED shot asked for (repay_tick) */
+#define REPAY_AFTER_FRAMES 720             /* attract is back ~600 frames after a TEST restart; coins at +900 counted (modescreen) */
 #define LINK_INIT_FRAMES 880               /* the game shakes hands on its link ~920 frames after power-on (measured) */
 static void session_end(void);
 static int  frame_out(uint8_t *buf);
@@ -377,9 +380,31 @@ static int cursor,edit_item=-1,edit_pos;
  * The screen comes up when the first credit goes in; it waits with 0x2CE92B = 1 and 0x2F3930 = 1 (a choice moves 0x2F3930 on to 2,
  * 3, 255, 0 for SOLO ONLY, 4, 5, ... for LINK PLAY) and times out to SOLO ONLY after ~15 s. Without a partner (0x802F3502 = 0)
  * SOLO/LINKED is crossed out and the game ignores a shot at it (three shots, nothing happened). Such a shot opens the ONLINE page
- * instead; the arcade is held while the page is open, and the page closes once a room is open (standin_tick). The panel is
- * x 20-632, y 95-258 of the 640x480 picture; the game's own gun position is used, so a replayed shot behaves like a real one. */
+ * instead: it hosts a room (P1 restarts so the screen comes up again with the stand-in there, and the coins are paid back), or,
+ * when we are joining someone, opens the ONLINE page (the arcade is held while it is open). The panel is x 20-632, y 95-258 of
+ * the 640x480 picture; the game's own gun position is used, so a replayed shot behaves like a real one.
+ * The coins (measured 2026-11-08, coins 0..9 against RAM): 0x2CE7B7 holds the coins in the machine and 0x2F3D27 counts every
+ * coin. A fresh cabinet takes 4 coins a credit; SELECT GAME MODE comes up as the first credit is complete and takes it then
+ * (3 coins: 3; 4: 0; 5: 1; 8: 4). A TEST restart clears them. */
 static bool connected_any(void);
+static bool host_waiting(void);
+static void host_room(void);
+static void coins_tick(void){
+    extern uint8_t tc2_ram[];
+    static int prev_held=-1,prev_total;
+    const int held=tc2_ram[0x2CE7B7],total=tc2_ram[0x2F3D27];
+    if(prev_held>=0){const int used=prev_held+(uint8_t)(total-prev_total)-held;   /* a credit taken: a game or a continue */
+        if(used>0&&used<=16&&(!init_frame||sim_frames-init_frame>300))coin_cost=used;}   /* not a restart clearing them */
+    prev_held=held;prev_total=total;
+}
+static void restart_for_dropin(void){
+    extern uint8_t tc2_ram[];
+    repay=coin_cost+tc2_ram[0x2CE7B7];          /* the credit SELECT GAME MODE took, and the coins left over */
+    mode_restart=MODE_RESTART_FRAMES;init_frame=sim_frames;
+    fprintf(stderr,"[ONLINE] frame %u: SELECT GAME MODE came up without a partner: P1 restarts so SOLO/LINKED opens (TEST), %d coins paid back after\n",sim_frames,repay);
+    char s[64];snprintf(s,sizeof s,"ROOM %s OPEN - THE ARCADE RESTARTS, COINS KEPT",room_code);
+    say(room_code[0]?s:"THE ARCADE RESTARTS - YOUR COINS ARE KEPT",9000);
+}
 static void mode_screen_tick(void){
     extern uint8_t tc2_ram[];extern uint16_t tc2_inputs,g_ss22_gun_x,g_ss22_gun_y;
     static bool prev_trigger;
@@ -387,9 +412,15 @@ static void mode_screen_tick(void){
     if(menu_from_mode&&!qhost_online_menu_open())menu_from_mode=false;   /* the player left the page without linking */
     if(tc2_ram[0x2CE92B]!=1||tc2_ram[0x2F3930]!=1)return;
     static int off=-1;if(off<0)off=getenv("TC2_NO_MODE_MENU")!=NULL;   /* tests that link later on purpose */
-    if(off||!fresh||tc2_ram[0x2F3502]!=0||eng_net_session_active())return;   /* LINKED is crossed out: no partner */
+    if(off||!fresh||tc2_ram[0x2F3502]!=0||eng_net_session_active()||mode_restart||repay)return;   /* LINKED is crossed out: no partner */
     const int x=((int)g_ss22_gun_x-tc2_game.gun_x0)*640/tc2_game.gun_xw,y=((int)g_ss22_gun_y-tc2_game.gun_y0)*480/tc2_game.gun_yh;
     if(x<20||x>632||y<95||y>258)return;
+    if(!connected_any()||host_waiting()){
+        fprintf(stderr,"[ONLINE] frame %u: SOLO/LINKED shot without a partner (%d,%d): %s\n",sim_frames,x,y,connected_any()?"hosting already":"hosting a room");
+        if(!connected_any())host_room();                 /* the stand-in answers from now on (room_owner): standin_tick */
+        if(host_waiting())restart_for_dropin();           /* else the server is out of reach: host_room said so */
+        return;
+    }
     fprintf(stderr,"[ONLINE] frame %u: SOLO/LINKED shot without a partner (%d,%d): the ONLINE page opens\n",sim_frames,x,y);
     menu_from_mode=true;
     if(!connected_any()){screen=SCREEN_MAIN;cursor=0;edit_item=-1;}
@@ -567,6 +598,17 @@ static void start_hold_tick(void){
         snprintf(t,sizeof t,"P1 IS STARTING - YOU JOIN IN %u S",(unsigned)r);say(t,2500);
     }
 }
+/* The coins a drop-in restart cleared, paid in as the held ones are once attract is back and the room is open (or could not
+ * open): the last one completes the credit and SELECT GAME MODE comes up by itself, now with SOLO/LINKED. */
+static void repay_tick(void){
+    if(!repay||mode_restart||sim_frames-init_frame<REPAY_AFTER_FRAMES)return;
+    const bool open=eng_net_my_room()>0||eng_net_session_active()||(mode==MODE_LAN_HOST&&eng_net_hosting());
+    if(!open&&host_waiting()&&sim_frames-init_frame<REPAY_AFTER_FRAMES+900)return;   /* the server is slow: wait up to 15 s more */
+    fprintf(stderr,"[ONLINE] frame %u: %d coins paid back (%s)\n",sim_frames,repay,open?"room open":"no room");
+    coin_pending+=repay;repay=0;
+    char s[64];snprintf(s,sizeof s,"ROOM %s: SHOOT SOLO/LINKED - FRIENDS JOIN ANY TIME",room_code);
+    say(!open?"COULD NOT OPEN A ROOM - SOLO ONLY THIS TIME":room_code[0]?s:"SHOOT SOLO/LINKED - YOUR PARTNER JOINS ANY TIME",8000);
+}
 /* The I/O board's reads (upstream src/tc2_h8.c io_switches): the coin, trigger and pedal held, and a held coin paid in. */
 int tc2_link_hold_start(void){return holding;}
 int tc2_link_coin_inject(void){return coin_pulse>0;}
@@ -591,9 +633,11 @@ void tc2_online_frame(void){
     tc2_voice_tick();
     eng_net_poll();
     start_hold_tick();
+    coins_tick();
     standin_tick();
     link_contact_tick();
     mode_restart_tick();
+    repay_tick();
     mode_screen_tick();
     episode_tick();
     code_join_tick();

@@ -10,8 +10,8 @@
 
 enum { WIDTH=640,HEIGHT=480 };
 static GLuint program,vao,vbo,texture,toast_texture;
-enum { TOAST_W=640,TOAST_H=40 };
-static unsigned toast_serial_drawn=~0u;
+enum { TOAST_W=640,TOAST_H=40,TOAST_H2=64,TOAST_CHARS=38 };   /* one line of 38 characters, or two (a long message) */
+static unsigned toast_serial_drawn=~0u;static int toast_h=TOAST_H;
 static GLint u_view,u_projection,u_texture;
 static int last_state=-1;
 static int last_pitch,last_scale,last_distance;
@@ -188,23 +188,35 @@ void qui_draw_toast(const float view[16],const float projection[16],V3 head,Q4 r
     if(!program||!message||!message[0])return;
     if(serial!=toast_serial_drawn){
         /* Reuse the panel pixel buffer's first rows as scratch: the text routine clips to the panel size. */
-        static uint8_t keep[TOAST_W*TOAST_H*4];memcpy(keep,pixels,sizeof keep);
-        for(int y=0;y<TOAST_H;y++)for(int x=0;x<TOAST_W;x++){
-            uint8_t *p=pixels+(y*WIDTH+x)*4;bool border=y<2||y>=TOAST_H-2||x<2||x>=TOAST_W-2;
+        /* A message longer than a line wraps once: at " - " when both halves fit, else at the last space that fits. */
+        char lines[2][TOAST_CHARS+1]={{0},{0}};
+        const size_t total=strlen(message);
+        if(total<=TOAST_CHARS)snprintf(lines[0],sizeof lines[0],"%s",message);
+        else{
+            size_t cut=0,skip=1;
+            const char *dash=strstr(message," - ");
+            if(dash&&(size_t)(dash-message)<=TOAST_CHARS&&strlen(dash+3)<=TOAST_CHARS){cut=(size_t)(dash-message);skip=3;}
+            else for(size_t i=TOAST_CHARS;i>0;i--)if(message[i]==' '){cut=i;break;}
+            if(!cut){cut=TOAST_CHARS;skip=0;}
+            snprintf(lines[0],sizeof lines[0],"%.*s",(int)cut,message);
+            snprintf(lines[1],sizeof lines[1],"%s",message+cut+skip);
+        }
+        toast_h=lines[1][0]?TOAST_H2:TOAST_H;
+        static uint8_t keep[TOAST_W*TOAST_H2*4];memcpy(keep,pixels,sizeof keep);
+        for(int y=0;y<toast_h;y++)for(int x=0;x<TOAST_W;x++){
+            uint8_t *p=pixels+(y*WIDTH+x)*4;bool border=y<2||y>=toast_h-2||x<2||x>=TOAST_W-2;
             p[0]=border?255:10;p[1]=border?202:16;p[2]=border?110:24;p[3]=border?255:225;
         }
-        int len=(int)strlen(message);if(len>38)len=38;
-        char line[40];memcpy(line,message,(size_t)len);line[len]=0;
-        text((TOAST_W-len*16)/2,12,line,255,255,255);
-        static uint8_t out[TOAST_W*TOAST_H*4];for(int y=0;y<TOAST_H;y++)memcpy(out+y*TOAST_W*4,pixels+y*WIDTH*4,TOAST_W*4);
+        for(int i=0;i<2;i++)if(lines[i][0])text((TOAST_W-(int)strlen(lines[i])*16)/2,12+i*24,lines[i],255,255,255);
+        static uint8_t out[TOAST_W*TOAST_H2*4];for(int y=0;y<toast_h;y++)memcpy(out+y*TOAST_W*4,pixels+y*WIDTH*4,TOAST_W*4);
         memcpy(pixels,keep,sizeof keep);last_state=-1;
         GLint bound;glGetIntegerv(GL_TEXTURE_BINDING_2D,&bound);glBindTexture(GL_TEXTURE_2D,toast_texture);
         GLint row_length;glGetIntegerv(GL_UNPACK_ROW_LENGTH,&row_length);glPixelStorei(GL_UNPACK_ROW_LENGTH,0);
-        glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,TOAST_W,TOAST_H,0,GL_RGBA,GL_UNSIGNED_BYTE,out);glPixelStorei(GL_UNPACK_ROW_LENGTH,row_length);
+        glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,TOAST_W,toast_h,0,GL_RGBA,GL_UNSIGNED_BYTE,out);glPixelStorei(GL_UNPACK_ROW_LENGTH,row_length);
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
         glBindTexture(GL_TEXTURE_2D,bound);toast_serial_drawn=serial;
     }
     /* 1.3 m wide, 1.6 m ahead, below the centre of view so it does not cover targets. */
-    quad(toast_texture,view,projection,head,rotation,.65f,.04f,-.42f,-1.6f);
+    quad(toast_texture,view,projection,head,rotation,.65f,.04f*toast_h/TOAST_H,-.42f,-1.6f);
 }

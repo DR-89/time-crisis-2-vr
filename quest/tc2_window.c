@@ -37,6 +37,13 @@ void tc2_window_frame(void) {
             while(e&&*e&&n<16){char *end;at[n]=(uint32_t)strtoul(e,&end,16)&0xFFFFFFu;last[n++]=-1;e=*end==','?end+1:end;if(end==e&&*e!=',')break;}}
         for(int i=0;i<n;i++)if(tc2_ram[at[i]]!=last[i]){fprintf(stderr,"[RAM] frame %u %06X: %d -> %d\n",rr_frame,at[i],last[i],tc2_ram[at[i]]);last[i]=tc2_ram[at[i]];}
     }
+    {   /* $TCVR_RAMDUMP=<frame>[,<frame>...]: main RAM to ram-<frame>.bin at those frames -- finding the game's state by comparison */
+        const char *e=getenv("TCVR_RAMDUMP");
+        for(const char *p=e;p&&*p;){char *end;unsigned long f=strtoul(p,&end,10);if(end==p)break;
+            if(f==rr_frame){char name[32];snprintf(name,sizeof name,"ram-%u.bin",rr_frame);FILE *o=fopen(name,"wb");
+                if(o){fwrite(tc2_ram,1,sizeof tc2_ram,o);fclose(o);}}
+            p=*end==','?end+1:end;}
+    }
     qvr_scene_prepare(tc2_built_latest_wait());
     if(rr_frame&&rr_frame%300==0)fprintf(stderr,"[PLAYER] frame %u: local slot %u route %u mode %u\n",rr_frame,qtc2_weapon_be32(tc2_ram+0x2cee28),qtc2_weapon_be32(tc2_ram+0x2f3fd4),qtc2_weapon_be32(tc2_ram+0x2f3fd0));
     static uint64_t started;

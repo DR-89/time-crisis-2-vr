@@ -102,13 +102,12 @@ SCENARIOS = {
     # P2 the arcade's way: linked first, A starts LINK PLAY, B puts coins in once A's game is under way and takes the top panel
     'p2join': (6000, '600:hostroom', '700:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'TCVR_RAMWATCH': '2CE92B,2F3930,2F3502',
                'AIM_UNTIL': 2600, 'B_COINS_AT': 3000, 'B_AIM_UNTIL': 5000}, 'p2join'),
-    # the arcade's own way in: A shoots the crossed-out SOLO/LINKED at 1700 (no link yet), the ONLINE page opens and holds the
-    # arcade; A hosts from it (wall clock: the arcade is stopped). Once the room is open the page closes and, as SOLO/LINKED is
-    # decided when the screen comes up, A restarts; the stand-in answers, A puts coins in again at 2600 and takes SOLO/LINKED.
-    # B, without coins, joins by code meanwhile (it waits for A's restart), restarts once for its handshake, puts coins in at
-    # 3000: held by the agreed start, paid in once A's game is under way, and B's shot takes LINK PLAY on the right
-    'modescreen': (9000, 't31000:hostroom', 't33000:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'TCVR_RAMWATCH': '2CE92B,2F3930,2F3502',
-                   'AIM_UNTIL': 3400, 'A_COINS_AGAIN': 2600, 'B_COINS_AT': 3000, 'B_AIM_UNTIL': 8000}, 'modescreen'),
+    # the arcade's own way in: A, credited without a room, shoots the crossed-out SOLO/LINKED at 1700. That one shot hosts a room
+    # (the stand-in answers) and, as SOLO/LINKED is decided when the screen comes up, A restarts; its 8 coins are paid back once
+    # attract is back, SELECT GAME MODE comes up by itself and A's next shot takes SOLO/LINKED, alone. B joins by code a while into
+    # A's game, restarts once for its handshake, puts coins in at 4800 and takes LINK PLAY on the right
+    'modescreen': (8400, '', '3600:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'TCVR_RAMWATCH': '2CE92B,2F3930,2F3502,2CE7B7',
+                   'AIM_UNTIL': 3400, 'B_COINS_AT': 4800, 'B_AIM_UNTIL': 7400}, 'modescreen'),
     # drop-in: A hosts a room and plays alone at once (the stand-in makes SOLO/LINKED available: A takes it at 1700); B joins by
     # code a minute later, A's game well under way: B restarts once for the handshake, puts coins in at 4800 (no agreed-start
     # wait: A's game has run over 25 s) and takes LINK PLAY on the right
@@ -208,10 +207,12 @@ def run(name: str, keep: bool):
             if dead:
                 failures.append(f'{side}: link down at frames {dead}')
     if check == 'modescreen':
-        if 'SOLO/LINKED shot without a partner' not in logs['A']:
-            failures.append('A: the SOLO/LINKED shot did not open the ONLINE page')
-        if 'room open: back to SELECT GAME MODE' not in logs['A']:
-            failures.append('A: the ONLINE page did not close back to the arcade once the room was open')
+        if 'SOLO/LINKED shot without a partner (' not in logs['A'] or ': hosting a room' not in logs['A']:
+            failures.append('A: the SOLO/LINKED shot did not host a room')
+        if 'the ONLINE page opens' in logs['A']:
+            failures.append('A: the ONLINE page opened (the shot should host by itself)')
+        if not re.search(r'8 coins paid back after', logs['A']) or '8 coins paid back (room open)' not in logs['A']:
+            failures.append('A: its 8 coins were not paid back once the room was open')
     if check in ('modescreen', 'dropin'):
         if 'P2 linked after its power-on handshake' in logs['A']:
             failures.append('A: restarted as if it were P2')
@@ -223,18 +224,19 @@ def run(name: str, keep: bool):
             failures.append('B: did not restart for the handshake after linking late')
         if 'drop-in open' not in logs['A']:
             failures.append('A: the stand-in never answered')
-    if check == 'dropin':
+    if check in ('dropin', 'modescreen'):
         # A takes LINK PLAY alone, before B ever links (A's first choice frame < A's first session)
-        choice = [int(f) for f in re.findall(r'\[RAM\] frame (\d+) 2F3930: 1 -> 4', logs['A'])]
+        choice = [int(f) for f in re.findall(r'\[RAM\] frame (\d+) 2F3930: [01] -> 4', logs['A'])]
         linked = re.search(r'frame (\d+): the partner replaces the stand-in', logs['A'])
         if not choice or not linked or choice[0] >= int(linked.group(1)):
             failures.append(f'A: LINK PLAY was not taken alone before B linked (choice {choice[:1]}, handover {linked.group(1) if linked else None})')
     if check in ('modescreen', 'p2join', 'dropin'):
         # each cabinet's choice, at the frame it leaves SELECT GAME MODE (0x2CE92B 1 -> 0): 0x2F3930 1 -> 4 is LINK PLAY, 1 -> 2
-        # SOLO ONLY (also what the ~15 s timeout picks); a TEST restart leaves with 1 -> 0. (In a game 0x2F3930 means other things.)
+        # SOLO ONLY (also what the ~15 s timeout picks); a TEST restart leaves with 1 -> 0, and the screen after one waits at 0, not 1.
+        # (In a game 0x2F3930 means other things.)
         for side in 'AB':
             left = set(re.findall(r'\[RAM\] frame (\d+) 2CE92B: 1 -> 0', logs[side]))
-            choice = {f: v for f, v in re.findall(r'\[RAM\] frame (\d+) 2F3930: 1 -> (\d+)', logs[side]) if f in left}
+            choice = {f: v for f, v in re.findall(r'\[RAM\] frame (\d+) 2F3930: [01] -> (\d+)', logs[side]) if f in left}
             if '4' not in choice.values() or '2' in choice.values():
                 failures.append(f'{side}: LINK PLAY not taken (mode screen left with {choice or "nothing"})')
     if check == 'rejoin' and logs['A'].count('GO: session') < 2:

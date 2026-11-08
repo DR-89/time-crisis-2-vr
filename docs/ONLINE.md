@@ -23,13 +23,13 @@ Either player can leave at any time. The other's game carries on, and the room s
 
 ### Or start from the arcade's own screen
 
-Put coins in without a room open and you reach **SELECT GAME MODE** with **SOLO/LINKED** crossed out; the arcade ignores a shot at it. Here, **shooting it opens the ONLINE page**, with the game paused, so its countdown waits:
+You don't have to open the menu first. Put coins in without a room open and you reach **SELECT GAME MODE** with **SOLO/LINKED** crossed out; the arcade ignores a shot at it. Here, **shooting it hosts a room for you**:
 
-1. Host a room (or a LAN game).
-2. Once it is open, the page closes and **your arcade restarts** (`ROOM OPEN - THE ARCADE RESTARTS, THEN COIN IN AND SHOOT SOLO/LINKED`): the warning screen, then attract. Your coins are cleared. The game decides whether SOLO/LINKED is open when the screen comes up, so it has to come up again.
-3. Put coins in again and shoot **SOLO/LINKED**. Your partner joins when they arrive, as in the quick start.
+1. A room opens with a code (`ROOM KXQ7 OPEN - THE ARCADE RESTARTS, COINS KEPT`), and **your arcade restarts once**: the warning screen, then attract, about 12 seconds. The game decides whether SOLO/LINKED is open when the screen comes up, so it has to come up again.
+2. Your coins are paid back in by themselves, and SELECT GAME MODE comes up again, now with SOLO/LINKED open (`ROOM KXQ7: SHOOT SOLO/LINKED - FRIENDS JOIN ANY TIME`).
+3. Shoot **SOLO/LINKED** and play. Friends join with the code, or from **BROWSE GAMES**, whenever they arrive, as in the quick start. The code is also on the ONLINE page.
 
-Host before you put coins in and none of this is needed.
+If the server cannot be reached, nothing restarts and the banner says so. Host before you put coins in and there is no restart at all. If you are joining someone rather than hosting, the shot opens the ONLINE page instead, with the arcade paused.
 
 Room codes go through the lobby server, so they work across the internet with no router setup, VPN or addresses. Other ways to meet:
 
@@ -184,7 +184,8 @@ Our C422 model differs inside (its interrupt bookkeeping), but the words a cabin
 Measured on US TSS3 Ver. B (`quest/tc2_link.c` stand-in, `quest/tc2_online.c` `standin_tick` and `link_contact_tick`):
 
 - **SELECT GAME MODE** comes up with the first credit. It waits with `0x2CE92B` = 1 and `0x2F3930` = 1 and times out to SOLO ONLY after about 15 s. Leaving it, `0x2F3930` goes 1 to 2 for SOLO ONLY and 1 to 4 for SOLO/LINKED.
-- **SOLO/LINKED is open only if a partner is linked as the screen comes up** (`0x802F3502`, the partner's state: 0 none, 1 attract, 2 credited, 4 in a game, 5 handshake). A partner appearing later does not open it: the screen re-armed, shots on the panel did nothing, and it ran out into SOLO ONLY. Without a partner the game ignores a shot at the panel (x 20-632, y 95-258 of the 640x480 picture); the port opens the ONLINE page instead.
+- **SOLO/LINKED is open only if a partner is linked as the screen comes up** (`0x802F3502`, the partner's state: 0 none, 1 attract, 2 credited, 4 in a game, 5 handshake). A partner appearing later does not open it: the screen re-armed, shots on the panel did nothing, and it ran out into SOLO ONLY. Without a partner the game ignores a shot at the panel (x 20-632, y 95-258 of the 640x480 picture); the port hosts a room instead and restarts P1 (`mode_screen_tick`).
+- **The coins** (0 to 9 coins against RAM): `0x2CE7B7` holds the coins in the machine and `0x2F3D27` counts every coin. A fresh cabinet takes 4 coins a credit. SELECT GAME MODE comes up as the first credit completes and takes it then (3 coins leave 3; 4 leave 0; 5 leave 1; 8 leave 4). A TEST restart clears them, so the drop-in restart pays back the credit plus the coins left, through the same coin input P2's held coins use (`repay_tick`). The cost of a credit is read off the counters whenever the game takes one. After the restart, SELECT GAME MODE waits with `0x2F3930` = 0 rather than 1.
 - **The game's mode** is the word at `0x802F3FD0`: 1 SOLO ONLY, 2 SOLO/LINKED, 0 between games. About 30 places in the game branch on it.
 - **A game in mode 2 takes a second player whenever one arrives.** Its partner may vanish mid-game, and a right cabinet that links later still takes LINK PLAY and plays alongside: score, lives, P1 seen from Robert's side. A right cabinet that was running before the link came up does not: it sees the left's game but its SOLO/LINKED stays crossed out. The game shakes hands on the link about 920 frames after power-on, and a right cabinet only joins after doing so with the link up. A left cabinet does not need it: hosting 50 s after power-on, SOLO/LINKED opened.
 - **So while you host with nobody linked, a stand-in answers as an idle right cabinet.** Before a game, a right cabinet's packets are the left's own: the same frame counter (bytes 1-2) and header, cabinet byte 13 = 5 instead of 4, a few attract fields. Bytes 1 to n-3 sum to 0 (n-3 is the checksum); the last two give the length. The stand-in answers each packet the left sends: during the handshake with the packet itself, in attract as the right cabinet, and after that with that attract packet, its counter and header bytes 4-7 following the left's. A stand-in that starts while the left is credited uses an attract packet recorded from the game. No second game runs; the cost is one packet copy a frame. In an episode (a partner linked before), the stand-in comes back only between games, because mid-game the arcade still expects that partner.
@@ -243,7 +244,7 @@ python -X utf8 tests/test_handedness.py        # includes the ONLINE page's inpu
 | `duplex` | Both talk at once: each must hear the other despite the echo safeguard |
 | `roomleave` | B leaves the room mid-game and rejoins by code |
 | `p2join` | Linked first; A starts LINK PLAY, B puts coins in at 3000 (held, then paid in) and takes LINK PLAY on the right cabinet |
-| `modescreen` | A shoots the crossed-out SOLO/LINKED; the ONLINE page opens and A hosts from it; A restarts once the room is open, puts coins in again and takes SOLO/LINKED; B joins meanwhile, restarts once for its handshake, and joins A's game |
+| `modescreen` | A, credited with no room, shoots the crossed-out SOLO/LINKED: that shot hosts a room and A restarts; its 8 coins are paid back, SELECT GAME MODE comes up by itself and A takes SOLO/LINKED alone; B joins a while into A's game, restarts once for its handshake, and joins it |
 | `dropin` | A hosts and takes SOLO/LINKED alone at once (the stand-in); B joins a minute into A's game, restarts once, and takes LINK PLAY with no agreed-start wait |
 | `crossplay` | Our cabinet (P1, hosting a room) against **upstream's released desktop game** (P2, headless, joining by quick match). It checks the link from both sides, 0 link errors, upstream's agreed start holding and releasing on our trailer, and that a desktop partner is not shown voice chat. Skipped without the download |
 
@@ -261,6 +262,7 @@ Test switches, read by `quest/tc2_online.c` and `quest/tc2_voice.c`:
 - `TC2_NO_MODE_MENU=1`: a shot at the crossed-out SOLO/LINKED does nothing, as at the arcade (`late` links into a game on purpose).
 - `TC2_NO_STANDIN=1`: no stand-in partner while hosting (SOLO/LINKED then needs a linked partner, as before).
 - `TCVR_LINKDUMP=<file>`: every link packet this cabinet sends, as hex with its frame (how the stand-in was worked out).
+- `TCVR_RAMDUMP=<frame>[,<frame>...]`: main RAM to `ram-<frame>.bin` at those frames (how the coin counters were found, by comparing runs with different coins). `TCVR_RAMWATCH=<addr>[,...]` logs chosen bytes as they change.
 - `TCVR_CAPTURE_EVERY=N`: save `cap-<frame>.ppm` every N frames.
 
 ## Limitations
