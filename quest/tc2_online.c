@@ -100,11 +100,11 @@ static bool last_seen;                     /* the server listed the room since i
 #define REJOIN_HOURS 12                    /* an older memory is dropped at start, whatever the server says */
 
 /* ---- config ---- */
-static bool cfg_voice=true,cfg_muted=false;static int cfg_volume=100;
+static bool cfg_voice=true,cfg_muted=false,cfg_ptt=false,cfg_join_credit=true;static int cfg_volume=100;
 static void save_cfg(void){
     FILE *f=fopen(CFG_PATH,"w");if(!f)return;
-    fprintf(f,"name=%s\nserver=%s\njoin=%u.%u.%u.%u:%d\nvoice=%d\nmic_muted=%d\nvoice_volume=%d\n",name,server,
-            join_ip[0],join_ip[1],join_ip[2],join_ip[3],join_port,cfg_voice?1:0,cfg_muted?1:0,cfg_volume);
+    fprintf(f,"name=%s\nserver=%s\njoin=%u.%u.%u.%u:%d\nvoice=%d\nmic_muted=%d\nvoice_volume=%d\npush_to_talk=%d\njoin_credit=%d\n",name,server,
+            join_ip[0],join_ip[1],join_ip[2],join_ip[3],join_port,cfg_voice?1:0,cfg_muted?1:0,cfg_volume,cfg_ptt?1:0,cfg_join_credit?1:0);
     if(last_room_id>0)fprintf(f,"rejoin=%d %s %d %lld %s\n",last_room_id,last_code,last_side,last_time,last_partner);
     fclose(f);
 }
@@ -127,6 +127,8 @@ static void load_cfg(void){
             if(sscanf(line+5,"%u.%u.%u.%u:%d",&a,&b,&c,&d,&p)>=4&&a<256&&b<256&&c<256&&d<256){join_ip[0]=a;join_ip[1]=b;join_ip[2]=c;join_ip[3]=d;join_port=p>0&&p<65536?p:27750;}}
         else if(!strncmp(line,"voice=",6))cfg_voice=atoi(line+6)!=0;
         else if(!strncmp(line,"mic_muted=",10))cfg_muted=atoi(line+10)!=0;
+        else if(!strncmp(line,"push_to_talk=",13))cfg_ptt=atoi(line+13)!=0;
+        else if(!strncmp(line,"join_credit=",12))cfg_join_credit=atoi(line+12)!=0;
         else if(!strncmp(line,"voice_volume=",13)){cfg_volume=atoi(line+13);if(cfg_volume<0)cfg_volume=0;if(cfg_volume>200)cfg_volume=200;}
         else if(!strncmp(line,"rejoin=",7)){
             int id=0,side=0;char code[8]={0},who[32]={0};long long when=0;
@@ -139,7 +141,7 @@ static void load_cfg(void){
     }
     fclose(f);
 }
-static void apply_voice_cfg(void){tc2_voice_set_enabled(cfg_voice);tc2_voice_set_muted(cfg_muted);tc2_voice_set_volume(cfg_volume);}
+static void apply_voice_cfg(void){tc2_voice_set_enabled(cfg_voice);tc2_voice_set_muted(cfg_muted);tc2_voice_set_volume(cfg_volume);tc2_voice_set_push_to_talk(cfg_ptt);}
 
 /* ---- local addresses (shown while hosting so the partner knows what to type) ---- */
 static char addresses[3][20];static int address_count;
@@ -609,7 +611,7 @@ static void test_file(int *status,const char **script){
     }
     fclose(f);fprintf(stderr,"[ONLINE] online-test.txt: script '%s'\n",*script?*script:"");
 }
-static int test_status=-1;static const char *test_script;static uint32_t test_t0,test_last_ms;
+static int test_status=-1;static const char *test_script;static uint32_t test_t0,test_last_ms;static bool test_talk;
 static void test_switches_at(bool timed){
     if(test_status<0){test_status=getenv("TC2_NET_STATUS")!=NULL;test_script=getenv("TC2_NET_SCRIPT");test_file(&test_status,&test_script);test_t0=SDL_GetTicks();}
     uint32_t now=SDL_GetTicks()-test_t0,since=test_last_ms;if(timed)test_last_ms=now;
@@ -637,6 +639,7 @@ static void test_switches_at(bool timed){
         else if(!strcmp(action,"rejoin"))tc2_online_rejoin();
         else if(!strcmp(action,"restart"))tc2_online_restart_game();
         else if(!strcmp(action,"mute"))tc2_online_toggle_mute();
+        else if(!strcmp(action,"talk")&&arg)test_talk=atoi(arg)!=0;     /* push to talk: the key held (1) or let go (0) */
         else if(!strcmp(action,"voice")&&arg){cfg_voice=atoi(arg)!=0;apply_voice_cfg();}
         else if(!strcmp(action,"leave"))leave();
         else if(!strcmp(action,"freeze")&&arg)SDL_Delay((Uint32)atoi(arg));
@@ -681,7 +684,7 @@ static void start_hold_tick(void){
     if(pst!=p_prev){p_prev=pst;p_since=rr_frame;p_since_ms=SDL_GetTicks();}
     const uint32_t left_ms=(uint32_t)(wait*1000/60),in_ms=SDL_GetTicks()-p_since_ms;
     const bool left_done=pst==4&&(rr_frame-p_since>=(uint32_t)wait||in_ms>=left_ms||tc2_link_partner_mark()=='J');
-    bool h=eng_net_session_active()&&eng_net_slot()==1&&self>=0&&self!=4&&!left_done;
+    bool h=eng_net_session_active()&&qtc2_cabinet_side==2&&!side_pending&&self>=0&&self!=4&&!left_done;
     const int c=tc2_inputs&0x0001;                       /* the raw coin, before the hold (tc2_h8.c reads it through tc2_link_hold_start) */
     if(h&&c&&!prev_coin)coin_pending++;
     prev_coin=c;
@@ -700,6 +703,26 @@ static void start_hold_tick(void){
         char t[48];uint32_t r=in_ms<left_ms?(left_ms-in_ms+999)/1000:0;
         snprintf(t,sizeof t,"P1 IS STARTING - YOU JOIN IN %u S",(unsigned)r);say(t,2500);
     }
+}
+/* ---- a credit to join with (the ONLINE tab's "Join with a credit", on by default) ----
+ * Each cabinet keeps its own coins, so a P2 who linked into P1's game without putting coins in stood in attract, watching. Once a
+ * session, when P1 is in a game and this right cabinet is not, its link handshake is done and it holds less than a credit, the
+ * coins for one credit go in (paid as the coin mech's, after the agreed-start hold, like any held coin). Continues still take the
+ * player's own coins, so one credit stays one credit. */
+static bool credit_given;
+static void credit_tick(void){
+    extern uint8_t tc2_ram[];
+    if(!episode){credit_given=false;return;}
+    if(!cfg_join_credit||credit_given||!eng_net_session_active()||qtc2_cabinet_side!=2||side_pending)return;
+    if(p2_init_pending||mode_restart||repay||sim_frames-init_frame<LINK_INIT_FRAMES+180)return;
+    if(tc2_ram[0x2F3502]!=4||tc2_link_self_state()!=1)return;      /* P1 in a game, this cabinet in attract */
+    if(tc2_link_partner_mark()=='L')return;                         /* P1 plays SOLO ONLY: wait for a game P2 can join */
+    const int short_by=coin_cost-tc2_ram[0x2CE7B7]-coin_pending;
+    credit_given=true;
+    if(short_by<=0)return;
+    coin_pending+=short_by;coin_fast+=short_by;
+    fprintf(stderr,"[ONLINE] frame %u: a credit to join with: %d coins in\n",sim_frames,short_by);
+    say("A CREDIT TO JOIN WITH - PULL THE TRIGGER",5000);
 }
 /* The coins a drop-in restart cleared, paid in as the held ones are once attract is back and the room is open (or could not
  * open): the last one completes the credit and SELECT GAME MODE comes up by itself, now with SOLO/LINKED. */
@@ -748,6 +771,7 @@ void tc2_online_frame(void){
     eng_net_poll();
     start_hold_tick();
     coins_tick();
+    credit_tick();
     menu_timeout_tick();
     standin_tick();
     link_contact_tick();
@@ -780,6 +804,7 @@ void tc2_online_service(void){
 /* ---- the pause menu's ONLINE tab (quest_menu.c): a view of the state above, and the player's actions ---- */
 static void set_voice(bool on){cfg_voice=on;apply_voice_cfg();save_cfg();say(on?"VOICE CHAT ON":"VOICE CHAT OFF",2000);}
 static void set_volume(int v){cfg_volume=v<0?0:v>200?200:v;tc2_voice_set_volume(cfg_volume);save_cfg();}
+static void set_push_to_talk(bool on){cfg_ptt=on;apply_voice_cfg();save_cfg();}
 static bool connected_any(void){return eng_net_hosting()||eng_net_connected()||mode!=MODE_NONE||episode;}
 
 /* REJOIN: the room the player left (or restarted out of) while linked, offered for as long as the server still lists it */
@@ -808,13 +833,14 @@ void tc2_online_menu_shown(bool online_tab){if(online_tab){menu_online=true;menu
 
 void tc2_online_get_view(tc2_online_view *v){
     memset(v,0,sizeof *v);
-    v->side=qtc2_cabinet_side;v->home_side=home_side;v->ping_ms=-1;v->volume=cfg_volume;v->voice=cfg_voice;v->muted=cfg_muted;
+    v->side=qtc2_cabinet_side;v->home_side=home_side;v->ping_ms=-1;v->volume=cfg_volume;v->voice=cfg_voice;v->muted=cfg_muted&&!cfg_ptt;
+    v->push_to_talk=cfg_ptt;v->join_credit=cfg_join_credit;
     snprintf(v->name,sizeof v->name,"%s",name);snprintf(v->server,sizeof v->server,"%s",server);
     snprintf(v->join_ip,sizeof v->join_ip,"%u.%u.%u.%u",join_ip[0],join_ip[1],join_ip[2],join_ip[3]);
     if(!inited)return;
     tc2_voice_status vs;tc2_voice_get_status(&vs);
     v->mic_denied=vs.mic_denied;v->partner_voice=vs.partner_has_voice;
-    v->level=cfg_muted?0:vs.level/350>8?8:vs.level/350;v->partner_level=vs.partner_level*3/350>8?8:vs.partner_level*3/350;
+    v->level=v->muted?0:vs.level/350>8?8:vs.level/350;v->talking=vs.talking;v->partner_level=vs.partner_level*3/350>8?8:vs.partner_level*3/350;
     if(episode)v->state=eng_net_session_active()?TC2V_LINKED:TC2V_RECONNECTING;
     else if(pending_code[0]){v->state=TC2V_JOINING;snprintf(v->joining,sizeof v->joining,"%s",pending_code);snprintf(v->code,sizeof v->code,"%s",pending_code);}
     else if(mode==MODE_LAN_HOST&&eng_net_hosting())v->state=TC2V_LAN_HOSTING;
@@ -897,6 +923,10 @@ void tc2_online_join_ip(void){
     forget_room();join_address(a);
 }
 void tc2_online_set_voice(bool on){if(inited)set_voice(on);}
+void tc2_online_set_push_to_talk(bool on){if(inited)set_push_to_talk(on);}
+void tc2_online_set_join_credit(bool on){if(inited){cfg_join_credit=on;save_cfg();}}
+bool tc2_online_push_to_talk(void){return inited&&cfg_voice&&cfg_ptt;}
+void tc2_online_talk_key(bool held){if(inited)tc2_voice_talk_key(cfg_ptt&&(held||test_talk));}
 void tc2_online_set_volume(int percent){if(inited)set_volume(percent);}
 void tc2_online_set_name(const char *n){
     if(!inited)return;

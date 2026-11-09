@@ -9,7 +9,9 @@ void tc2_online_frame(void);             /* once per simulated arcade frame */
 void tc2_online_service(void);           /* every host loop iteration: keeps the lobby alive while the arcade is paused */
 bool tc2_online_session(void);           /* linked to a partner: the arcade keeps running behind menus and focus loss */
 bool tc2_online_busy(void);              /* hosting, connecting, in a lobby or in a session */
-void tc2_online_toggle_mute(void);       /* the microphone, during play (left stick click / M) */
+void tc2_online_toggle_mute(void);       /* the microphone, during play (left stick click / M; not with push to talk) */
+bool tc2_online_push_to_talk(void);      /* voice chat is on and sends only while the talk key is held */
+void tc2_online_talk_key(bool held);     /* every frame: a thumbstick click held (Quest) / V held (PC) */
 bool tc2_online_may_advance(void);       /* stall-and-wait: false = hold this arcade frame (keep rendering)  */
 
 /* The pause menu's ONLINE tab (quest_menu.c) reads this view and calls the actions below. */
@@ -25,6 +27,8 @@ typedef struct tc2_online_view {
     char players[2][24];bool player_self[2];   /* by cabinet: [0] P1, [1] P2; "" while the place is free */
     char address[3][20];bool address_vpn[3];int address_count;
     bool voice,muted,mic_denied,partner_voice;int level,partner_level,volume;   /* levels 0..8, volume percent */
+    bool push_to_talk,talking;         /* send only while the talk key is held; sending now */
+    bool join_credit;                  /* a P2 joining a game gets one credit */
     bool can_rejoin;char rejoin_code[5],rejoin_partner[24];int rejoin_side;      /* the room the player left, still open */
     char join_ip[24];
     bool browse_answered,browse_busy,discovering;char server_name[64];int server_rooms,server_players;
@@ -43,6 +47,8 @@ void tc2_online_host_lan(void);
 void tc2_online_set_join_ip(const char *address);
 void tc2_online_join_ip(void);
 void tc2_online_set_voice(bool on);
+void tc2_online_set_push_to_talk(bool on);
+void tc2_online_set_join_credit(bool on);
 void tc2_online_set_volume(int percent);
 void tc2_online_set_name(const char *name);
 void tc2_online_leave(void);                           /* also cancels joining and closes an open room */

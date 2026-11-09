@@ -56,10 +56,13 @@ tc2_link_adapter(tc2_main
   "    { void tc2_link_step(void); tc2_link_step(); }"
   "    tc2_link_step(n);")
 set_source_files_properties("${CMAKE_BINARY_DIR}/tc2_main_link.c" PROPERTIES COMPILE_DEFINITIONS "main=tc_game_main;SDL_MAIN_HANDLED")
-# Voice chat is mixed into the game's own output (Android has one output device): one sample added per output sample.
+# Voice chat is mixed into the game's own output (Android has one output device): one sample added per output sample. What is
+# queued is also the microphone's echo canceller's reference (tc2_voice_played), with how long it waits before it plays.
 tc2_online_adapter("${TC}/src/tc2_audio.c" tc2_audio_voice
   "        int l = (s4[4 * i] + s4[4 * i + 2]) * volume / 100, r = (s4[4 * i + 1] + s4[4 * i + 3]) * volume / 100;\n"
-  "        int l = (s4[4 * i] + s4[4 * i + 2]) * volume / 100, r = (s4[4 * i + 1] + s4[4 * i + 3]) * volume / 100;\n        { const int voice = tc2_voice_mix(); l += voice; r += voice; }\n")
+  "        int l = (s4[4 * i] + s4[4 * i + 2]) * volume / 100, r = (s4[4 * i + 1] + s4[4 * i + 3]) * volume / 100;\n        { const int voice = tc2_voice_mix(); l += voice; r += voice; }\n"
+  "        SDL_QueueAudio(dev, st, (uint32_t)n * 4);\n"
+  "        tc2_voice_played(st, n, SDL_GetQueuedAudioSize(dev) / 4);   /* the echo canceller's reference, as it will play */\n        SDL_QueueAudio(dev, st, (uint32_t)n * 4);\n")
 # Online play: upstream's NMN2 client and built-in host, Time Crisis 2's own copy (tc2/src/eng/net.c, net_host.c). The client gains a room request
 # for the next connect (tc2_online.c: room codes and the lobby browser join a chosen room, hosting creates a named one) and
 # an accessor for the room it is in. Everything else in the library is unchanged.
@@ -83,11 +86,38 @@ foreach(option OPUS_BUILD_SHARED_LIBRARY OPUS_BUILD_TESTING OPUS_BUILD_PROGRAMS 
 endforeach()
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 add_subdirectory("${OPUS_SRC}" "${CMAKE_BINARY_DIR}/opus" EXCLUDE_FROM_ALL)
+# The microphone's clean-up (quest/tc2_voice_dsp.c), BSD, from the pinned downloads (tools/bootstrap.py): RNNoise with its
+# trained model, and SpeexDSP's echo canceller alone (floating point, its own small FFT).
+set(RNNOISE_SRC "${ROOT}/.tools/rnnoise/rnnoise-0.2")
+add_library(tc2_rnnoise STATIC
+  "${RNNOISE_SRC}/src/denoise.c" "${RNNOISE_SRC}/src/rnn.c" "${RNNOISE_SRC}/src/pitch.c" "${RNNOISE_SRC}/src/kiss_fft.c"
+  "${RNNOISE_SRC}/src/celt_lpc.c" "${RNNOISE_SRC}/src/nnet.c" "${RNNOISE_SRC}/src/nnet_default.c"
+  "${RNNOISE_SRC}/src/parse_lpcnet_weights.c" "${RNNOISE_SRC}/src/rnnoise_data.c" "${RNNOISE_SRC}/src/rnnoise_tables.c")
+# (its NEON code includes Opus's celt/os_support.h, which the release archive leaves out: Opus's own copy, after RNNoise's headers)
+target_include_directories(tc2_rnnoise PUBLIC "${RNNOISE_SRC}/include" PRIVATE "${RNNOISE_SRC}/src" "${OPUS_SRC}/celt" "${OPUS_SRC}/include")
+target_compile_options(tc2_rnnoise PRIVATE -O2 -w)
+set(SPEEXDSP_SRC "${ROOT}/.tools/speexdsp/speexdsp-SpeexDSP-1.2.1")
+set(SPEEXDSP_TYPES "${CMAKE_BINARY_DIR}/speexdsp/speex/speexdsp_config_types.h")
+if(NOT EXISTS "${SPEEXDSP_TYPES}")   # what its configure script would write
+  file(WRITE "${SPEEXDSP_TYPES}" "#ifndef SPEEXDSP_CONFIG_TYPES_H
+#define SPEEXDSP_CONFIG_TYPES_H
+#include <stdint.h>
+typedef int16_t spx_int16_t;
+typedef uint16_t spx_uint16_t;
+typedef int32_t spx_int32_t;
+typedef uint32_t spx_uint32_t;
+#endif
+")
+endif()
+add_library(tc2_speexdsp STATIC "${SPEEXDSP_SRC}/libspeexdsp/mdf.c" "${SPEEXDSP_SRC}/libspeexdsp/fftwrap.c" "${SPEEXDSP_SRC}/libspeexdsp/smallft.c")
+target_include_directories(tc2_speexdsp PUBLIC "${SPEEXDSP_SRC}/include" "${CMAKE_BINARY_DIR}/speexdsp/speex")
+target_compile_definitions(tc2_speexdsp PRIVATE FLOATING_POINT USE_SMALLFT EXPORT=)
+target_compile_options(tc2_speexdsp PRIVATE -O2 -w)
 set(TC2_SOURCES
   "${TC}/src/tc2_cpu.c" "${TC}/src/tc2_mem.c" "${CMAKE_BINARY_DIR}/tc2_ctl_link.c"
   "${TC}/src/tc2_chips.c" "${TC}/src/tc2_screen.c" "${TC}/src/tc2_text.c" "${TC}/src/tc2_game.c"
   "${CMAKE_BINARY_DIR}/tc2_main_link.c" "${TC}/src/tc2_input.c" "${TC}/src/tc2_c435.c"
-  "${ROOT}/quest/tc2_link.c" "${ROOT}/quest/tc2_online.c" "${ROOT}/quest/tc2_rooms.c" "${ROOT}/quest/tc2_voice.c"
+  "${ROOT}/quest/tc2_link.c" "${ROOT}/quest/tc2_online.c" "${ROOT}/quest/tc2_rooms.c" "${ROOT}/quest/tc2_voice.c" "${ROOT}/quest/tc2_voice_dsp.c"
   "${CMAKE_BINARY_DIR}/net_rooms.c" "${TC}/src/eng/net_host.c"
   "${TC}/src/tc2_render.c" "${TC}/src/h8_periph.c" "${TC}/src/tc2_h8.c"
   "${CMAKE_BINARY_DIR}/tc2_audio_voice.c" "${TC}/src/tc2_rom.c" "${TC}/src/eng/romzip.c"

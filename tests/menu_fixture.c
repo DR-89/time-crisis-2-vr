@@ -9,7 +9,7 @@
 /* ---- a scripted online module ---- */
 static tc2_online_view sv;static tc2_online_game sg[16];static int sgn;
 static int calls[32];   /* which actions ran */
-enum { C_HOST,C_CODE,C_QUICK,C_HOSTLAN,C_JOINIP,C_SETIP,C_VOICE,C_VOLUME,C_NAME,C_LEAVE,C_REJOIN,C_RESTART,C_JOINGAME,C_BROWSE,C_MUTE };
+enum { C_HOST,C_CODE,C_QUICK,C_HOSTLAN,C_JOINIP,C_SETIP,C_VOICE,C_VOLUME,C_NAME,C_LEAVE,C_REJOIN,C_RESTART,C_JOINGAME,C_BROWSE,C_MUTE,C_PTT,C_CREDIT };
 static char last_text[32];
 void tc2_online_get_view(tc2_online_view *v){*v=sv;}
 int tc2_online_games(tc2_online_game *out,int max){int n=sgn<max?sgn:max;memcpy(out,sg,sizeof *sg*n);return n;}
@@ -24,6 +24,8 @@ void tc2_online_set_join_ip(const char *a){calls[C_SETIP]++;snprintf(last_text,s
 void tc2_online_join_ip(void){calls[C_JOINIP]++;}
 void tc2_online_set_voice(bool on){calls[C_VOICE]++;sv.voice=on;}
 void tc2_online_set_volume(int p){calls[C_VOLUME]++;sv.volume=p<0?0:p>200?200:p;}
+void tc2_online_set_push_to_talk(bool on){calls[C_PTT]++;sv.push_to_talk=on;}
+void tc2_online_set_join_credit(bool on){calls[C_CREDIT]++;sv.join_credit=on;}
 void tc2_online_set_name(const char *n){calls[C_NAME]++;snprintf(last_text,sizeof last_text,"%s",n);}
 void tc2_online_leave(void){calls[C_LEAVE]++;}
 void tc2_online_rejoin(void){calls[C_REJOIN]++;}
@@ -76,7 +78,7 @@ static void save(const char *name){
 }
 static void base_view(void){
     memset(&sv,0,sizeof sv);sv.state=TC2V_OFFLINE;sv.side=sv.home_side=1;snprintf(sv.name,sizeof sv.name,"PLAYER42");
-    snprintf(sv.server,sizeof sv.server,"zonesync.net");snprintf(sv.join_ip,sizeof sv.join_ip,"192.168.1.2");sv.voice=true;sv.volume=100;sv.ping_ms=-1;
+    snprintf(sv.server,sizeof sv.server,"zonesync.net");snprintf(sv.join_ip,sizeof sv.join_ip,"192.168.1.2");sv.voice=true;sv.volume=100;sv.ping_ms=-1;sv.join_credit=true;
     sgn=0;
 }
 static void games_list(void){
@@ -112,6 +114,7 @@ int main(void){
     base_view();sv.home_side=2;sv.mic_denied=true;idle();save("online-p2-nomic");
     base_view();sv.can_rejoin=true;snprintf(sv.rejoin_code,5,"KQ7M");snprintf(sv.rejoin_partner,24,"SAM");sv.rejoin_side=1;idle();save("online-rejoin");
     base_view();sv.voice=false;idle();save("online-voice-off");
+    base_view();sv.push_to_talk=true;sv.join_credit=false;sv.home_side=2;idle();save("online-ptt");
     base_view();games_list();shoot(ID(K_ON,ON_BROWSE));save("browse-1");
     shoot(ID(K_ON,ON_NEXT));save("browse-2");shoot(ID(K_ON,ON_NEXT));save("browse-3");
     shoot(ID(K_ON,ON_BACK));shoot(ID(K_ON,ON_LAN));save("lan");
@@ -121,6 +124,9 @@ int main(void){
     session(TC2V_LAN_HOSTING);idle();save("hostlan");
     session(TC2V_LINKED);idle();save("linked");
     session(TC2V_LINKED);sv.partner_voice=false;sv.mic_denied=true;idle();save("linked-problems");
+    session(TC2V_LINKED);sv.push_to_talk=true;idle();save("linked-ptt");
+    session(TC2V_LINKED);sv.push_to_talk=true;sv.talking=true;idle();save("linked-ptt-talking");
+    session(TC2V_RECONNECTING);sv.mic_denied=true;idle();save("reconnecting-nomic");
     session(TC2V_RECONNECTING);idle();save("reconnecting");
     tab_to(QMENU_TAB_PLAYER);save("player-locked");
     /* dialogs */
@@ -135,6 +141,13 @@ int main(void){
     shoot(ID(K_ON,ON_LAN));shoot(ID(K_ON,ON_IPEDIT));save("keyboard-ip");
     shoot(ID(K_KEY,11));shoot(ID(K_KEY,0));shoot(ID(K_MBTN,1));assert(calls[C_SETIP]==1&&!strcmp(last_text,"192.168.1.1"));
     shoot(ID(K_ON,ON_BACK));
+    /* voice: open mic, push to talk, off; a credit to join with */
+    base_view();tab_to(QMENU_TAB_ONLINE);
+    shoot(ID(K_VOICE,1));assert(sv.voice&&sv.push_to_talk);
+    shoot(ID(K_VOICE,2));assert(!sv.voice);
+    shoot(ID(K_VOICE,0));assert(sv.voice&&!sv.push_to_talk);
+    shoot(ID(K_CREDIT,1));assert(!sv.join_credit);shoot(ID(K_CREDIT,0));assert(sv.join_credit);
+    {float x,y;assert(find(ID(K_ON,ON_MUTE),&x,&y));sv.push_to_talk=true;idle();assert(!find(ID(K_ON,ON_MUTE),&x,&y));}   /* no mute with push to talk */
 
     /* controls */
     tab_to(QMENU_TAB_GUN);
@@ -175,7 +188,7 @@ int main(void){
         for(int i=0;i<300;i++){
             frame((QMenuInput){.pointer=true,.px=60+(i*37)%1000,.py=90+(i*53)%620});
             if(i%50==49){stick(0,1);stick(1,0);}
-            sv.level=i%9;sv.partner_level=(i/3)%9;sv.ping_ms=40+i%30;   /* live readings */
+            sv.level=i%9;sv.partner_level=(i/3)%9;sv.ping_ms=40+i%30;sv.talking=i%7<3;   /* live readings */
         }
         memcpy(partial,pixels,sizeof pixels);
         drawn_hash^=1;qmenu_render(&host,pixels,clock_s,NULL);

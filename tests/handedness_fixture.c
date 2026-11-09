@@ -105,10 +105,15 @@ XRAPI_ATTR XrResult XRAPI_CALL xrStopHapticFeedback(XrSession s,const XrHapticAc
     (void)s;assert(info->action==haptic_action);last_stop=info->subactionPath;return XR_SUCCESS;
 }
 void tc2_audio_volume(int v){(void)v;}
+const Uint8 *SDL_GetKeyboardState(int *n){static Uint8 keys[512];if(n)*n=512;return keys;}   /* push to talk reads V on a PC */
 /* Online play is exercised by tests/test_online.py and the menu by tests/test_menu.py; the input path only needs inert hooks. */
 static unsigned restarts,leaves;
 bool tc2_online_session(void){return false;}
 void tc2_online_toggle_mute(void){}
+bool tc2_online_push_to_talk(void){return false;}
+void tc2_online_talk_key(bool held){(void)held;}
+void tc2_online_set_push_to_talk(bool on){(void)on;}
+void tc2_online_set_join_credit(bool on){(void)on;}
 void tc2_online_get_view(tc2_online_view *v){memset(v,0,sizeof *v);v->side=v->home_side=1;v->voice=true;v->volume=100;v->ping_ms=-1;}
 int tc2_online_games(tc2_online_game *out,int max){(void)out;(void)max;return 0;}
 void tc2_online_browse(bool open){(void)open;}

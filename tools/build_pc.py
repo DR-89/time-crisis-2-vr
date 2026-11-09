@@ -15,7 +15,7 @@ def main():
     parser.add_argument('--output',type=Path,default=ROOT/'artifacts/pc/TimeCrisis2VR-PC',help='Portable folder (also determines the ZIP destination)')
     args=parser.parse_args()
     if not args.skip_prepare and not args.rom.is_file():parser.error('ROM ZIP not found')
-    for package in [bootstrap.PACKAGES[3],bootstrap.PACKAGES[5],*[p for p in bootstrap.PACKAGES if p[0]=='opus'],*bootstrap_pc.PACKAGES]:bootstrap.fetch(package)
+    for package in [bootstrap.PACKAGES[3],bootstrap.PACKAGES[5],*bootstrap.VOICE,*bootstrap_pc.PACKAGES]:bootstrap.fetch(package)
     assets=ROOT/'build/assets' if args.skip_prepare else build.prepare(args.rom)
     build.prepare_sound()
     toolchain=ROOT/'.tools/llvm-mingw/llvm-mingw-20260922-ucrt-x86_64/bin'
@@ -40,7 +40,9 @@ def main():
     shutil.copytree(ROOT/'quest/assets/models',package/'models',dirs_exist_ok=True)
     for name in ('LICENSE','NOTICE.md'):shutil.copy2(ROOT/name,package/name)
     licenses=package/'licenses';licenses.mkdir(exist_ok=True)
-    for source,name in [(ROOT/'upstream/LICENSE','namco22.txt'),(ROOT/'.tools/sdl/SDL2-2.30.11/LICENSE.txt','SDL2.txt'),(ROOT/'.tools/zlib/zlib-1.3.1/LICENSE','zlib.txt')]:shutil.copy2(source,licenses/name)
+    for source,name in [(ROOT/'upstream/LICENSE','namco22.txt'),(ROOT/'.tools/sdl/SDL2-2.30.11/LICENSE.txt','SDL2.txt'),(ROOT/'.tools/zlib/zlib-1.3.1/LICENSE','zlib.txt'),
+                        (ROOT/'.tools/opus/opus-1.5.2/COPYING','Opus-COPYING.txt'),(ROOT/'.tools/rnnoise/rnnoise-0.2/COPYING','RNNoise-COPYING.txt'),
+                        (ROOT/'.tools/speexdsp/speexdsp-SpeexDSP-1.2.1/COPYING','SpeexDSP-COPYING.txt')]:shutil.copy2(source,licenses/name)
     for source,name in [(ROOT/'pc/licenses/OpenXR.txt','OpenXR.txt'),(ROOT/'pc/vendor/glad/LICENSE','glad.txt'),(ROOT/'tools/fonts/OFL.txt','ChakraPetch-OFL.txt'),(toolchain.parent/'LICENSE.TXT','LLVM.txt')]:shutil.copy2(source,licenses/name)
     runtime_licenses=toolchain.parent/'x86_64-w64-mingw32/share/mingw32'
     for source in runtime_licenses.glob('COPYING*'):shutil.copy2(source,licenses/source.name)

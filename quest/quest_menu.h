@@ -17,6 +17,7 @@ typedef struct QMenuHost {
     unsigned active_w,active_h;         /* the running per-eye size (0: a desktop window) */
     bool preset_unsupported;            /* the saved preset was too big for this headset: running the default */
     bool saved;                         /* the settings file was written */
+    const char *talk_key;               /* push to talk's key, as the ONLINE tab names it ("STICK CLICK", "V"); NULL: a stick click */
 } QMenuHost;
 
 typedef struct QMenuInput {

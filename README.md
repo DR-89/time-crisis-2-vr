@@ -53,7 +53,8 @@ This is a fork of [DR-89/time-crisis-2-vr](https://github.com/DR-89/time-crisis-
   - **Left the game, restarted out of it or lost the connection?** **REJOIN** takes you back into that room, as the same cabinet, while it is still open, even after closing the app ([details](docs/ONLINE.md#coming-back-rejoin)).
 - **Drop in, drop out:** the host plays at once with the arcade's own **SOLO/LINKED** ("SOLO START, BUT PERMITS 2P JOIN-IN"), and a friend can join that game whenever they arrive. Until then a stand-in answers on the link as an idle second cabinet, so no second game runs. Either player can leave mid-game and the other plays on.
 - **Or straight from the arcade's own screen:** **SOLO/LINKED** is always open on SELECT GAME MODE. Put coins in and shoot it: the game starts at once and a room opens for it, with its code on screen. **SOLO ONLY** keeps the game to yourself. The menu never chooses for you: left alone, the arcade goes back to its intro with your coins kept, and the trigger brings the menu back.
-- **Voice chat:** Opus, open mic with a voice gate, mute on the left stick click, partner volume and level meters.
+- **Voice chat:** Opus; open mic with a voice gate (mute on the left stick click) or push to talk (hold a thumbstick click, V on a PC); echo cancellation and noise suppression on every headset and PC; partner volume and level meters.
+- **Join with a credit:** a P2 who joins a game gets one credit to join with (once per session; continues take your own coins). A switch on the ONLINE tab.
 - **Free to run:** the community lobby server relays rooms, so there are no accounts, no port forwarding and nothing to host.
 - **While linked**, the game keeps running behind menus and with the headset off, and dropped partners reconnect by themselves.
 - **Offline**, a stand-in answers on the link as an idle second cabinet, so SOLO/LINKED is open; taking it opens a room. SOLO ONLY plays exactly as before.
@@ -110,7 +111,8 @@ New in **v0.3.3**: saved per-eye resolution presets, default-on texture filterin
 | Insert credits | A, right controller | X, left controller |
 | Cycle LASER / OFF / TRACER | B, right controller | Y, left controller |
 | Recenter / calibrate upright height | X, left controller | A, right controller |
-| Mute the microphone, while linked | Left stick click | Left stick click |
+| Mute the microphone, while linked (open mic) | Left stick click | Left stick click |
+| Talk, while linked (push to talk) | Hold either stick click | Hold either stick click |
 | Open / close the menu | Left menu button | Left menu button |
 
 The default hand determines the face-button layout. Trigger handoffs do not change that saved layout.
@@ -133,7 +135,7 @@ The line above the buttons explains whatever you point at. A setting off its def
 | GUN | Gun hand (the default), aim guide (laser / tracer / off), gun angle, gun height, gun depth |
 | PLAYER | Player (P1 Keith / P2 Robert, after RESTART APP), take cover (grip / duck), world size, view distance |
 | GRAPHICS | Render resolution (after RESTART APP), texture filtering |
-| ONLINE | Host, join with a code, browse, quick match, local network, rejoin; your name and voice chat; while linked, the session |
+| ONLINE | Host, join with a code, browse, quick match, local network, rejoin; your name, join with a credit, voice chat (open mic / push to talk / off); while linked, the session |
 
 **Render resolution:** on **GRAPHICS**, choose **Default**, **1280 x 1344**, **1680 x 1760**, **2550 x 2640**, **2940 x 3080** or **3360 x 3520** pixels per eye, matching the NFSU VR ports. It saves at once and applies after **RESTART APP**; the running size is underlined. Default preserves the previous resolution (runtime recommendation capped at 1440 pixels on the longer side on Quest, 2160 on PCVR). Unsupported presets fall back to Default, and the tab says so. Higher resolutions require more GPU time and memory; the highest setting is not a performance recommendation.
 
@@ -165,7 +167,7 @@ second cabinet. See [implementation and validation details](docs/FEEDBACK-TEST.m
 
 The machine gun is equipped automatically during scripted sections, including Stage 1, Area 2. **Hold the trigger for automatic fire** while out of cover. There is no separate weapon-selection button. See [weapon details](docs/WEAPONS.md).
 
-Desktop controls: mouse to aim, left mouse to shoot, right mouse or Space for cover/pedal, **5** for credits, and **Escape** for the menu. In the menu the mouse points and clicks; the arrows move and change, **Enter** selects, **Backspace** goes back and **Tab** / **Shift+Tab** switch tabs.
+Desktop controls: mouse to aim, left mouse to shoot, right mouse or Space for cover/pedal, **5** for credits, and **Escape** for the menu. Online, **M** mutes an open mic and **V** held talks with push to talk. In the menu the mouse points and clicks; the arrows move and change, **Enter** selects, **Backspace** goes back and **Tab** / **Shift+Tab** switch tabs.
 
 ## Tested status and limitations
 

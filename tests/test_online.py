@@ -4,15 +4,19 @@ Needs a Windows build (tools/build_pc.py). Each scenario starts cabinet A (hosts
 session's cabinet assignment is exercised, feeds both the same scripted coins / start / fire (an arcade input recording), and
 reads the game's own link state from the [ONLINE] status lines: the C422 driver's alive flag, its error counters and the lag.
 Room scenarios run upstream's current nmn-server (build/nmn-server-head, see docs/ONLINE.md) on 127.0.0.1 only. Microphones are replaced by
-WAV files (a tone for A, silence for B), so no real microphone is opened; what B plays back is recorded and analysed.
+WAV files (a synthetic voice for A, tests/speech.py; silence for B), so no real microphone is opened; what B plays back is recorded
+and compared with what A said. The microphone's echo cancellation and noise suppression run as in play.
 
     python -X utf8 tests/test_online.py                 # every scenario (20 scenarios + crossplay, ~40 minutes, real time)
     python -X utf8 tests/test_online.py basic room      # some
     python -X utf8 tests/test_online.py --keep          # keep screenshots: build/online-test/<scenario>/{A,B}/cap-*.ppm
 """
 from pathlib import Path
-import math, os, re, shutil, struct, subprocess, sys, threading, time, wave
+import math, os, re, shutil, subprocess, sys, threading, time, wave
 from concurrent.futures import ThreadPoolExecutor
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from speech import speech  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / 'artifacts/pc/TimeCrisis2VR-PC'
@@ -23,17 +27,18 @@ SERVER_EXE = BUILD / 'nmn-server-head/target/release/nmn-server.exe'   # upstrea
 SERVER_PORT = 27751
 STATUS = re.compile(r'\[ONLINE\] frame (\d+) side P(\d) link (on|off|stand-in) alive (\d) lag (\d+) state (\d+) tx (\d+) rx (\d+) '
                     r'drop (\d+) bad (\d+)/(\d+) game-errors (\d+) ping (-?\d+) \| voice (on|off) sent (\d+) received (\d+) lost (\d+)')
-TONE_HZ = 440
 
 
-def recording(path: Path, frames: int, aim_until: int = 0, coins_at: int = 1500, again_at: int = 0, idle: str = '', aim_again: str = ''):
+def recording(path: Path, frames: int, aim_until: int = 0, coins_at: int = 1500, again_at: int = 0, idle: str = '', aim_again: str = '',
+              coins: bool = True):
     """Coins and start at 1500 / 1700 (or coins_at / +200), then the pedal held and the trigger pulsed while the aim sweeps
     (held on the mode screen's top panel until aim_until); again_at: coins once more (a cabinet that restarted); idle 'a-b': no
     trigger, pedal or aim from frame a to b (a player who lets SELECT GAME MODE run out); aim_again 'a-b': the aim held on the
-    mode screen's top panel again from a to b (a cabinet that restarted and comes back to SOLO/LINKED)."""
+    mode screen's top panel again from a to b (a cabinet that restarted and comes back to SOLO/LINKED); coins False: the start,
+    trigger and aim at the same times, but no coins (a player who leaves it to "Join with a credit")."""
     events = [(0, '0000', 457, 161)]
     for at in (coins_at, again_at):
-        if not at:
+        if not at or not coins:
             continue
         for i in range(8):
             events += [(at + 12 * i, '0001', 457, 161), (at + 12 * i + 6, '0000', 457, 161)]
@@ -60,34 +65,52 @@ def recording(path: Path, frames: int, aim_until: int = 0, coins_at: int = 1500,
     path.write_text('\n'.join(lines) + '\n')
 
 
-def microphone(path: Path, seconds: int, tone: bool):
-    """48 kHz mono: a 440 Hz 'voice' one second on, one second off (or silence)."""
+def microphone(path: Path, seconds: int, voice: str = ''):
+    """48 kHz mono: a synthetic voice ('near' or 'far', tests/speech.py) saying its lines over and over, a second's pause between
+    (or silence). Tones would not do: noise suppression takes them out, as it should."""
     rate = 48000
+    clip = b''
+    if voice:
+        with wave.open(str(speech(voice))) as w:
+            clip = w.readframes(w.getnframes()) + bytes(2 * rate)
     with wave.open(str(path), 'wb') as w:
         w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate)
-        frames = bytearray()
-        for n in range(seconds * rate):
-            on = tone and (n // rate) % 2 == 0
-            frames += struct.pack('<h', int(9000 * math.sin(2 * math.pi * TONE_HZ * n / rate)) if on else 0)
-        w.writeframes(bytes(frames))
+        want = seconds * rate * 2
+        w.writeframes((clip * (want // len(clip) + 1))[:want] if clip else bytes(want))
 
 
-def voice_check(path: Path):
-    """What B played back: enough sound, and 440 Hz the strongest tone in it."""
+def _bands(pcm):
+    """The long-term spectrum of the voiced 40 ms frames, in 16 bands from 200 Hz to 7 kHz (log power); None: too little voice."""
+    import numpy
+    f = 1920
+    x = pcm[:len(pcm) // f * f].reshape(-1, f)
+    x = x[numpy.sqrt((x ** 2).mean(axis=1)) > 300]
+    if len(x) < 12:
+        return None
+    power = numpy.abs(numpy.fft.rfft(x * numpy.hanning(f), axis=1)) ** 2
+    freqs = numpy.fft.rfftfreq(f, 1 / 48000)
+    edges = numpy.geomspace(200, 7000, 17)
+    return numpy.log10(numpy.array([power[:, (freqs >= a) & (freqs < b)].mean() for a, b in zip(edges[:-1], edges[1:])]) + 1e-9)
+
+
+def voice_check(path: Path, voice: str = 'near'):
+    """What a cabinet played back: over a second of voice, loud enough, and with the spectrum of what the partner said."""
     import numpy
     if not path.exists() or path.stat().st_size <= 44:
         return 'no voice was played back'
     with wave.open(str(path)) as w:
         pcm = numpy.frombuffer(w.readframes(w.getnframes()), dtype='<i2').astype(numpy.float64)
-    if len(pcm) < 48000:
-        return f'only {len(pcm) / 48000:.2f} s of voice was played back'
-    loud = numpy.sqrt(numpy.mean(pcm ** 2))
-    spectrum = numpy.abs(numpy.fft.rfft(pcm[:48000 * (len(pcm) // 48000)]))
-    peak = numpy.fft.rfftfreq(48000 * (len(pcm) // 48000), 1 / 48000)[spectrum.argmax()]
+    heard = _bands(pcm)
+    if heard is None:
+        return f'only {len(pcm) / 48000:.2f} s played back, too little of it voice'
+    loud = numpy.sqrt(numpy.mean(pcm[numpy.abs(pcm) > 0] ** 2)) if numpy.any(pcm) else 0
     if loud < 500:
         return f'played back too quietly (RMS {loud:.0f})'
-    if abs(peak - TONE_HZ) > 5:
-        return f'played back {peak:.1f} Hz, sent {TONE_HZ} Hz'
+    with wave.open(str(speech(voice))) as w:
+        said = _bands(numpy.frombuffer(w.readframes(w.getnframes()), dtype='<i2').astype(numpy.float64))
+    alike = float(numpy.corrcoef(heard, said)[0, 1])
+    if alike < 0.9:
+        return f'what was played back does not sound like what was said (spectra {alike:.2f} alike)'
     return None
 
 
@@ -109,6 +132,12 @@ SCENARIOS = {
     'voicenet': (3600, '600:hostroom', '700:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'TC2_NET_SIM': '5,150'}, 'voice'),
     'duplex': (3600, '600:hostroom', '700:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7'}, 'duplex'),
     'roomleave': (4800, '600:hostroom', '700:joincode=KXQ7;2700:leave;3000:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7'}, 'rejoin'),
+    # push to talk: A talks all along but holds the key only from 1500 to 2400; B hears it then and only then
+    'ptt':    (3600, '600:hostroom;1500:talk=1;2400:talk=0', '700:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'A_CFG': 'push_to_talk=1'}, 'ptt'),
+    # echo: B's microphone hears B's own speaker (the game, and A's voice) 60 ms late at 0.8; B says nothing. The echo canceller
+    # takes the speaker out once it has learned the room: measured, 85 frames of A's voice went back to A in the first 3 s of the
+    # session and none after; without the canceller (TC2_VOICE_DSP=2 on B) 1514, all along
+    'echo':   (3600, '600:hostroom', '700:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'B_ENV': 'TC2_VOICE_ECHO=0.8,60'}, 'echo'),
     # P2 the arcade's way: linked first, A starts LINK PLAY, B puts coins in once A's game is under way and takes the top panel
     'p2join': (6000, '600:hostroom', '700:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'TCVR_RAMWATCH': '2CE92B,2F3930,2F3502',
                'AIM_UNTIL': 2600, 'B_COINS_AT': 3000, 'B_AIM_UNTIL': 5000}, 'p2join'),
@@ -148,9 +177,13 @@ SCENARIOS = {
     'persist': (4200, '900:rejoin', '600:hostroom', {'TC2_NET_ROOM_CODE': 'KXQ7', 'A_REJOIN': 'rejoin=1 KXQ7 1 {now} CABB'}, 'persist'),
     'dropin': (8400, '600:hostroom', '3600:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'TCVR_RAMWATCH': '2CE92B,2F3930,2F3502',
                'B_COINS_AT': 4800, 'B_AIM_UNTIL': 7400}, 'dropin'),
+    # "Join with a credit": the drop-in, but B never puts a coin in. Once its handshake restart is done and A's game runs, one
+    # credit goes in for B, and B takes LINK PLAY with it
+    'credit': (8400, '600:hostroom', '3600:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'TCVR_RAMWATCH': '2CE92B,2F3930,2F3502,2CE7B7',
+               'B_COINS_AT': 4800, 'B_AIM_UNTIL': 7400, 'B_NO_COINS': '1', 'B_CFG': 'join_credit=1'}, 'dropin'),
 }
 ROOM_SCENARIOS = {'room', 'browse', 'mute', 'voicenet', 'duplex', 'roomleave', 'modescreen', 'p2join', 'dropin', 'menutimeout', 'menulinked',
-                  'p1return', 'p2return', 'newcomer', 'persist'}
+                  'p1return', 'p2return', 'newcomer', 'persist', 'ptt', 'echo', 'credit'}
 
 
 # Lanes, so the scenarios run side by side: lane 0 is the cabinet folders A / B and lobby port 27751 (the LAN scenarios all run
@@ -192,7 +225,8 @@ def cabinet(directory: Path, server: str):
     for stale in [*directory.glob('cap-*.ppm'), *directory.glob('*.log'), *directory.glob('*.rec'), *directory.glob('*.nv'), *directory.glob('*.wav')]:
         stale.unlink()
     (directory / 'quest-options.cfg').write_text('player_side=1\n')
-    (directory / 'online.cfg').write_text(f'name=CAB{directory.name}\nserver={server}\n')
+    # "Join with a credit" off: the scenarios put their coins in themselves (the credit scenario turns it on for B)
+    (directory / 'online.cfg').write_text(f'name=CAB{directory.name}\nserver={server}\njoin_credit=0\n')
 
 
 def run(name: str, keep: bool, lane: int = 0):
@@ -212,13 +246,18 @@ def run(name: str, keep: bool, lane: int = 0):
     if 'B_COINS_AT' in extra:                                # B's own inputs: it puts coins in later
         recs['B'] = base / 'inputs_b.rec'
         recording(recs['B'], frames, int(extra.pop('B_AIM_UNTIL', 0)), int(extra.pop('B_COINS_AT')),
-                  again_at=int(extra.pop('B_COINS_AGAIN', 0)), aim_again=extra.pop('B_AIM_AGAIN', ''))
+                  again_at=int(extra.pop('B_COINS_AGAIN', 0)), aim_again=extra.pop('B_AIM_AGAIN', ''), coins=not extra.pop('B_NO_COINS', ''))
     if 'A_REJOIN' in extra:                                  # A remembers a room in online.cfg, as after an app restart
         with open(cab['A'] / 'online.cfg', 'a') as f:
             f.write(extra.pop('A_REJOIN').replace('{now}', str(int(time.time()))) + '\n')
+    for side in 'AB':                                        # more online.cfg lines (push to talk, a credit to join with)
+        if f'{side}_CFG' in extra:
+            with open(cab[side] / 'online.cfg', 'a') as f:
+                f.write(extra.pop(f'{side}_CFG') + '\n')
+    side_env = {side: dict(kv.split('=', 1) for kv in extra.pop(f'{side}_ENV').split(';')) if f'{side}_ENV' in extra else {} for side in 'AB'}
     seconds = frames // 60 + 30
-    microphone(cab['A'] / 'mic.wav', seconds, tone=True)
-    microphone(cab['B'] / 'mic.wav', seconds, tone=check == 'duplex')   # both talking at once: the echo safeguard must not mute either
+    microphone(cab['A'] / 'mic.wav', seconds, 'near')
+    microphone(cab['B'] / 'mic.wav', seconds, 'far' if check == 'duplex' else '')   # both talking at once: the echo safeguard must not mute either
     lobby = None
     if name in ROOM_SCENARIOS:
         if not SERVER_EXE.exists():
@@ -229,7 +268,7 @@ def run(name: str, keep: bool, lane: int = 0):
     procs = []
     for side, script in (('A', script_a), ('B', script_b)):
         env = dict(os.environ, SDL_AUDIODRIVER='dummy', TCVR_TEST_HIDDEN='1', TC2_REPLAY=str(recs[side]), TC2_NET_STATUS='1', TC2_NET_SCRIPT=script,
-                   TC2_VOICE_IN=str(cab[side] / 'mic.wav'), TC2_VOICE_OUT=str(cab[side] / 'voice_out.wav'), **extra)
+                   TC2_VOICE_IN=str(cab[side] / 'mic.wav'), TC2_VOICE_OUT=str(cab[side] / 'voice_out.wav'), **extra, **side_env[side])
         if keep:
             env.setdefault('TCVR_CAPTURE_EVERY', '600')
         procs.append(subprocess.Popen([str(cab[side] / 'TimeCrisis2VR.exe'), '--desktop', '--no-dialog', '--frames', str(frames)],
@@ -270,9 +309,9 @@ def run(name: str, keep: bool, lane: int = 0):
         # a frozen cabinet falls behind real time; its partner reaches the frame limit and quits first, so look before that
         lost = max([int(m) for m in re.findall(r'freeze=(\d+)', script_a + script_b)] or [0]) * 60 // 1000
         tail = [r for r in linked if frames - 900 - lost <= r[0] < frames - lost - 60]
-        if check in ('steady', 'rejoin', 'recover', 'late', 'voice', 'mute', 'modescreen', 'menutimeout') and tail and not all(r[3] for r in tail):
+        if check in ('steady', 'rejoin', 'recover', 'late', 'voice', 'echo', 'mute', 'modescreen', 'menutimeout') and tail and not all(r[3] for r in tail):
             failures.append(f'{side}: partner not alive near the end')
-        if check in ('steady', 'voice'):
+        if check in ('steady', 'voice', 'echo'):
             dead = [r[0] for r in linked if r[0] >= 1200 and not r[3]]
             if dead:
                 failures.append(f'{side}: link down at frames {dead}')
@@ -347,11 +386,42 @@ def run(name: str, keep: bool, lane: int = 0):
         b_sent = [r[14] for r in rows['B'] if r[13] == 'on']
         if b_sent and b_sent[-1] > 10:
             failures.append(f'B sent {b_sent[-1]} voice frames from a silent microphone (the voice gate should stay shut)')
+    if check == 'echo':
+        problem = voice_check(base / 'B' / 'voice_out.wav')
+        if problem:
+            failures.append('voice A->B: ' + problem)
+        sent = [(r[0], r[14]) for r in rows['B'] if r[13] == 'on']
+        settled = [c for f, c in sent if sent and f >= sent[0][0] + 600]
+        if settled and settled[-1] > settled[0]:
+            failures.append(f'B sent {settled[-1] - settled[0]} frames of its own speaker echo after the canceller had 10 s to learn the room')
+        if sent and sent[-1][1] > 150:
+            failures.append(f'B sent {sent[-1][1]} frames of its own speaker echo in all (want under 150; ~1500 without the canceller)')
     if check == 'duplex':
         for side in 'AB':
-            problem = voice_check(base / side / 'voice_out.wav')
+            problem = voice_check(base / side / 'voice_out.wav', 'far' if side == 'A' else 'near')
             if problem:
                 failures.append(f'voice to {side}: ' + problem)
+    if check == 'ptt':
+        # B's status every 300 frames: nothing before A holds the key at 1500, voice while it is held, nothing new after 2400
+        # (but the 200 ms after it is let go, and what was on the way)
+        received = [(r[0], r[15]) for r in rows['B'] if r[13] == 'on']
+        before = [c for f, c in received if f <= 1500]
+        held = [c for f, c in received if f <= 2400]
+        after = [c for f, c in received if f >= 2700]
+        if before and before[-1] > 2:
+            failures.append(f'{before[-1]} voice frames arrived before A held the talk key')
+        if not held or held[-1] - (before[-1] if before else 0) < 25:
+            failures.append('too little voice arrived while A held the talk key')
+        if after and after[-1] - after[0] > 0:
+            failures.append(f'{after[-1] - after[0]} voice frames arrived after A let go of the talk key')
+        if 'credit to join with' in logs['B']:
+            failures.append('B got a credit with "Join with a credit" off')
+    if name == 'credit':
+        got = re.search(r'frame (\d+): a credit to join with: (\d+) coins in', logs['B'])
+        if not got:
+            failures.append('B was not given a credit to join with')
+        if logs['B'].count('a credit to join with') > 1:
+            failures.append('B was given more than one credit')
     if check == 'mute':
         received = [(r[0], r[15]) for r in rows['B'] if r[13] == 'on']
         before = [c for f, c in received if f <= 2400]
@@ -394,7 +464,7 @@ def crossplay(keep: bool, lane: int = 0):
     cabinet(cab['A'], f'127.0.0.1:{port}')
     rec = base / 'inputs.rec'
     recording(rec, frames)
-    microphone(cab['A'] / 'mic.wav', frames // 60 + 30, tone=True)
+    microphone(cab['A'] / 'mic.wav', frames // 60 + 30, 'near')
     lobby = subprocess.Popen([str(SERVER_EXE), '--port', str(port), '--bind', '127.0.0.1', '--quiet'], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
     time.sleep(0.5)
     env = dict(os.environ, SDL_AUDIODRIVER='dummy', TCVR_TEST_HIDDEN='1', TC2_REPLAY=str(rec), TC2_NET_STATUS='1', TC2_NET_SCRIPT='600:hostroom', TC2_NET_ROOM_CODE='KXQ7',
@@ -438,8 +508,9 @@ def crossplay(keep: bool, lane: int = 0):
     return not failures
 
 
-# --quick: one of each kind (a LAN link, a room with voice, the drop-in, coming back, a newcomer, upstream's desktop game)
-QUICK = ['basic', 'room', 'dropin', 'p1return', 'newcomer', 'crossplay']
+# --quick: one of each kind (a LAN link, a room with voice, the drop-in, coming back, a newcomer, a credit to join with,
+# upstream's desktop game)
+QUICK = ['basic', 'room', 'dropin', 'p1return', 'newcomer', 'credit', 'crossplay']
 
 
 def main():

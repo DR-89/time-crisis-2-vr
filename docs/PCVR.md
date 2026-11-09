@@ -30,7 +30,7 @@ The machine gun is equipped automatically in scripted sections. Hold the trigger
 
 L cycles the aim mode. Tracer Squeeze is a tracked-VR effect and flashes for 65 ms on accepted shots.
 
-**Play Desktop.cmd** runs without a headset. Mouse aims, left mouse shoots, right mouse or Space operates the pedal, **5** inserts credits and **Escape** opens the menu, where the mouse points and clicks.
+**Play Desktop.cmd** runs without a headset. Mouse aims, left mouse shoots, right mouse or Space operates the pedal, **5** inserts credits and **Escape** opens the menu, where the mouse points and clicks. Online, **M** mutes an open mic and holding **V** talks with push to talk (in VR too, beside the thumbstick clicks).
 
 ## Troubleshooting and diagnostics
 

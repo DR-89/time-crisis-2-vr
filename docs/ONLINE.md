@@ -15,7 +15,7 @@ Quest, Windows PCVR and the Windows desktop mode all play with each other. **The
 5. The other player chooses **JOIN WITH CODE** and types it on the on-screen keyboard, at any time. Alternatively, **BROWSE GAMES** lists every open room on the server and every game hosted on your local network; select one to join.
 6. The games link automatically: the host becomes **P1 Keith**, the joiner **P2 Robert**. A banner confirms it: `LINKED WITH <NAME> - P2 ROBERT`. Voice chat starts at the same moment. On Quest, the first time, allow microphone access.
 7. **P2's arcade restarts once** (`JOINING P1 - THE ARCADE RESTARTS, THEN COIN IN`): the warning screen, then attract, about 10 seconds. The arcade only takes in a second cabinet that shook hands on the link when it powered on, and the restart does that handshake. A P2 still in a game of its own finishes it first.
-8. **P2 joins P1's game.** P2 inserts credits and pulls the trigger. If P1's game started less than 25 seconds ago, P2's coin, trigger and pedal are held until it has run that long. Banners count down (`P1 IS STARTING - YOU JOIN IN 12 S`), and coins put in meanwhile are paid in automatically.
+8. **P2 joins P1's game.** Once P2's restart is done and P1's game is running, **one credit goes in for P2 by itself** (`A CREDIT TO JOIN WITH - PULL THE TRIGGER`): P2 pulls the trigger and takes LINK PLAY. That is **Join with a credit** on the ONLINE tab, on by default. It happens once per session; continues still take P2's own coins (**A**), so a one-credit run stays a one-credit run. Turned off, P2 inserts credits as at the arcade; until then P2's screen shows P1's game. If P1's game started less than 25 seconds ago, P2's coin, trigger and pedal are held until it has run that long. Banners count down (`P1 IS STARTING - YOU JOIN IN 12 S`), and coins put in meanwhile are paid in automatically.
 
    The 25 seconds are upstream's measured rule: if P2 is credited before or right at P1's start, the arcade can treat P1 as a computer partner and P2's kills stop counting. Both sides apply the same rule.
 
@@ -42,12 +42,17 @@ The menu works the same on every tab (see the [README](../README.md#the-menu)): 
 
 ## Voice chat
 
-- **On by default.** It is live only while you are linked to a partner. Turn it off with **Voice chat ON / OFF** on the ONLINE tab.
-- **Mute** with a **left stick click** during play, **M** on the desktop, or **MUTE** on the ONLINE tab. A banner confirms `MICROPHONE MUTED` / `MICROPHONE ON`.
+- **On by default.** It is live only while you are linked to a partner. **Voice chat** on the ONLINE tab chooses **OPEN MIC**, **PUSH TO TALK** or **OFF**.
+- **OPEN MIC** (the default) sends when you speak: speech above about -42 dBFS opens it, and it stays open 0.4 s after you stop. Silence, gunfire and fans cost nothing.
+  - **Mute** with a **left stick click** during play, **M** on the desktop, or **MUTE** on the ONLINE tab. A banner confirms `MICROPHONE MUTED` / `MICROPHONE ON`.
+- **PUSH TO TALK** sends only while you hold **either thumbstick click** (**V** on a PC), and 0.2 s after you let go. The ONLINE tab shows `TALKING` while it sends.
 - **Partner volume** is 0-200%, set with **Partner volume**. Your partner's voice is mixed into the game's sound.
 - While linked, the ONLINE tab shows a level meter for you and for your partner.
-- **Open microphone with a voice gate:** only speech is sent, starting above about -42 dBFS and staying open 0.4 s after you stop. Silence costs nothing.
-- **Echo:** Quest uses Android's voice-communication input. The Quest 3 offers no separate echo-canceller effect (measured), so the gate also needs four times the level while your partner is speaking. Their voice coming out of your speakers is not sent back to them, while talking over each other still works (tested).
+- **Echo cancellation and noise suppression**, on every headset and PC, before anything is sent:
+  - The echo canceller ([SpeexDSP](https://github.com/xiph/speexdsp)) knows what your speakers play (the game and your partner) and takes it out of your microphone. It learns your room in the first few seconds of a session. Measured in the tests: about 20 dB of the echo off once it has learned, with the speaker 40-200 ms late. Before it, a speaker turned up loud sent the partner's own voice back all session; now only the first ~3 seconds.
+  - Noise suppression ([RNNoise](https://github.com/xiph/rnnoise)) takes out steady noise (fans, hum, hiss) and tells speech apart from everything else, so the gate opens for your voice and not for your game's gunfire.
+  - The gate still asks for more while your partner is speaking: twice the level once the echo canceller has learned the room, four times in a session's first 10 seconds. Talking over each other still works (tested).
+  - Quest also records through Android's voice-communication input, which turns its speakers down in the microphone. The Quest 3 offers no separate echo-canceller effect of its own (measured).
 - On Quest, if microphone access is refused, the banner says `NO MICROPHONE ACCESS - LISTEN ONLY`. You still hear your partner. Allow it later in the headset's app permissions.
 - Bandwidth is about 3 KB/s while talking: Opus at 20 kbit/s with in-band error correction.
 
@@ -97,7 +102,7 @@ The arcade's own link driver declares the partner lost after **16 frames (about 
 | A LAN game is not listed | Some routers block broadcasts between Wi-Fi clients ("AP/client isolation") or between 2.4 and 5 GHz bands. Use a room code, or **JOIN IP** with the address shown on the host's page. |
 | `CANNOT HOST: PORT 27750 IS IN USE` | Another copy of the game (or an `nmn-server`) is already hosting on this machine. |
 | `PARTNER CONNECTION IS LAGGING` | Prefer 5 GHz Wi-Fi or Ethernet for the PC, and close large downloads. The arcade link gives up after 16 silent frames and recovers on its own. |
-| Your partner hears an echo of themselves | Turn your headset's volume down a little, or wear headphones. The voice gate already suppresses most of it. |
+| Your partner hears an echo of themselves | It should stop within a few seconds of linking, once the echo canceller has learned your room. If not, turn your speakers down a little, use **PUSH TO TALK**, or wear headphones. |
 | No voice | Check **VOICE CHAT: ON**, the **MICROPHONE** state, and on Quest the app's microphone permission. On Windows, check that desktop apps may use the microphone (Privacy settings). |
 | Linked with a stranger | **QUICK MATCH** pairs whoever is waiting; for a friend, use a room code. |
 | P2's trigger and coin do nothing | P2 waits for P1's game to be under way (about 25 s); the banner counts down, and coins are paid in afterwards. |
@@ -120,6 +125,8 @@ join=192.168.1.20:27750 # the last JOIN IP address
 voice=1                 # voice chat on
 mic_muted=0
 voice_volume=100        # the partner's voice, 0-200
+push_to_talk=0          # 1: send only while a thumbstick click (V) is held
+join_credit=1           # a credit for you when you join a game as P2
 rejoin=12 KXQ7 1 1794200000 SAM   # REJOIN: room id, code, your cabinet, when you left (Unix time), partner; written and removed by the game
 ```
 
@@ -200,13 +207,18 @@ Measured on US TSS3 Ver. B (`quest/tc2_link.c` stand-in, `quest/tc2_online.c` `s
 - **Capture:** 48 kHz mono, in 20 ms frames.
   - Desktop records through an SDL capture device.
   - Quest records in `MainActivity` with `AudioRecord` in `VOICE_COMMUNICATION` mode, plus the platform echo canceller and noise suppressor where the headset provides them.
-- **Send:** a level gate, then Opus VOIP at 20 kbit/s with in-band error correction, carried in the voice block of the link payload.
+- **Clean-up** (`quest/tc2_voice_dsp.c`), 10 ms blocks, on the thread that records:
+  - Echo cancellation: SpeexDSP's MDF filter, 250 ms long, against what the game queues for the speakers (the game's sound with the partner's voice mixed in, converted to 48 kHz).
+  - The two sides meet on one clock. Each block of the game's output is placed by when it will leave the audio queue (now plus what is queued ahead of it), each block of the microphone by when it arrived. Blocks then follow each other exactly, and the measured times only steer the running position slowly, so a device's 10 ms bursts do not shake the echo path the filter has learned. When the game is held (a stall, the link waiting for its partner) the queue runs dry and the device plays silence; the next block goes out at once and the position jumps there.
+  - Noise suppression: RNNoise 0.2 with its trained model, which also gives each block a speech probability.
+  - `tests/voice_dsp_fixture.c` runs it on a simulated clock: the queue, the device's buffers, a 60 ms stall every 7 s, the room and the recorder's jitter. About 20 dB of echo off (0.5 dB without the echo canceller), the player's voice kept at full level while the partner talks, game noise taken for speech under 1% of the time. About 0.15 ms per 10 ms block on a desktop core; the Quest's log reports its own figure (`[VOICE] microphone clean-up`).
+- **Send:** a gate (open mic: speech, by RNNoise's probability, above a level; push to talk: the key), then Opus VOIP at 20 kbit/s with in-band error correction, carried in the voice block of the link payload.
 - **Receive:**
   - A 64-slot jitter store, decoded about 60 ms ahead.
   - A missing frame is rebuilt from the next frame's error correction, or by Opus concealment.
   - The result is resampled to the game's 88.2 kHz and added to both channels of its output, because Android allows one output device.
 
-Opus 1.5.2 is a pinned download (`tools/bootstrap.py`) built into both apps.
+Opus 1.5.2, RNNoise 0.2 and SpeexDSP 1.2.1 (BSD licences) are pinned downloads (`tools/bootstrap.py`) built into both apps.
 
 ## Testing
 
@@ -243,11 +255,13 @@ Every scenario runs two whole cabinets in real time (the link, the reconnection 
 | `freeze` / `longfreeze` | B's whole app stalls for 3 s / 8 s (longer than the 5 s lobby timeout) |
 | `hostfreeze` | The host stalls for 8 s, its built-in server with it |
 | `late` | B joins a game A has already started |
-| `room` | A hosts a room with a code, B joins by code; A's voice must reach B as 440 Hz, B's silent microphone must send nothing |
+| `room` | A hosts a room with a code, B joins by code; A's voice must reach B sounding like what A said (a synthetic voice, `tests/speech.py`; noise suppression rightly stops tones), B's silent microphone must send nothing |
 | `browse` | B opens the browser and picks A's room |
 | `mute` | A mutes mid-game: no voice frame may arrive after it |
 | `voicenet` | Voice through 5% loss and stalls (error correction and concealment) |
 | `duplex` | Both talk at once: each must hear the other despite the echo safeguard |
+| `ptt` | A uses push to talk and talks all along, holding the key from 1500 to 2400: B hears A then and only then |
+| `echo` | B's microphone hears B's own speaker (the game and A's voice) 60 ms late at 0.8, and B says nothing: B may send nothing once the echo canceller has had 10 s, and under 150 frames in all (measured 85, in the first 3 s; 1514 without the canceller) |
 | `roomleave` | B leaves the room mid-game and rejoins by code |
 | `p2join` | Linked first; A starts LINK PLAY, B puts coins in at 3000 (held, then paid in) and takes LINK PLAY on the right cabinet |
 | `modescreen` | A, credited with no room, finds SOLO/LINKED open (the stand-in from power-on) and takes it: the game starts at once and a room opens, no restart; B joins a while into A's game, restarts once for its handshake, and joins it |
@@ -256,6 +270,7 @@ Every scenario runs two whole cabinets in real time (the link, the reconnection 
 | `dropin` | A hosts and takes SOLO/LINKED alone at once (the stand-in); B joins a minute into A's game, restarts once, and takes LINK PLAY with no agreed-start wait |
 | `p1return` | After `dropin`, A (P1) restarts out of the game and rejoins: it is P1 again (the server gave it slot 1), starts a new game of its own and B's goes on, with no link errors |
 | `p2return` | B (P2) restarts out of the game and rejoins: P2 again, and it takes LINK PLAY into A's game once more |
+| `credit` | The drop-in with "Join with a credit" on for B, which never puts a coin in: one credit goes in for B after its handshake restart, and B takes LINK PLAY with it |
 | `newcomer` | A leaves for good and joins the room afresh while B (P2) stays: B keeps P2, A takes P1 although the server gives it slot 1 |
 | `persist` | A starts with `online.cfg` remembering room 1 as P1 (an app restart); B opens room 1 in slot 0. A rejoins as P1 and B, with no claim, takes P2 |
 | `crossplay` | Our cabinet (P1, hosting a room) against **upstream's released desktop game** (P2, headless, joining by quick match). It checks the link from both sides, 0 link errors, upstream's agreed start holding and releasing on our trailer, and that a desktop partner is not shown voice chat. Skipped without the download |
@@ -263,11 +278,14 @@ Every scenario runs two whole cabinets in real time (the link, the reconnection 
 Test switches, read by `quest/tc2_online.c` and `quest/tc2_voice.c`:
 
 - `TC2_NET_SCRIPT="600:hostroom;2400:mute"`: actions run at those arcade frames, or `t<ms>:` milliseconds after start.
-  - Actions: `host`, `join=<addr>`, `discover`, `quick`, `hostroom`, `joincode=<code>`, `browse`, `pickroom`, `rejoin`, `restart` (RESTART GAME, leaving first when online), `mute`, `voice=0|1`, `leave`, `freeze=<ms>`, and the menu's `menu=<tab>`, `resume`, `restartgame`, `restartapp`.
+  - Actions: `host`, `join=<addr>`, `discover`, `quick`, `hostroom`, `joincode=<code>`, `browse`, `pickroom`, `rejoin`, `restart` (RESTART GAME, leaving first when online), `mute`, `talk=1|0` (push to talk's key), `voice=0|1`, `leave`, `freeze=<ms>`, and the menu's `menu=<tab>`, `resume`, `restartgame`, `restartapp`.
   - On a headset, `online-test.txt` beside the settings (written with `adb run-as` on this debuggable build) holds `script=...`, `status=1` and `voice_out=<file>`.
 - `TC2_NET_STATUS=1`: a status line every 300 frames.
 - `TC2_NET_ROOM_CODE=KXQ7`: a fixed code for hosted rooms.
 - `TC2_VOICE_IN=<wav>`, `TC2_VOICE_OUT=<wav>`: 48 kHz mono 16-bit files in place of the microphone, and a recording of what is played.
+- `TC2_VOICE_ECHO=<gain>,<ms>`: the microphone also hears the cabinet's own output, as a speaker would. `TC2_VOICE_DSP=0|1|2`: no clean-up, echo cancellation only, noise suppression only.
+- The scenarios write `join_credit=0` to both cabinets' `online.cfg` (they put their coins in themselves); `credit` turns it on for B.
+- `tests/test_voice_dsp.py` checks the clean-up alone, in seconds (`tests/voice_dsp_fixture.c`, above).
 - `TC2_NET_DEBUG=1`, `TC2_NET_SIM=loss%,stall_ms`: the library's own logging and simulated bad network.
 - `TCVR_TEST_MENU=3@60`: open the menu on its ONLINE tab at desktop frame 60 (0 GUN, 1 PLAYER, 2 GRAPHICS, 3 ONLINE).
 - `TCVR_RAMWATCH=2CE92B,2F3930`: log each main-RAM byte (hex offsets) whenever it changes.

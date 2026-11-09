@@ -15,6 +15,10 @@ affiliated with or endorsed by Namco, Bandai Namco, or Meta.
   `tools/fonts`; `tools/bake_ui_font.py` turns them into the bitmaps in `quest/ui_font_data.h`. The license is included in
   the APK and the Windows package as `ChakraPetch-OFL.txt`.
 - **Khronos OpenXR loader 1.1.43:** its original license notice is included in the APK.
+- **Voice chat:** [Opus 1.5.2](https://opus-codec.org/) (the codec), [RNNoise 0.2](https://github.com/xiph/rnnoise) (noise
+  suppression, with its trained model) and [SpeexDSP 1.2.1](https://github.com/xiph/speexdsp) (echo cancellation), Xiph.Org
+  Foundation and contributors, BSD licenses. Their notices are included in the APK and the Windows package as
+  `Opus-COPYING.txt`, `RNNoise-COPYING.txt` and `SpeexDSP-COPYING.txt`.
 - **Windows OpenGL loader:** generated with [glad 2.0.8](https://github.com/Dav1dde/glad);
   generated code and Khronos declarations retain their notices in `pc/vendor/glad`.
 - **Windows dependencies:** zlib 1.3.1, SDL 2.30.11, Khronos OpenXR 1.1.43,

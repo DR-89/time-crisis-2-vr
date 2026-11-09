@@ -9,6 +9,9 @@ void tc2_voice_set_active(bool linked);           /* capture runs only while lin
 void tc2_voice_set_enabled(bool on);
 void tc2_voice_set_muted(bool muted);
 void tc2_voice_set_volume(int percent);           /* the partner's voice, 0..200 */
+void tc2_voice_set_push_to_talk(bool on);         /* send only while the talk key is held (no voice gate, mute ignored) */
+void tc2_voice_talk_key(bool held);               /* the talk key, every frame (a thumbstick click held / V on a PC) */
+bool tc2_voice_push_to_talk(void);
 bool tc2_voice_enabled(void);
 bool tc2_voice_muted(void);
 int  tc2_voice_volume(void);
@@ -22,7 +25,9 @@ int  tc2_voice_mix(void);                         /* one sample at the game's 88
 
 /* Capture feed: SDL's capture callback on desktop, MainActivity's voice-communication recorder on Quest (any thread). */
 void tc2_voice_capture(const int16_t *pcm,int samples);
+/* The game's output as it is queued (88.2 kHz stereo, after queued_frames already waiting): the echo canceller's reference. */
+void tc2_voice_played(const int16_t *stereo,int frames,unsigned queued_frames);
 void tc2_voice_test_output(const char *wav_path);   /* tests: record what is played (TC2_VOICE_OUT, or online-test.txt on a headset) */
 
-typedef struct tc2_voice_status { bool active,capturing,talking,partner_talking,partner_has_voice,mic_denied; int level,partner_level; uint32_t sent,received,lost; } tc2_voice_status;
+typedef struct tc2_voice_status { bool active,capturing,talking,partner_talking,partner_has_voice,mic_denied,push_to_talk; int level,partner_level; uint32_t sent,received,lost; } tc2_voice_status;
 void tc2_voice_get_status(tc2_voice_status *out);

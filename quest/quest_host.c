@@ -324,6 +324,11 @@ void qhost_test(const char *action,const char *arg){
 }
 static void menu_host_refresh(void){
     menu_host.boot_player=boot_player_side-1;menu_host.boot_resolution=boot_resolution;menu_host.saved=options_saved;
+#ifdef TCVR_PC
+    menu_host.talk_key=desktop?"V":"STICK CLICK";
+#else
+    menu_host.talk_key="STICK CLICK";
+#endif
     menu_host.active_w=active_w;menu_host.active_h=active_h;
     menu_host.preset_unsupported=boot_resolution>0&&boot_resolution<QRESOLUTION_COUNT&&active_w&&
         (active_w!=qresolution_sizes[boot_resolution][0]||active_h!=qresolution_sizes[boot_resolution][1]);
@@ -445,7 +450,7 @@ static bool events(void){
                 if(k==SDLK_TAB)kb_tab+=(s.key.keysym.mod&KMOD_SHIFT)?-1:1;
             }else{
                 if(k==SDLK_c||k==SDLK_5)coin_frames=48;
-                if(k==SDLK_m&&tc2_online_session())tc2_online_toggle_mute();
+                if(k==SDLK_m&&tc2_online_session()&&!tc2_online_push_to_talk())tc2_online_toggle_mute();
                 if(k==SDLK_l)cycle_aim_guide();
                 if(k==SDLK_r)recenter_requested=true;
             }
@@ -481,12 +486,19 @@ static bool events(void){
 }
 static void sync_input(XrTime time,bool head_tracked,float head_y){
     trigger=pedal=0;aim_valid=gun_tracked=false;
-    if(!focused){reset_input_edges();return;}
+    if(!focused){reset_input_edges();tc2_online_talk_key(false);return;}
     XrActiveActionSet aset={action_set,XR_NULL_PATH};XrActionsSyncInfo sync={XR_TYPE_ACTIONS_SYNC_INFO};sync.countActiveActionSets=1;sync.activeActionSets=&aset;
     if(!XR(xrSyncActions(session,&sync))){reset_input_edges();return;}
     if(pressed(pause_action,XR_NULL_PATH,&pause_button))set_paused(!paused,-1);
-    if(pressed(pitch_reset_action,XR_NULL_PATH,&pitch_reset_button)&&!paused&&tc2_online_session())tc2_online_toggle_mute();   /* left stick click */
+    /* voice chat: the left stick click mutes an open mic; with push to talk, either stick click held talks (V too on a PC) */
+    const bool ptt=tc2_online_push_to_talk();
+    if(pressed(pitch_reset_action,XR_NULL_PATH,&pitch_reset_button)&&!paused&&!ptt&&tc2_online_session())tc2_online_toggle_mute();
     (void)pressed(hand_action,XR_NULL_PATH,&hand_button);
+    bool talk=(pitch_reset_button.synced&&pitch_reset_button.was)||(hand_button.synced&&hand_button.was);
+#ifdef TCVR_PC
+    talk=talk||SDL_GetKeyboardState(NULL)[SDL_SCANCODE_V];
+#endif
+    tc2_online_talk_key(ptt&&talk);
     /* Face-button roles follow the saved layout, even during trigger handoffs. In the menu: A / X select, B / Y go back. */
     int controls=options.left_handed?LEFT_HAND:RIGHT_HAND;XrPath weapon=hand_paths[controls],other=hand_paths[1-controls];
     const bool lower_w=pressed(lower_action,weapon,&coin_button),lower_o=pressed(lower_action,other,&recenter_button);
@@ -767,6 +779,7 @@ static bool desktop_frame(void){
         nx=fminf(1,fmaxf(0,(float)mx/lw));ny=fminf(1,fmaxf(0,(float)my/lh));
         aim_valid=true;gun_tracked=false;trigger=focused&&!paused&&(mouse&SDL_BUTTON_LMASK)?1:0;
         pedal=focused&&!paused&&((mouse&SDL_BUTTON_RMASK)||SDL_GetKeyboardState(NULL)[SDL_SCANCODE_SPACE])?1:0;
+        tc2_online_talk_key(focused&&SDL_GetKeyboardState(NULL)[SDL_SCANCODE_V]);   /* push to talk, held */
         /* Match the original 640x480 camera exactly for mouse aiming and tests. */
         int vw=w,vh=w*3/4;if(vh>h){vh=h;vw=h*4/3;}
         nx=((float)mx/lw*w-(w-vw)*.5f)/vw;ny=((float)my/lh*h-(h-vh)*.5f)/vh;

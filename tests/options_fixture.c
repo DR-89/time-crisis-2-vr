@@ -25,6 +25,10 @@ void tc2_online_leave(void){}
 void tc2_online_rejoin(void){}
 void tc2_online_restart_game(void){}
 void tc2_online_toggle_mute(void){}
+bool tc2_online_push_to_talk(void){return false;}
+void tc2_online_talk_key(bool held){(void)held;}
+void tc2_online_set_push_to_talk(bool on){(void)on;}
+void tc2_online_set_join_credit(bool on){(void)on;}
 void tc2_online_menu_shown(bool t){(void)t;}
 
 static int opt[QOPT_COUNT];

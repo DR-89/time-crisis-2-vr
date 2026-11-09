@@ -26,5 +26,5 @@ target_compile_options(main PRIVATE -O2 -fno-strict-aliasing -fwrapv -Wall -Wno-
 target_include_directories(main PRIVATE . include "${CMAKE_BINARY_DIR}/compat" "${TC}/gen" "${TC}/include" "${TC}/src" "${TC}/src/eng" "${XR}/headers/include")
 add_library(openxr_loader SHARED IMPORTED)
 set_target_properties(openxr_loader PROPERTIES IMPORTED_LOCATION "${XR}/openxr_loader/libs/android.arm64-v8a/libopenxr_loader.so")
-target_link_libraries(main SDL2 openxr_loader opus GLESv3 EGL android log z m)
+target_link_libraries(main SDL2 openxr_loader opus tc2_rnnoise tc2_speexdsp GLESv3 EGL android log z m)
 target_link_options(main PRIVATE "-Wl,-z,max-page-size=16384" "-Wl,--no-undefined")
