@@ -89,6 +89,60 @@ static int coin_frames;
 static int boot_player_side=1,boot_resolution;static unsigned active_w,active_h;   /* what this run started with */
 
 static struct Eye { XrSwapchain chain;uint32_t w,h,n;QSwapchainImage *images;GLuint *fb,depth; } eyes[2];
+/* The pause menu as its own composition layer, under the game's picture: the headset draws it straight to the display, at the
+ * menu's own resolution, instead of from the eye image (on a Quest that is about half the menu's resolution, and resampled once
+ * more). The picture lets it through where the menu is (alpha 0) and covers it elsewhere, so the laser still crosses it. The
+ * menu is still drawn into the picture too: a desktop mirror, screenshots, and the fallback if the layer fails. */
+static struct MenuLayer { XrSwapchain chain;uint32_t n,mips;QSwapchainImage *images;GLuint *fb;unsigned version;bool ok; } menu_layer;
+static void menu_layer_close(void){
+    if(menu_layer.fb&&context&&gpu_ready)glDeleteFramebuffers(menu_layer.n,menu_layer.fb);
+    if(menu_layer.chain)xrDestroySwapchain(menu_layer.chain);
+    free(menu_layer.images);free(menu_layer.fb);memset(&menu_layer,0,sizeof menu_layer);
+}
+static void menu_layer_open(int64_t format){
+    const char *off=getenv("TCVR_MENU_LAYER");if(off&&!strcmp(off,"0"))return;
+    uint32_t mips=1;while((QMENU_W>>mips)>0||(QMENU_H>>mips)>0)mips++;
+    for(int attempt=0;attempt<2&&!menu_layer.chain;attempt++){   /* with smaller copies (no shimmer from afar), else without */
+        XrSwapchainCreateInfo cc={XR_TYPE_SWAPCHAIN_CREATE_INFO};cc.usageFlags=XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT|XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
+        cc.format=format;cc.sampleCount=1;cc.width=QMENU_W;cc.height=QMENU_H;cc.faceCount=1;cc.arraySize=1;cc.mipCount=attempt?1:mips;
+        if(XR_SUCCEEDED(xrCreateSwapchain(session,&cc,&menu_layer.chain)))menu_layer.mips=cc.mipCount;else menu_layer.chain=XR_NULL_HANDLE;
+    }
+    if(!menu_layer.chain||XR_FAILED(xrEnumerateSwapchainImages(menu_layer.chain,0,&menu_layer.n,NULL))||!menu_layer.n){
+        fprintf(stderr,"[XR] menu layer unavailable; the menu is drawn into the picture\n");menu_layer_close();return;
+    }
+    menu_layer.images=calloc(menu_layer.n,sizeof *menu_layer.images);menu_layer.fb=calloc(menu_layer.n,sizeof(GLuint));
+    if(!menu_layer.images||!menu_layer.fb){menu_layer_close();return;}
+    for(uint32_t j=0;j<menu_layer.n;j++)menu_layer.images[j].type=Q_SWAPCHAIN_IMAGE;
+    if(XR_FAILED(xrEnumerateSwapchainImages(menu_layer.chain,menu_layer.n,&menu_layer.n,(XrSwapchainImageBaseHeader*)menu_layer.images))){menu_layer_close();return;}
+    glGenFramebuffers(menu_layer.n,menu_layer.fb);
+    for(uint32_t j=0;j<menu_layer.n;j++){
+        glBindFramebuffer(GL_FRAMEBUFFER,menu_layer.fb[j]);glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,menu_layer.images[j].image,0);
+        if(glCheckFramebufferStatus(GL_FRAMEBUFFER)!=GL_FRAMEBUFFER_COMPLETE){glBindFramebuffer(GL_FRAMEBUFFER,0);menu_layer_close();return;}
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER,0);menu_layer.ok=true;
+    fprintf(stderr,"[XR] menu layer %dx%d, %u mip levels\n",QMENU_W,QMENU_H,menu_layer.mips);
+}
+/* Copies the menu into the layer's next image when it changed. False if that failed: the layer is dropped for good. */
+static bool menu_layer_update(void){
+    const unsigned version=qui_menu_version();
+    if(!version)return false;
+    if(version==menu_layer.version)return true;
+    uint32_t index;XrSwapchainImageAcquireInfo acq={XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+    XrSwapchainImageWaitInfo wait={XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};wait.timeout=XR_INFINITE_DURATION;
+    if(XR_FAILED(xrAcquireSwapchainImage(menu_layer.chain,&acq,&index))||XR_FAILED(xrWaitSwapchainImage(menu_layer.chain,&wait))){
+        fprintf(stderr,"[XR] menu layer failed; the menu is drawn into the picture\n");menu_layer.ok=false;return false;
+    }
+    GLint fb;glGetIntegerv(GL_FRAMEBUFFER_BINDING,&fb);
+    glBindFramebuffer(GL_FRAMEBUFFER,menu_layer.fb[index]);glViewport(0,0,QMENU_W,QMENU_H);qui_copy_menu();
+    if(menu_layer.mips>1){
+        GLint bound;glGetIntegerv(GL_TEXTURE_BINDING_2D,&bound);glBindTexture(GL_TEXTURE_2D,menu_layer.images[index].image);
+        glGenerateMipmap(GL_TEXTURE_2D);glBindTexture(GL_TEXTURE_2D,bound);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER,fb);
+    XrSwapchainImageReleaseInfo rel={XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+    if(XR_FAILED(xrReleaseSwapchainImage(menu_layer.chain,&rel))){menu_layer.ok=false;return false;}
+    menu_layer.version=version;return true;
+}
 static double profile_parts[6],profile_thread;
 static double cpu_ms(void){
 #ifdef TCVR_PC
@@ -742,6 +796,7 @@ bool tc2_vr_open(void){
         for(uint32_t j=0;j<eye->n;j++){glBindFramebuffer(GL_FRAMEBUFFER,eye->fb[j]);glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,eye->images[j].image,0);glFramebufferRenderbuffer(GL_FRAMEBUFFER,GL_DEPTH_ATTACHMENT,GL_RENDERBUFFER,eye->depth);if(glCheckFramebufferStatus(GL_FRAMEBUFFER)!=GL_FRAMEBUFFER_COMPLETE)goto fail;}
         views[i]=(XrView){XR_TYPE_VIEW};
     }
+    menu_layer_open(color_format);
 graphics_ready:
     if(!qgl_init())goto fail;
 #ifndef TCVR_PC
@@ -801,7 +856,7 @@ static bool desktop_frame(void){
         hud_camera();qgl_target(0,0);qgl_eye(v,p);qtc2_draw(v,p,w,h,0);qgl_flush();
         if(options.laser_enabled&&aim_valid&&!paused){qgl_pointer(v3(.24f,-.24f,-.45f),v3((nx-.5f)*3.2f,(.5f-ny)*2.4f,-2.5f));qgl_flush();}
         online_overlays(v,p,v3(0,0,0),(Q4){0,0,0,1});
-        if(paused){menu_host_refresh();qui_draw_menu(v,p,menu_center,menu_rotation,&menu_host,SDL_GetTicks64()/1000.0);}
+        if(paused){menu_host_refresh();qui_draw_menu(v,p,menu_center,menu_rotation,&menu_host,SDL_GetTicks64()/1000.0,false);}
         const char *capture_frame=getenv("TCVR_CAPTURE_FRAME");
         const char *capture_every=getenv("TCVR_CAPTURE_EVERY");++frame_number;
         {const char *menu=getenv("TCVR_TEST_MENU");const char *at=menu?strchr(menu,'@'):NULL;   /* "tab@frame": open the menu there */
@@ -874,6 +929,7 @@ bool ss22_host_frame(void){
         }
         hud_camera();
         bool stereo_frame=false;
+        const bool menu_shown=draw_frame&&focused&&paused&&menu_placed,menu_under=menu_shown&&menu_layer.ok;
         for(int i=0;draw_frame&&i<2;i++){
             stage_start=wall_ms();
             struct Eye *eye=&eyes[i];uint32_t index;
@@ -895,7 +951,7 @@ bool ss22_host_frame(void){
                 V3 head=mul(add(relative_position(views[0].pose.position),relative_position(views[1].pose.position)),.5f);
                 online_overlays(v[i],p[i],head,relative_rotation(views[0].pose.orientation));
                 if(paused&&menu_placed){
-                    menu_host_refresh();qui_draw_menu(v[i],p[i],menu_center,menu_rotation,&menu_host,SDL_GetTicks64()/1000.0);
+                    menu_host_refresh();qui_draw_menu(v[i],p[i],menu_center,menu_rotation,&menu_host,SDL_GetTicks64()/1000.0,menu_under);
                     if(menu_laser&&gun_tracked){qgl_eye(v[i],p[i]);qgl_pointer(gun_origin,menu_end);qgl_flush();}
                 }
             }
@@ -917,8 +973,18 @@ bool ss22_host_frame(void){
             parts[4]+=wall_ms()-stage_start;
         }
         XrCompositionLayerProjection layer={XR_TYPE_COMPOSITION_LAYER_PROJECTION};layer.space=local_space;layer.viewCount=2;layer.views=pv;
-        const XrCompositionLayerBaseHeader *layers[]={(const XrCompositionLayerBaseHeader*)&layer};
-        XrFrameEndInfo end={XR_TYPE_FRAME_END_INFO};end.displayTime=frame.predictedDisplayTime;end.environmentBlendMode=XR_ENVIRONMENT_BLEND_MODE_OPAQUE;end.layerCount=draw_frame&&frame_ok?1:0;end.layers=layers;
+        XrCompositionLayerQuad menu_quad={XR_TYPE_COMPOSITION_LAYER_QUAD};
+        const XrCompositionLayerBaseHeader *layers[2]={(const XrCompositionLayerBaseHeader*)&layer};uint32_t layer_count=1;
+        if(menu_under&&frame_ok&&menu_layer_update()){   /* the menu first (under), the picture over it, blended by its alpha */
+            const V3 at=add(origin,rotate(origin_rotation,menu_center));const Q4 facing=product(origin_rotation,menu_rotation);
+            menu_quad.space=local_space;menu_quad.eyeVisibility=XR_EYE_VISIBILITY_BOTH;
+            menu_quad.subImage.swapchain=menu_layer.chain;menu_quad.subImage.imageRect.extent=(XrExtent2Di){QMENU_W,QMENU_H};
+            menu_quad.pose.position=(XrVector3f){at.x,at.y,at.z};menu_quad.pose.orientation=(XrQuaternionf){facing.x,facing.y,facing.z,facing.w};
+            menu_quad.size=(XrExtent2Df){QUI_PANEL_W,QUI_PANEL_H};
+            layer.layerFlags=XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT|XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT;
+            layers[0]=(const XrCompositionLayerBaseHeader*)&menu_quad;layers[1]=(const XrCompositionLayerBaseHeader*)&layer;layer_count=2;
+        }
+        XrFrameEndInfo end={XR_TYPE_FRAME_END_INFO};end.displayTime=frame.predictedDisplayTime;end.environmentBlendMode=XR_ENVIRONMENT_BLEND_MODE_OPAQUE;end.layerCount=draw_frame&&frame_ok?layer_count:0;end.layers=layers;
         stage_start=wall_ms();
         if(!XR(xrEndFrame(session,&end))||!frame_ok)return false;
         parts[5]+=wall_ms()-stage_start;
@@ -990,6 +1056,7 @@ void ss22_host_shot(const char *p){(void)p;}
 void ss22_host_close(void){
     active=false;
     if(context&&gpu_ready){qui_shutdown();qgun_shutdown();qgl_shutdown();}
+    menu_layer_close();
     for(int i=0;i<2;i++){if(context&&gpu_ready&&eyes[i].fb)glDeleteFramebuffers(eyes[i].n,eyes[i].fb);if(context&&gpu_ready)glDeleteRenderbuffers(1,&eyes[i].depth);if(eyes[i].chain)xrDestroySwapchain(eyes[i].chain);free(eyes[i].images);free(eyes[i].fb);memset(&eyes[i],0,sizeof eyes[i]);}
     for(int i=0;i<HAND_COUNT;i++){if(aim_spaces[i])xrDestroySpace(aim_spaces[i]);aim_spaces[i]=0;}
     if(local_space)xrDestroySpace(local_space);

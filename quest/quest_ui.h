@@ -7,8 +7,14 @@
 bool qui_init(void);
 void qui_shutdown(void);
 /* The panel: centre and orientation in the scene (the player stands on its +Z side). Uploads its texture only when the menu
- * redrew. */
-void qui_draw_menu(const float view[16],const float projection[16],V3 center,Q4 rotation,const QMenuHost *host,double now);
+ * redrew. underlay: the headset also shows the menu as its own layer under this picture (sharper: it skips the eye image's
+ * resolution), so the panel's area is cleared from the picture's alpha; the colours are still drawn, for a desktop mirror and
+ * screenshots. */
+void qui_draw_menu(const float view[16],const float projection[16],V3 center,Q4 rotation,const QMenuHost *host,double now,bool underlay);
+/* Changes whenever the menu's texture does (0: none yet). */
+unsigned qui_menu_version(void);
+/* Draws the menu's texture over the whole bound framebuffer, unblended, top row at the top (the layer's image). */
+void qui_copy_menu(void);
 /* Where a ray meets the panel, in menu pixels; false when it misses (or points away). The player is on the panel's +Z side. */
 static inline bool qui_panel_hit(V3 origin,V3 direction,V3 center,Q4 rotation,float *px,float *py,V3 *point){
     const Q4 inv=conjugate(rotation);

@@ -10,7 +10,7 @@
 
 static GLuint program,vao,vbo,texture,toast_texture;
 static GLint u_view,u_projection,u_texture;
-static bool texture_ready;
+static bool texture_ready;static unsigned menu_version;
 static uint8_t pixels[QMENU_W*QMENU_H*4];
 enum { TOAST_W=640,TOAST_H=40,TOAST_H2=64,TOAST_CHARS=38 };   /* one line of 38 characters, or two (a long message) */
 static uint8_t toast_pixels[TOAST_W*TOAST_H2*4];
@@ -55,17 +55,25 @@ static void upload(GLuint tex,int w,int h,const uint8_t *data,bool fresh){
     }else glTexSubImage2D(GL_TEXTURE_2D,0,0,0,w,h,GL_RGBA,GL_UNSIGNED_BYTE,data);
     glPixelStorei(GL_UNPACK_ROW_LENGTH,row_length);glPixelStorei(GL_UNPACK_ALIGNMENT,align);glBindTexture(GL_TEXTURE_2D,bound);
 }
+/* How a quad meets what is under it: blended; copied as is; or blended with its cover taken out of the alpha (an underlay: the
+ * headset shows its own copy of the menu through there). */
+enum { BLEND,COPY,UNDERLAY };
 /* one textured quad: centre, orientation, half sizes, at a distance along the orientation's -Z */
-static void quad(GLuint tex,const float view[16],const float projection[16],V3 center,Q4 rotation,float half_w,float half_h,float y,float z){
+static void quad_mode(GLuint tex,const float view[16],const float projection[16],V3 center,Q4 rotation,float half_w,float half_h,float y,float z,int mode){
     const float xy[4][2]={{-half_w,y+half_h},{half_w,y+half_h},{half_w,y-half_h},{-half_w,y-half_h}};
     const float uv[4][2]={{0,0},{1,0},{1,1},{0,1}};const int order[6]={0,1,2,0,2,3};float vertices[6][5];
     for(int i=0;i<6;i++){int j=order[i];V3 p=add(center,rotate(rotation,v3(xy[j][0],xy[j][1],z)));vertices[i][0]=p.x;vertices[i][1]=p.y;vertices[i][2]=p.z;vertices[i][3]=uv[j][0];vertices[i][4]=uv[j][1];}
     GLint bound,unit;glGetIntegerv(GL_ACTIVE_TEXTURE,&unit);glActiveTexture(GL_TEXTURE0);glGetIntegerv(GL_TEXTURE_BINDING_2D,&bound);glBindTexture(GL_TEXTURE_2D,tex);
-    glDisable(GL_DEPTH_TEST);glDisable(GL_CULL_FACE);glDisable(GL_SCISSOR_TEST);glColorMask(1,1,1,1);glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    glDisable(GL_DEPTH_TEST);glDisable(GL_CULL_FACE);glDisable(GL_SCISSOR_TEST);glColorMask(1,1,1,1);
+    if(mode==COPY)glDisable(GL_BLEND);
+    else{glEnable(GL_BLEND);if(mode==UNDERLAY)glBlendFuncSeparate(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA,GL_ZERO,GL_ONE_MINUS_SRC_ALPHA);else glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);}
     glUseProgram(program);glUniformMatrix4fv(u_view,1,GL_FALSE,view);glUniformMatrix4fv(u_projection,1,GL_FALSE,projection);glUniform1i(u_texture,0);
     glBindVertexArray(vao);glBindBuffer(GL_ARRAY_BUFFER,vbo);glBufferData(GL_ARRAY_BUFFER,sizeof vertices,vertices,GL_STREAM_DRAW);
     glEnableVertexAttribArray(0);glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,5*sizeof(float),0);glEnableVertexAttribArray(1);glVertexAttribPointer(1,2,GL_FLOAT,GL_FALSE,5*sizeof(float),(void*)(3*sizeof(float)));
-    glDrawArrays(GL_TRIANGLES,0,6);glDisable(GL_BLEND);glBindTexture(GL_TEXTURE_2D,bound);glActiveTexture(unit);
+    glDrawArrays(GL_TRIANGLES,0,6);glDisable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);glBindTexture(GL_TEXTURE_2D,bound);glActiveTexture(unit);
+}
+static void quad(GLuint tex,const float view[16],const float projection[16],V3 center,Q4 rotation,float half_w,float half_h,float y,float z){
+    quad_mode(tex,view,projection,center,rotation,half_w,half_h,y,z,BLEND);
 }
 /* The menu's texture: only the box that changed goes up, then its smaller copies (mipmaps) are rebuilt on the GPU, so the text
  * stays steady instead of shimmering as the head moves. */
@@ -83,10 +91,10 @@ static void upload_menu(const int box[4]){
         glPixelStorei(GL_UNPACK_ROW_LENGTH,QMENU_W);
         glTexSubImage2D(GL_TEXTURE_2D,0,box[0],box[1],box[2],box[3],GL_RGBA,GL_UNSIGNED_BYTE,pixels+((size_t)box[1]*QMENU_W+box[0])*4);
     }
-    glGenerateMipmap(GL_TEXTURE_2D);
+    glGenerateMipmap(GL_TEXTURE_2D);menu_version++;
     glPixelStorei(GL_UNPACK_ROW_LENGTH,row_length);glPixelStorei(GL_UNPACK_ALIGNMENT,align);glBindTexture(GL_TEXTURE_2D,bound);
 }
-void qui_draw_menu(const float view[16],const float projection[16],V3 center,Q4 rotation,const QMenuHost *host,double now){
+void qui_draw_menu(const float view[16],const float projection[16],V3 center,Q4 rotation,const QMenuHost *host,double now,bool underlay){
     if(!program)return;
     /* both eyes draw the same frame: the second finds nothing new */
     int box[4]={0,0,QMENU_W,QMENU_H};
@@ -96,7 +104,17 @@ void qui_draw_menu(const float view[16],const float projection[16],V3 center,Q4 
     const double ms=(t1.tv_sec-t0.tv_sec)*1e3+(t1.tv_nsec-t0.tv_nsec)/1e6;
     if(drew&&ms>6){static unsigned slow;if(slow++<200)fprintf(stderr,"[MENU] slow redraw %.1f ms (%dx%d)\n",ms,box[2],box[3]);}
     if(drew||!texture_ready)upload_menu(box);
-    quad(texture,view,projection,center,rotation,QUI_PANEL_W/2,QUI_PANEL_H/2,0,0);
+    if(underlay){   /* the picture's alpha: 1 everywhere, then 0 under the menu (the laser drawn after puts its own back) */
+        GLboolean mask[4];glGetBooleanv(GL_COLOR_WRITEMASK,mask);GLfloat clear[4];glGetFloatv(GL_COLOR_CLEAR_VALUE,clear);
+        glDisable(GL_SCISSOR_TEST);glColorMask(0,0,0,1);glClearColor(0,0,0,1);glClear(GL_COLOR_BUFFER_BIT);
+        glClearColor(clear[0],clear[1],clear[2],clear[3]);glColorMask(mask[0],mask[1],mask[2],mask[3]);
+    }
+    quad_mode(texture,view,projection,center,rotation,QUI_PANEL_W/2,QUI_PANEL_H/2,0,0,underlay?UNDERLAY:BLEND);
+}
+unsigned qui_menu_version(void){return texture_ready?menu_version:0;}
+void qui_copy_menu(void){
+    static const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+    if(program&&texture_ready)quad_mode(texture,identity,identity,v3(0,0,0),(Q4){0,0,0,1},1,1,0,0,COPY);
 }
 void qui_draw_toast(const float view[16],const float projection[16],V3 head,Q4 rotation,const char *message,unsigned serial){
     if(!program||!message||!message[0])return;

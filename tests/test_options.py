@@ -112,11 +112,13 @@ attributes=(I*13)(0x3033,1,0x3040,0x40,0x3024,8,0x3023,8,0x3022,8,0x3021,8,0x303
 config=P();count=I();assert bind(egl,'eglChooseConfig',U,P,P,P,I,P)(display,attributes,C.byref(config),1,C.byref(count)) and count.value
 current=bind(egl,'eglMakeCurrent',U,P,P,P,P);render=bind(lib,'options_fixture',I,I,I,I,P)
 images=[];w=h=800
-for variant in range(8):
+for variant in range(10):
     surface=bind(egl,'eglCreatePbufferSurface',P,P,P,P)(display,config,(I*5)(0x3057,w,0x3056,h,0x3038))
     context=bind(egl,'eglCreateContext',P,P,P,P,P)(display,config,None,(I*3)(0x3098,3,0x3038));assert surface and context and current(display,surface,surface,context)
     pixels=(C.c_ubyte*(w*h*4))();status=render(variant,w,h,pixels);assert status==1,(variant,status)
-    image=Image.frombytes('RGBA',(w,h),bytes(pixels)).transpose(Image.Transpose.FLIP_TOP_BOTTOM).convert('RGB');images.append(image)
+    rgba=Image.frombytes('RGBA',(w,h),bytes(pixels)).transpose(Image.Transpose.FLIP_TOP_BOTTOM);image=rgba.convert('RGB');images.append(image)
+    if variant==8:alpha8=rgba.getchannel('A')
+    if variant==9:copy9=rgba
     assert sum(p!=image.getpixel((0,0)) for p in image.get_flattened_data())>10000
     image.save(ROOT/f'artifacts/menu-preview-{variant}.png')
     current(display,None,None,None);bind(egl,'eglDestroyContext',U,P,P)(display,context);bind(egl,'eglDestroySurface',U,P,P)(display,surface)
@@ -125,5 +127,10 @@ assert images[2].tobytes()==images[3].tobytes(),'A changed value must refresh th
 assert images[0].tobytes()!=images[3].tobytes(),'Gun angle values must be visible'
 assert len({im.tobytes() for im in (images[0],images[4],images[5],images[6])})==4,'Every tab must look different'
 assert images[0].tobytes()!=images[7].tobytes(),'Save errors must be visible'
+# the menu layer (quest_host.c): the picture keeps its colours (mirror, screenshots) and lets the layer through under the panel
+assert images[8].tobytes()==images[0].tobytes(),"An underlay must leave the picture's colours as they were"
+assert alpha8.getpixel((w//2,h//2))==0 and alpha8.getpixel((5,5))==255,"The picture's alpha: 0 under the panel, 1 elsewhere"
+assert copy9.getpixel((w//2,h//2))[3]==255 and copy9.getpixel((0,0))[3]<128,'The layer copy: opaque panel, clear rounded corners'
+assert copy9.convert('RGB').tobytes()!=copy9.convert('RGB').transpose(Image.Transpose.FLIP_TOP_BOTTOM).tobytes(),'The layer copy must have a top and bottom'
 bind(egl,'eglTerminate',U,P)(display)
 print('PASS: saved angle/option combinations, old-config migration, malformed settings, cover traces; the GLES menu panel: stereo, texture refresh, every tab, save errors; no GL errors.')
