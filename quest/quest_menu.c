@@ -56,10 +56,15 @@ static const RowDef GRAPHICS_ROWS[]={
     {QOPT_RESOLUTION,"Resolution","","Pixels per eye. Higher costs more GPU time. Default follows the headset. Applies after RESTART APP.",T_RES,{0},0,0,QRESOLUTION_COUNT-1,1,0,"",false},
     {QOPT_FILTER,"Texture filtering","Smooths world textures; text stays sharp","Applies immediately.",T_SEG,{"ON","OFF"},2,0,1,1,0,"",false},
 };
+static const RowDef AUDIO_ROWS[]={
+    {QOPT_GAME_VOLUME,"Game volume","The arcade's sound","The game's music, guns and voices. Voice chat is not affected.",T_SLIDER,{0},0,QOPTIONS_GAME_VOLUME_MIN,QOPTIONS_GAME_VOLUME_MAX,QOPTIONS_GAME_VOLUME_STEP,QOPTIONS_GAME_VOLUME_DEFAULT,"%",false},
+    {QOPT_VOICE_VOLUME,"Voice chat volume","Your partner online; also on the ONLINE tab","How loud your partner is. Over 100% boosts a quiet microphone.",T_SLIDER,{0},0,0,200,10,100,"%",false},
+};
 static const RowDef *row_def(int opt){
     for(size_t i=0;i<sizeof GUN_ROWS/sizeof *GUN_ROWS;i++)if(GUN_ROWS[i].opt==opt)return &GUN_ROWS[i];
     for(size_t i=0;i<sizeof PLAYER_ROWS/sizeof *PLAYER_ROWS;i++)if(PLAYER_ROWS[i].opt==opt)return &PLAYER_ROWS[i];
     for(size_t i=0;i<sizeof GRAPHICS_ROWS/sizeof *GRAPHICS_ROWS;i++)if(GRAPHICS_ROWS[i].opt==opt)return &GRAPHICS_ROWS[i];
+    for(size_t i=0;i<sizeof AUDIO_ROWS/sizeof *AUDIO_ROWS;i++)if(AUDIO_ROWS[i].opt==opt)return &AUDIO_ROWS[i];
     return NULL;
 }
 
@@ -249,7 +254,7 @@ static void header(void){
     }
 }
 static void tabs(void){
-    static const char *const names[QMENU_TAB_COUNT]={"GUN","PLAYER","GRAPHICS","ONLINE"};
+    static const char *const names[QMENU_TAB_COUNT]={"GUN","PLAYER","GRAPHICS","AUDIO","ONLINE"};
     rrect(3,BODY_Y-2,QMENU_W-6,2,0,LINE);
     if(drawing())qc_clip(&cv,0,0,QMENU_W,BODY_Y);
     float x=27;
@@ -773,6 +778,7 @@ static void layout(int which){
     if(tab==QMENU_TAB_GUN)settings(GUN_ROWS,sizeof GUN_ROWS/sizeof *GUN_ROWS);
     else if(tab==QMENU_TAB_PLAYER)settings(PLAYER_ROWS,sizeof PLAYER_ROWS/sizeof *PLAYER_ROWS);
     else if(tab==QMENU_TAB_GRAPHICS)settings(GRAPHICS_ROWS,sizeof GRAPHICS_ROWS/sizeof *GRAPHICS_ROWS);
+    else if(tab==QMENU_TAB_AUDIO)settings(AUDIO_ROWS,sizeof AUDIO_ROWS/sizeof *AUDIO_ROWS);
     else online_tab();
     if(drawing())qc_unclip(&cv);
     frow=1000;footer();

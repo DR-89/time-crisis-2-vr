@@ -109,6 +109,8 @@ int main(void){
     tab_to(QMENU_TAB_GRAPHICS);save("graphics");
     opt[QOPT_RESOLUTION]=5;host.preset_unsupported=true;host.saved=false;save("graphics-problems");
     host.preset_unsupported=false;host.saved=true;opt[QOPT_PLAYER]=0;opt[QOPT_RESOLUTION]=0;
+    opt[QOPT_GAME_VOLUME]=100;opt[QOPT_VOICE_VOLUME]=100;tab_to(QMENU_TAB_AUDIO);save("audio");
+    opt[QOPT_GAME_VOLUME]=35;opt[QOPT_VOICE_VOLUME]=180;save("audio-changed");
     /* online */
     tab_to(QMENU_TAB_ONLINE);save("online");
     base_view();sv.home_side=2;sv.mic_denied=true;idle();save("online-p2-nomic");

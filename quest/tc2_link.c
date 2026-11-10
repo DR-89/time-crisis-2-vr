@@ -244,6 +244,7 @@ int tc2_link_unpack(const uint8_t *in){
         uint16_t id=(uint16_t)(in[o]<<8|in[o+1]);int n=in[o+2]<<8|in[o+3];o+=4;
         if(n<1||n>(int)MAXW||o+n>end){if(st.rx_bad++<5)fprintf(stderr,"[LINK] bad payload entry %d of %d (n %d)\n",i,k,n);return -1;}
         if(!ghost&&(!rx_have||(int16_t)(id-rx_last)>0)){
+            if(rx_have&&(uint16_t)(id-rx_last)>1)st.rx_skipped+=(uint16_t)(id-rx_last)-1u;
             uint16_t w[MAXW];for(int j=0;j<n;j++)w[j]=in[o+j];
             w[n-1]|=0x100;
             give(w,(unsigned)n);rx_last=id;rx_have=true;

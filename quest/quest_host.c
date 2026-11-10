@@ -229,11 +229,21 @@ static void reset_menu_input(void){
     kb_nav_x=kb_nav_y=kb_tab=0;kb_select=kb_back=false;
 }
 /* Opens (on a tab, or -1: the last one) or closes the menu. */
+/* The game's sound: silent while the menu holds an offline game or the headset app is in the background, else the player's
+ * volume (AUDIO tab). Voice chat is mixed in after it and keeps its own volume. */
+static void apply_game_volume(void){
+    bool silent=paused&&!tc2_online_session();
+#ifdef TCVR_PC
+    if(!desktop)
+#endif
+    if(!focused)silent=true;
+    tc2_audio_volume(silent?0:options.game_volume);
+}
 static void set_paused(bool p,int tab){
     if(p&&(!paused||tab>=0))qmenu_open(tab);
     if(p&&!paused)menu_placed=false;
     paused=p;reset_fire_input();reset_menu_input();game_deadline=0;
-    tc2_audio_volume(paused&&!tc2_online_session()?0:100);ss22_input_neutral();
+    apply_game_volume();ss22_input_neutral();
 }
 /* The game side opens or closes the ONLINE tab (tc2_online.c): a shot at the arcade's crossed-out SOLO/LINKED opens it, the
  * partner linking closes it again. */
@@ -326,6 +336,14 @@ static void set_cover_mode(bool physical){
     if(physical)cover_calibration_pending=true;
     fprintf(stderr,"[OPTIONS] cover %s; saved %d\n",physical?"PHYSICAL":"GRIP",options_saved);
 }
+static void set_game_volume(int value){
+    if(value<QOPTIONS_GAME_VOLUME_MIN)value=QOPTIONS_GAME_VOLUME_MIN;
+    if(value>QOPTIONS_GAME_VOLUME_MAX)value=QOPTIONS_GAME_VOLUME_MAX;
+    if(value==options.game_volume)return;
+    options.game_volume=value;apply_game_volume();
+    options_saved=qoptions_save(options_path,&options);
+    fprintf(stderr,"[OPTIONS] game volume %d%%; saved %d\n",value,options_saved);
+}
 static int menu_get(int o){
     switch(o){
     case QOPT_HAND:return options.left_handed?0:1;
@@ -339,6 +357,8 @@ static int menu_get(int o){
     case QOPT_DISTANCE:return options.view_distance;
     case QOPT_RESOLUTION:return options.resolution;
     case QOPT_FILTER:return options.texture_filtering?0:1;
+    case QOPT_GAME_VOLUME:return options.game_volume;
+    case QOPT_VOICE_VOLUME:{tc2_online_view view;tc2_online_get_view(&view);return view.volume;}
     }
     return 0;
 }
@@ -355,6 +375,8 @@ static void menu_set(int o,int v){
     case QOPT_DISTANCE:set_view_distance(v);break;
     case QOPT_RESOLUTION:set_resolution(v);break;
     case QOPT_FILTER:if((v==0)!=options.texture_filtering)toggle_texture_filter();break;
+    case QOPT_GAME_VOLUME:set_game_volume(v);break;
+    case QOPT_VOICE_VOLUME:tc2_online_set_volume(v);break;
     }
 }
 static void menu_action(int a){
@@ -523,7 +545,7 @@ static bool events(void){
             if(state==XR_SESSION_STATE_STOPPING){if(running)xrEndSession(session);running=false;game_deadline=0;}
             if(state==XR_SESSION_STATE_EXITING||state==XR_SESSION_STATE_LOSS_PENDING)quit=true;
             bool focus=state==XR_SESSION_STATE_FOCUSED;
-            if(focused!=focus){focused=focus;reset_input_edges();game_deadline=0;ss22_input_neutral();tc2_audio_volume(focus&&!paused?100:0);if(focus){rate_attempts=0;rate_check_time=0;}}
+            if(focused!=focus){focused=focus;reset_input_edges();game_deadline=0;ss22_input_neutral();apply_game_volume();if(focus){rate_attempts=0;rate_check_time=0;}}
         }else if(e.type==XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING)quit=true;
         else if(e.type==XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING){recenter_requested=true;}
         else if(e.type==XR_TYPE_EVENT_DATA_DISPLAY_REFRESH_RATE_CHANGED_FB){
@@ -808,7 +830,7 @@ graphics_ready:
     if(!qui_init())goto fail;
     active_w=eyes[0].w;active_h=eyes[0].h;
     if(!tc2_gl_init())goto fail;
-    void ss22_gl_set_gun_flash(int);ss22_gl_set_gun_flash(0);tc2_audio_open();
+    void ss22_gl_set_gun_flash(int);ss22_gl_set_gun_flash(0);tc2_audio_open();tc2_audio_volume(options.game_volume);
     active=true;fprintf(stderr,"[XR] Renderer initialized: %ux%u per eye; %s\n",eyes[0].w,eyes[0].h,glGetString(GL_RENDERER));return true;
 fail:
     fprintf(stderr,"[XR] initialization failed; SDL: %s\n",SDL_GetError());ss22_host_close();return false;

@@ -7,7 +7,8 @@
 
 void qoptions_load(const char *path,QOptions *options){
     /* New/missing settings use laser assistance. Explicit saved OFF stays OFF. */
-    *options=(QOptions){.laser_enabled=true,.texture_filtering=true,.world_scale=QOPTIONS_WORLD_SCALE_DEFAULT,.view_distance=QOPTIONS_VIEW_DISTANCE_DEFAULT,.player_side=1};
+    *options=(QOptions){.laser_enabled=true,.texture_filtering=true,.world_scale=QOPTIONS_WORLD_SCALE_DEFAULT,.view_distance=QOPTIONS_VIEW_DISTANCE_DEFAULT,.player_side=1,
+        .game_volume=QOPTIONS_GAME_VOLUME_DEFAULT};
     FILE *f=fopen(path,"r");if(!f)return;
     char line[128],extra;int value;
     while(fgets(line,sizeof line,f)){
@@ -54,6 +55,13 @@ void qoptions_load(const char *path,QOptions *options){
                 if(!*end)options->gun_pitch=(int)pitch;
             }
         }
+        if(!strncmp(line,"game_volume=",12)){
+            char *end;errno=0;long volume=strtol(line+12,&end,10);
+            if(end!=line+12&&!errno&&volume>=QOPTIONS_GAME_VOLUME_MIN&&volume<=QOPTIONS_GAME_VOLUME_MAX){
+                while(isspace((unsigned char)*end))end++;
+                if(!*end)options->game_volume=(int)volume;
+            }
+        }
         if(!strncmp(line,"view_distance=",14)){
             char *end;errno=0;long distance=strtol(line+14,&end,10);
             if(end!=line+14&&!errno&&distance>=QOPTIONS_VIEW_DISTANCE_MIN&&distance<=QOPTIONS_VIEW_DISTANCE_MAX){
@@ -66,7 +74,7 @@ void qoptions_load(const char *path,QOptions *options){
 }
 bool qoptions_save(const char *path,const QOptions *options){
     FILE *f=fopen(path,"w");if(!f)return false;
-    bool ok=fprintf(f,"resolution=%d\ntexture_filtering=%d\nlaser_enabled=%d\nphysical_crouch=%d\nleft_handed=%d\ngun_pitch=%d\nworld_scale=%d\nview_distance=%d\ntracer_enabled=%d\ngun_offset_y_mm=%d\ngun_offset_z_mm=%d\nplayer_side=%d\n",options->resolution,options->texture_filtering?1:0,options->laser_enabled?1:0,options->physical_crouch?1:0,options->left_handed?1:0,options->gun_pitch,options->world_scale,options->view_distance,options->tracer_enabled?1:0,options->gun_offset_y_mm,options->gun_offset_z_mm,options->player_side)>0;
+    bool ok=fprintf(f,"resolution=%d\ntexture_filtering=%d\nlaser_enabled=%d\nphysical_crouch=%d\nleft_handed=%d\ngun_pitch=%d\nworld_scale=%d\nview_distance=%d\ntracer_enabled=%d\ngun_offset_y_mm=%d\ngun_offset_z_mm=%d\nplayer_side=%d\ngame_volume=%d\n",options->resolution,options->texture_filtering?1:0,options->laser_enabled?1:0,options->physical_crouch?1:0,options->left_handed?1:0,options->gun_pitch,options->world_scale,options->view_distance,options->tracer_enabled?1:0,options->gun_offset_y_mm,options->gun_offset_z_mm,options->player_side,options->game_volume)>0;
     if(fclose(f))ok=false;
     return ok;
 }

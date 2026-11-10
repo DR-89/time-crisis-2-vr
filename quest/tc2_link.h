@@ -38,5 +38,6 @@ typedef struct tc2_link_status {
     uint16_t lag;                         /* frames since the partner's newest packet, as the game counts them */
     uint16_t state;                       /* 0 linked, 2 lost */
     uint32_t tx,rx,rx_dropped,rx_bad,tx_bad,game_errors;
+    uint32_t rx_skipped;                 /* link frames the partner sent that never arrived (lost with every payload that carried them) */
 } tc2_link_status;
 void     tc2_link_get_status(tc2_link_status *out);

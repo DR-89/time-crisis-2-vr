@@ -541,8 +541,12 @@ static void standin_tick(void){
         return;
     }
     const bool partner=eng_net_session_active();
+    /* Between two sessions the partner is still in the room (the server's session limit, 15 minutes on the public server, ends a
+     * session and the next starts a few frames later), and their game may still be running after ours ended: the stand-in must
+     * not take their place, or our arcade sees the right cabinet go idle and come back (measured 2026-11-09, p1over). */
+    const bool partner_here=episode&&eng_net_connected()&&eng_net_roster_count()>=2;
     /* from power-on, and after a partner left once a game is over (mid-game the arcade still expects that partner back) */
-    const bool want=!off&&qtc2_cabinet_side==1&&!partner&&(game_mode==0||(!episode&&host_waiting()));
+    const bool want=!off&&qtc2_cabinet_side==1&&!partner&&!partner_here&&(game_mode==0||(!episode&&host_waiting()));
     if(want&&!tc2_link_ghost()){tc2_link_set_ghost(true);fprintf(stderr,"[ONLINE] frame %u: drop-in open: the stand-in answers until a partner links\n",sim_frames);}
     else if(tc2_link_ghost()&&!partner&&(off||qtc2_cabinet_side!=1))tc2_link_set_ghost(false);
     /* SOLO/LINKED taken with nobody online yet: a room opens for this game, and a friend joins it any time */
@@ -657,11 +661,21 @@ static void test_switches_at(bool timed){
     }
 }
 
-/* link health warnings over the game */
+/* link health warnings over the game, and a line in the log: every 30 s while linked, and at once (at most every 2 s) when link
+ * frames go missing or the game counts link errors -- so a game that goes wrong online (two cabinets disagreeing) leaves a trace */
 static void health_tick(void){
     static uint32_t bad_since,warned;
     if(!eng_net_session_active())return;
     tc2_link_status s;tc2_link_get_status(&s);
+    {   static uint32_t last_ms,seen;extern uint8_t tc2_ram[];
+        const uint32_t now=SDL_GetTicks(),trouble=s.rx_skipped+s.rx_bad+s.tx_bad+s.game_errors;
+        if((trouble!=seen&&now-last_ms>=2000)||now-last_ms>=30000){
+            fprintf(stderr,"[LINKHEALTH] frame %u P%d lag %u state %u tx %u rx %u skipped %u dropped %u bad %u/%u game-errors %u ping %d partner-state %d self %d\n",
+                    sim_frames,qtc2_cabinet_side,s.lag,s.state,s.tx,s.rx,s.rx_skipped,s.rx_dropped,s.tx_bad,s.rx_bad,s.game_errors,eng_net_ping_ms(),
+                    tc2_ram[0x2F3502],tc2_link_self_state());
+            last_ms=now;seen=trouble;
+        }
+    }
     uint32_t now=SDL_GetTicks();
     if(s.lag>6&&s.alive){if(!bad_since)bad_since=now;}else bad_since=0;
     if(bad_since&&now-bad_since>1500&&now-warned>8000){say("PARTNER CONNECTION IS LAGGING",3000);warned=now;}
@@ -675,7 +689,11 @@ static void health_tick(void){
  * way; credited first, or within ~6 s, the right shows its partner as "COM" and its score freezes. So the right cabinet's coin,
  * trigger and pedal are held until it is in a game, while the left has not been in its game for TC2_JOIN_WAIT frames (1500 = 25 s,
  * or the same in wall-clock time over a slow link). Coins put in meanwhile are counted and paid in afterwards, 4 frames on and 36
- * off each. The right cabinet learns its own state from the left's trailer; without one (unknown), nothing is held. ---- */
+ * off each. The right cabinet learns its own state from the left's trailer; without one (unknown), nothing is held.
+ * Once the left has played a game in this episode, the hold applies only while it starts another (credited, or in a game younger
+ * than the wait): with the left in attract after its game over, the right plays on by itself, continues and starts again, as the
+ * arcade's right cabinet does when the left player walks away. (Held, a P2 whose partner had stopped could not continue: its coins
+ * waited for a left game that never came.) Before the left's first game the right still waits for it, as upstream measured. ---- */
 static bool holding;static int coin_pending,coin_pulse,coin_fast,prev_coin;static uint32_t p_since,p_since_ms;static int p_prev=-1;
 static void start_hold_tick(void){
     extern uint8_t tc2_ram[];extern uint16_t tc2_inputs;extern uint32_t rr_frame;
@@ -684,7 +702,9 @@ static void start_hold_tick(void){
     if(pst!=p_prev){p_prev=pst;p_since=rr_frame;p_since_ms=SDL_GetTicks();}
     const uint32_t left_ms=(uint32_t)(wait*1000/60),in_ms=SDL_GetTicks()-p_since_ms;
     const bool left_done=pst==4&&(rr_frame-p_since>=(uint32_t)wait||in_ms>=left_ms||tc2_link_partner_mark()=='J');
-    bool h=eng_net_session_active()&&qtc2_cabinet_side==2&&!side_pending&&self>=0&&self!=4&&!left_done;
+    static bool left_played;if(!episode)left_played=false;else if(pst==4)left_played=true;
+    const bool left_starting=pst==2||(pst==4&&!left_done);
+    bool h=eng_net_session_active()&&qtc2_cabinet_side==2&&!side_pending&&self>=0&&self!=4&&(left_played?left_starting:!left_done);
     const int c=tc2_inputs&0x0001;                       /* the raw coin, before the hold (tc2_h8.c reads it through tc2_link_hold_start) */
     if(h&&c&&!prev_coin)coin_pending++;
     prev_coin=c;

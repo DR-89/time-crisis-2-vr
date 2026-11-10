@@ -113,6 +113,7 @@ The arcade's own link driver declares the partner lost after **16 frames (about 
 | `PARTNER'S GAME HAS NO VOICE CHAT` | Your partner runs the upstream desktop game; voice chat needs this VR build on both sides. |
 
 Logs: the Quest log (`Export-Quest-Diagnostics.ps1`) and Windows `tc2.log` contain `[ONLINE]`, `[NET]`, `[LINK]` and `[VOICE]` lines.
+While linked, a `[LINKHEALTH]` line comes every 30 s, and at once when link frames go missing or the game counts link errors: `skipped` is the partner's link frames lost with every payload that carried them, `dropped` the received ones trimmed after a stall (a few at the start of a session are normal), `game-errors` the game's own link error counters. Something going wrong in a linked game (an enemy only one cabinet sees, a boss that vanishes) should be reported with both players' logs: the two lines around that moment show whether the cabinets fell out of step. Measured with 5% loss and jitter (`badnet`, `voicenet`): 1-2 frames skipped in two minutes, 0 game errors; on a clean connection none.
 
 ## online.cfg
 
@@ -179,6 +180,7 @@ The lobby and relay are upstream's NMN2 protocol (`upstream/docs/NETPLAY.md`): t
 - **Redundancy and duplicates:** the payload carries the newest transmitted link frames that fit, so every datagram repeats recent ones and a lost datagram costs nothing. The driver's resends of the same packet are carried once, and the receiver gives the game each id once.
 - **Voice placement:** voice takes room from the repeated older frames, never from the newest. Upstream's parser stops after the k link frames, so it never sees the voice block.
 - **Agreed start:** P2's coin, trigger and pedal are held, where the I/O board reads them (`tc2_h8.c` asks `tc2_link_hold_start`), until P2 is in a game or P1 has been in its game for `TC2_JOIN_WAIT` frames (1500, or the same time on the wall clock). Held coins are paid in afterwards, 4 frames on and 36 off each.
+  - Once P1 has played a game in the session, the hold applies only while P1 starts another (credited, or in a game younger than the wait). With P1 in attract after its game over, P2 plays on, continues and starts again by itself, as the arcade's right cabinet does when the left player walks away. Measured (`p2continue`): P2 continued twice after P1's game over, its score kept rising (its kills count, the partner shown as COM), and it started a new game afterwards. Before P1's first game P2 still waits, as upstream measured.
 - **Stall-and-wait:** neither cabinet runs more than a few frames ahead of the other (2 plus the ping in frames, or `TC2_NET_LEAD`). Upstream blocks inside the network call; here the VR host asks before each arcade frame and keeps rendering the headset while it waits.
 
 Our C422 model differs inside (its interrupt bookkeeping), but the words a cabinet puts on the cable are the game's own, so the two models interoperate. The cross-play test below checks this from both sides.
@@ -271,6 +273,9 @@ Every scenario runs two whole cabinets in real time (the link, the reconnection 
 | `p1return` | After `dropin`, A (P1) restarts out of the game and rejoins: it is P1 again (the server gave it slot 1), starts a new game of its own and B's goes on, with no link errors |
 | `p2return` | B (P2) restarts out of the game and rejoins: P2 again, and it takes LINK PLAY into A's game once more |
 | `credit` | The drop-in with "Join with a credit" on for B, which never puts a coin in: one credit goes in for B after its handshake restart, and B takes LINK PLAY with it |
+| `sessionlimit` | The server's session limit set to 1 minute ends the session under a LINK PLAY game (both cabinets in it): both games go on |
+| `p1over` | P1 (one credit) fights until its game is over while P2 hides and lives on; the session ends three times after: the stand-in stays out and P2 plays to its own end |
+| `p2continue` | P1's game over, then P2 fights, dies and continues with its own coins (its credits go down) and plays on |
 | `newcomer` | A leaves for good and joins the room afresh while B (P2) stays: B keeps P2, A takes P1 although the server gives it slot 1 |
 | `persist` | A starts with `online.cfg` remembering room 1 as P1 (an app restart); B opens room 1 in slot 0. A rejoins as P1 and B, with no claim, takes P2 |
 | `crossplay` | Our cabinet (P1, hosting a room) against **upstream's released desktop game** (P2, headless, joining by quick match). It checks the link from both sides, 0 link errors, upstream's agreed start holding and releasing on our trailer, and that a desktop partner is not shown voice chat. Skipped without the download |
@@ -287,7 +292,7 @@ Test switches, read by `quest/tc2_online.c` and `quest/tc2_voice.c`:
 - The scenarios write `join_credit=0` to both cabinets' `online.cfg` (they put their coins in themselves); `credit` turns it on for B.
 - `tests/test_voice_dsp.py` checks the clean-up alone, in seconds (`tests/voice_dsp_fixture.c`, above).
 - `TC2_NET_DEBUG=1`, `TC2_NET_SIM=loss%,stall_ms`: the library's own logging and simulated bad network.
-- `TCVR_TEST_MENU=3@60`: open the menu on its ONLINE tab at desktop frame 60 (0 GUN, 1 PLAYER, 2 GRAPHICS, 3 ONLINE).
+- `TCVR_TEST_MENU=4@60`: open the menu on its ONLINE tab at desktop frame 60 (0 GUN, 1 PLAYER, 2 GRAPHICS, 3 AUDIO, 4 ONLINE).
 - `TCVR_RAMWATCH=2CE92B,2F3930`: log each main-RAM byte (hex offsets) whenever it changes.
 - `TC2_NO_MODE_MENU=1`: a shot at the crossed-out SOLO/LINKED does nothing, as at the arcade (`late` links into a game on purpose).
 - `TC2_MENU_TIMEOUT=1`: SELECT GAME MODE chooses by itself when it runs out, as at the arcade.
@@ -304,8 +309,10 @@ Test switches, read by `quest/tc2_online.c` and `quest/tc2_voice.c`:
   - Not tested yet: Quest-to-Quest, PCVR, actually playing linked in a headset, and voice quality judged by ear.
 - **Through `zonesync.net` itself:** two desktop instances on this PC hosted and joined a room by code over the internet relay. About 50 ms ping, the link alive with 0 game errors, voice intact.
 - **Rooms are listed publicly** in the browser; the code is a convenience, not a password.
-- **15-minute server sessions:** servers end a session after 15 minutes. The lobby re-links within about a second and the arcade link is kept up meanwhile, but this path has not been exercised in a full-length game yet.
+- **15-minute server sessions:** servers end a session after 15 minutes (`--max-session-min`, default 15). The lobby re-links within a few frames and the arcade link is kept up meanwhile.
+  - Found in a real game (2026-11-09): P1's game was over when the limit came round, and the stand-in (an idle right cabinet that lets P1 host before anyone joins) took P2's place for 14 frames until the next session began. P1's arcade saw P2 go idle and come back mid-game, and both cabinets ended up on SELECT GAME MODE.
+  - Now the stand-in stays out while the partner is still in the room. Tests run the server with a 1-minute limit: `sessionlimit` (both in LINK PLAY), `p1over` (P1's game over, P2 plays through three session ends) and `p2continue`.
 - **Same wire format:** players need this build or an upstream namco22-decompile 0.9.3+ desktop game; the lobby checks game id, version and frame size.
-- **The agreed start:** our own tests also saw P2's kills count when P2 started first, but the hold is upstream's measured rule and both builds apply it.
+- **The agreed start:** our own tests also saw P2's kills count when P2 started first, but the hold is upstream's measured rule and both builds apply it before P1's first game. After that, P2 plays on alone (above).
 - **SELECT GAME MODE's top panel has no border on one side.** This is the arcade's own artwork, not a rendering fault. P1's SOLO/LINKED has no right edge: its top and bottom bars run to x 631 of 640 and fade to red, with the arrow pointing right. P2's LINK PLAY is the mirror image, open on the left with the arrow pointing left. On the twin cabinet the two screens stood side by side, and the two panels met as one banner across them. In VR you only see your own cabinet's screen, so the open side looks cut off. (SOLO ONLY, which is not linked, has a border all round.) When you shoot SOLO ONLY, the game dims SOLO/LINKED and slides it off the right edge.
   - *Possible enhancement:* while SELECT GAME MODE is up, draw the whole banner: the partner cabinet's mirrored half beside your own screen in VR. On the desktop, a wider view could show it too. The other half is the same model drawn mirrored, so it could come from the game's own graphics. The port would add the second copy itself: the game draws only its own half.

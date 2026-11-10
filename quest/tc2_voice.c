@@ -107,7 +107,7 @@ JNIEXPORT void JNICALL Java_org_timecrisis2_arcadevr_MainActivity_nativeVoiceSta
     (void)env;(void)cls;
     /* 1 recording (echo cancellation on), 2 recording without echo cancellation, -1 microphone permission refused, -2 failed */
     mic_denied=state==-1;
-    fprintf(stderr,"[VOICE] microphone %s\n",state==1?"on (echo cancellation)":state==2?"on (no echo cancellation available)":state==-1?"permission refused":"failed");
+    fprintf(stderr,"[VOICE] microphone %s\n",state==1?"on (echo cancellation)":state==2?"on (no Android echo canceller: ours does it)":state==-1?"permission refused":"failed");
 }
 static void mic_open(void){if(!capturing){java_call("voiceStart");capturing=true;}}
 static void mic_close(void){if(capturing){java_call("voiceStop");capturing=false;}}

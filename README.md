@@ -135,6 +135,7 @@ The line above the buttons explains whatever you point at. A setting off its def
 | GUN | Gun hand (the default), aim guide (laser / tracer / off), gun angle, gun height, gun depth |
 | PLAYER | Player (P1 Keith / P2 Robert, after RESTART APP), take cover (grip / duck), world size, view distance |
 | GRAPHICS | Render resolution (after RESTART APP), texture filtering |
+| AUDIO | Game volume (the arcade's sound; voice chat keeps its own), voice chat volume (also on ONLINE) |
 | ONLINE | Host, join with a code, browse, quick match, local network, rejoin; your name, join with a credit, voice chat (open mic / push to talk / off); while linked, the session |
 
 **Render resolution:** on **GRAPHICS**, choose **Default**, **1280 x 1344**, **1680 x 1760**, **2550 x 2640**, **2940 x 3080** or **3360 x 3520** pixels per eye, matching the NFSU VR ports. It saves at once and applies after **RESTART APP**; the running size is underlined. Default preserves the previous resolution (runtime recommendation capped at 1440 pixels on the longer side on Quest, 2160 on PCVR). Unsupported presets fall back to Default, and the tab says so. Higher resolutions require more GPU time and memory; the highest setting is not a performance recommendation.

@@ -30,26 +30,29 @@ STATUS = re.compile(r'\[ONLINE\] frame (\d+) side P(\d) link (on|off|stand-in) a
 
 
 def recording(path: Path, frames: int, aim_until: int = 0, coins_at: int = 1500, again_at: int = 0, idle: str = '', aim_again: str = '',
-              coins: bool = True):
+              coins: bool = True, exposed: int = 0, out_of: int = 34, n_coins: int = 8):
     """Coins and start at 1500 / 1700 (or coins_at / +200), then the pedal held and the trigger pulsed while the aim sweeps
     (held on the mode screen's top panel until aim_until); again_at: coins once more (a cabinet that restarted); idle 'a-b': no
-    trigger, pedal or aim from frame a to b (a player who lets SELECT GAME MODE run out); aim_again 'a-b': the aim held on the
+    trigger, pedal or aim from frame a to b (a player who lets SELECT GAME MODE run out); exposed: from that frame on, out of cover
+    and never firing, so the player loses every life and lets the continue run out; out_of: frames-in-40 out of cover (fewer: a
+    careful player who outlives the other); aim_again 'a-b': the aim held on the
     mode screen's top panel again from a to b (a cabinet that restarted and comes back to SOLO/LINKED); coins False: the start,
     trigger and aim at the same times, but no coins (a player who leaves it to "Join with a credit")."""
     events = [(0, '0000', 457, 161)]
     for at in (coins_at, again_at):
         if not at or not coins:
             continue
-        for i in range(8):
+        for i in range(n_coins):
             events += [(at + 12 * i, '0001', 457, 161), (at + 12 * i + 6, '0000', 457, 161)]
-    events += [(coins_at + 200, '0010', 457, 161), (coins_at + 206, '0000', 457, 161)]
-    f, k = coins_at + 400, 0
+    start = coins_at + max(200, 12 * n_coins + 20)
+    events += [(start, '0010', 457, 161), (start + 6, '0000', 457, 161)]
+    f, k = start + 200, 0
     again = tuple(int(v) for v in aim_again.split('-')) if aim_again else (0, 0)
     while f < frames:
         held = f < aim_until or again[0] <= f < again[1]
         x, y = (457, 161) if held else (int(457 + 250 * math.sin(k * .37)), int(161 + 80 * math.sin(k * .23)))
         # release the pedal now and then to reload
-        pedal = '0020' if (k % 40) < 34 else '0000'
+        pedal = '0020' if (k % 40) < out_of else '0000'
         fire = '0030' if pedal == '0020' else '0000'
         events += [(f, fire, x, y), (f + 4, pedal, x, y)]
         f += 8
@@ -60,6 +63,8 @@ def recording(path: Path, frames: int, aim_until: int = 0, coins_at: int = 1500,
         events = [e for e in events if not (a <= e[0] < b + 300 and e[1] not in ('0001', '0000'))]
         # then the trigger alone: one pull to come back, one to choose (a pedal held as the game starts opens GUN INITIALIZATION)
         events += [(b, '0010', 457, 161), (b + 6, '0000', 457, 161), (b + 150, '0010', 457, 161), (b + 156, '0000', 457, 161)]
+    if exposed:
+        events = [e for e in events if e[0] < exposed] + [(exposed, '0020', 457, 161)]
     events.sort(key=lambda e: e[0])                       # the replay reads in order
     lines = ['# TC2 session: F frame inputs gunx guny off'] + [f'F {f} {i} {x} {y} 0' for f, i, x, y in events]
     path.write_text('\n'.join(lines) + '\n')
@@ -181,9 +186,23 @@ SCENARIOS = {
     # credit goes in for B, and B takes LINK PLAY with it
     'credit': (8400, '600:hostroom', '3600:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'TCVR_RAMWATCH': '2CE92B,2F3930,2F3502,2CE7B7',
                'B_COINS_AT': 4800, 'B_AIM_UNTIL': 7400, 'B_NO_COINS': '1', 'B_CFG': 'join_credit=1'}, 'dropin'),
+    # P1's game ends (A loses every life and lets the continue run out) while P2's goes on, and the lobby server's session limit
+    # (1 minute here) comes round meanwhile: as in the arcade, P2 plays on
+    'p1over': (22200, '600:hostroom', '700:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'TCVR_RAMWATCH': '2CE92B,2F3930,2F3502,2F3FD3',
+               'AIM_UNTIL': 2600, 'B_COINS_AT': 3000, 'B_AIM_UNTIL': 5000, 'B_IDLE': '3700-30000', 'A_COINS_N': 4,
+               'SERVER_ARGS': '--max-session-min 1'}, 'p1over'),
+    # P1 stops (one credit, its game over) and P2 plays on: P2 hides until 14000, then fights, dies and continues with its own
+    # coins, as at the arcade (before, P2's trigger and coins were held while P1 was not in a game, so P2 could not continue)
+    'p2continue': (26400, '600:hostroom', '700:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'TCVR_RAMWATCH': '2CE92B,2F3930,2F3502,2F3FD3,2CE7B7',
+                   'AIM_UNTIL': 2600, 'B_COINS_AT': 3000, 'B_AIM_UNTIL': 5000, 'B_IDLE': '3900-14000', 'A_COINS_N': 4, 'B_COINS_N': 24},
+                   'p2continue'),
+    # the lobby server's session limit (15 minutes on the public server) ends the session under a linked game: here 1 minute, with
+    # both cabinets in LINK PLAY (the p2join game). The game must go on for both, as if nothing happened
+    'sessionlimit': (7800, '600:hostroom', '700:joincode=KXQ7', {'TC2_NET_ROOM_CODE': 'KXQ7', 'TCVR_RAMWATCH': '2CE92B,2F3930,2F3502,2F3FD3',
+                     'AIM_UNTIL': 2600, 'B_COINS_AT': 3000, 'B_AIM_UNTIL': 5000, 'SERVER_ARGS': '--max-session-min 1'}, 'sessionlimit'),
 }
 ROOM_SCENARIOS = {'room', 'browse', 'mute', 'voicenet', 'duplex', 'roomleave', 'modescreen', 'p2join', 'dropin', 'menutimeout', 'menulinked',
-                  'p1return', 'p2return', 'newcomer', 'persist', 'ptt', 'echo', 'credit'}
+                  'p1return', 'p2return', 'newcomer', 'persist', 'ptt', 'echo', 'credit', 'sessionlimit', 'p1over', 'p2continue'}
 
 
 # Lanes, so the scenarios run side by side: lane 0 is the cabinet folders A / B and lobby port 27751 (the LAN scenarios all run
@@ -241,12 +260,14 @@ def run(name: str, keep: bool, lane: int = 0):
     for side in 'AB':
         cabinet(cab[side], server)
     recording(rec, frames, int(extra.pop('AIM_UNTIL', 0)), again_at=int(extra.pop('A_COINS_AGAIN', 0)), idle=extra.pop('A_IDLE', ''),
-              aim_again=extra.pop('A_AIM_AGAIN', ''))
+              aim_again=extra.pop('A_AIM_AGAIN', ''), exposed=int(extra.pop('A_EXPOSED', 0)), coins=not extra.pop('A_NO_COINS', ''),
+              n_coins=int(extra.pop('A_COINS_N', 8)))
     recs = {'A': rec, 'B': rec}
     if 'B_COINS_AT' in extra:                                # B's own inputs: it puts coins in later
         recs['B'] = base / 'inputs_b.rec'
         recording(recs['B'], frames, int(extra.pop('B_AIM_UNTIL', 0)), int(extra.pop('B_COINS_AT')),
-                  again_at=int(extra.pop('B_COINS_AGAIN', 0)), aim_again=extra.pop('B_AIM_AGAIN', ''), coins=not extra.pop('B_NO_COINS', ''))
+                  again_at=int(extra.pop('B_COINS_AGAIN', 0)), aim_again=extra.pop('B_AIM_AGAIN', ''), coins=not extra.pop('B_NO_COINS', ''),
+                  out_of=int(extra.pop('B_OUT_OF', 34)), n_coins=int(extra.pop('B_COINS_N', 8)), idle=extra.pop('B_IDLE', ''))
     if 'A_REJOIN' in extra:                                  # A remembers a room in online.cfg, as after an app restart
         with open(cab['A'] / 'online.cfg', 'a') as f:
             f.write(extra.pop('A_REJOIN').replace('{now}', str(int(time.time()))) + '\n')
@@ -254,6 +275,7 @@ def run(name: str, keep: bool, lane: int = 0):
         if f'{side}_CFG' in extra:
             with open(cab[side] / 'online.cfg', 'a') as f:
                 f.write(extra.pop(f'{side}_CFG') + '\n')
+    server_args = extra.pop('SERVER_ARGS', '').split()
     side_env = {side: dict(kv.split('=', 1) for kv in extra.pop(f'{side}_ENV').split(';')) if f'{side}_ENV' in extra else {} for side in 'AB'}
     seconds = frames // 60 + 30
     microphone(cab['A'] / 'mic.wav', seconds, 'near')
@@ -262,7 +284,7 @@ def run(name: str, keep: bool, lane: int = 0):
     if name in ROOM_SCENARIOS:
         if not SERVER_EXE.exists():
             sys.exit("Build upstream's current lobby server first (see docs/ONLINE.md, Testing)")
-        lobby = subprocess.Popen([str(SERVER_EXE), '--port', str(port), '--bind', '127.0.0.1', '--max-per-ip', '16', '--quiet'],
+        lobby = subprocess.Popen([str(SERVER_EXE), '--port', str(port), '--bind', '127.0.0.1', '--max-per-ip', '16', '--quiet', *server_args],
                                  stdout=open(base / 'server.log', 'w'), stderr=subprocess.STDOUT)
         time.sleep(0.5)
     procs = []
@@ -416,6 +438,27 @@ def run(name: str, keep: bool, lane: int = 0):
             failures.append(f'{after[-1] - after[0]} voice frames arrived after A let go of the talk key')
         if 'credit to join with' in logs['B']:
             failures.append('B got a credit with "Join with a credit" off')
+    if check == 'p1over':
+        # A's game over (0x2F3FD3 1 -> 0) while B's runs, then a session end: the stand-in stays out and B plays on
+        over = {side: [int(f) for f in re.findall(r'\[RAM\] frame (\d+) 2F3FD3: 1 -> 0', logs[side])] for side in 'AB'}
+        ends = [int(f) for f in re.findall(r'frame (\d+): session in slot \d: keeping', logs['A'])]
+        a_over, b_over = (over['A'] or [None])[0], (over['B'] or [frames])[0]
+        if a_over is None or not any(a_over < e < b_over for e in ends):
+            failures.append(f'the case did not come up: A over at {a_over}, B over at {b_over}, sessions ended at {ends}')
+        if logs['A'].count('drop-in open') > 1:
+            failures.append('A: the stand-in took the place of a partner still in the room')
+        if 'restarts' in logs['B'] or len(re.findall(r'2F3FD3: \d+ -> 2', logs['B'])) != 1:
+            failures.append('B: its game did not run on to its own end')
+    if check == 'p2continue':
+        # A's game over, then B's credits going down (a continue: 0x2CE7B7, coins held) while its game runs on
+        a_over = [int(f) for f in re.findall(r'\[RAM\] frame (\d+) 2F3FD3: 1 -> 0', logs['A'])]
+        b_over = [int(f) for f in re.findall(r'\[RAM\] frame (\d+) 2F3FD3: 1 -> 0', logs['B'])]
+        spent = [(int(f), int(a), int(b)) for f, a, b in re.findall(r'\[RAM\] frame (\d+) 2CE7B7: (\d+) -> (\d+)', logs['B'])]
+        cont = [f for f, a, b in spent if b < a and a_over and f > a_over[0] and (not b_over or f < b_over[0])]
+        if not a_over:
+            failures.append('the case did not come up: A never finished its game')
+        elif not cont:
+            failures.append(f'B did not continue after A stopped (A over at {a_over[0]}, B over at {b_over[:1]}, B credits {spent[-6:]})')
     if name == 'credit':
         got = re.search(r'frame (\d+): a credit to join with: (\d+) coins in', logs['B'])
         if not got:
