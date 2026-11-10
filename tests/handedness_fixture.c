@@ -109,6 +109,10 @@ const Uint8 *SDL_GetKeyboardState(int *n){static Uint8 keys[512];if(n)*n=512;ret
 /* Online play is exercised by tests/test_online.py and the menu by tests/test_menu.py; the input path only needs inert hooks. */
 static unsigned restarts,leaves;
 bool tc2_online_session(void){return false;}
+static bool startup_skip_setting;
+void tc2_online_set_startup_skip(bool on){startup_skip_setting=on;}
+int tc2_online_startup_left(void){return 0;}
+void tc2_online_startup_skipping(void){}
 void tc2_online_toggle_mute(void){}
 bool tc2_online_push_to_talk(void){return false;}
 void tc2_online_talk_key(bool held){(void)held;}
@@ -335,6 +339,11 @@ int main(void){
     set_world_scale(400);tick();assert(fabsf(gun_position.x-base.x-delta.x)<1e-6f);
     menu_set(QOPT_GUN_Y,0);menu_set(QOPT_GUN_Z,0);assert(options.gun_offset_y_mm==0&&options.gun_offset_z_mm==0);
     menu_set(QOPT_PLAYER,0);assert(options.player_side==1);
+    assert(!options.skip_startup&&!menu_get(QOPT_SKIP_STARTUP));   /* off by default */
+    menu_set(QOPT_SKIP_STARTUP,1);assert(options.skip_startup&&startup_skip_setting&&menu_get(QOPT_SKIP_STARTUP)==1);
+    qoptions_load(options_path,&saved);assert(saved.skip_startup);
+    menu_set(QOPT_SKIP_STARTUP,0);assert(!options.skip_startup&&!startup_skip_setting);
+    qoptions_load(options_path,&saved);assert(!saved.skip_startup);
     /* P1 = Left/Red: Link ID off; P2 = Right/Blue: on (the I/O board pulls bit 2 low). Nothing else selects it. */
     assert(qtc2_link_id_of(1)==0&&qtc2_link_id_of(2)==1&&qtc2_link_id_of(0)==0&&qtc2_link_id_of(3)==0);
     /* Route selection is bounded, big-endian, and never changes default P1.

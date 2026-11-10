@@ -51,6 +51,7 @@ static const RowDef PLAYER_ROWS[]={
     {QOPT_COVER,"Take cover","","GRIP: hold either grip to leave cover. DUCK: crouch for real to hide; RECENTER standing up to calibrate.",T_SEG,{"GRIP","DUCK"},2,0,1,1,0,"",false},
     {QOPT_WORLD,"World size","100% is life size","How big the arcade world feels around you.",T_SLIDER,{0},0,QOPTIONS_WORLD_SCALE_MIN,QOPTIONS_WORLD_SCALE_MAX,QOPTIONS_WORLD_SCALE_STEP,QOPTIONS_WORLD_SCALE_DEFAULT,"%",false},
     {QOPT_DISTANCE,"View distance","Pushes the view further away","Start at 0 cm and add distance if things feel too close.",T_SLIDER,{0},0,QOPTIONS_VIEW_DISTANCE_MIN,QOPTIONS_VIEW_DISTANCE_MAX,QOPTIONS_VIEW_DISTANCE_STEP,QOPTIONS_VIEW_DISTANCE_DEFAULT," cm",false},
+    {QOPT_SKIP_STARTUP,"Skip start-up","Shoot through the memory test and logos","ON: a shot during the arcade's start-up (memory test, countdown, logos) runs through it, silent. Not while linked online.",T_SEG,{"OFF","ON"},2,0,1,1,0,"",false},
 };
 static const RowDef GRAPHICS_ROWS[]={
     {QOPT_RESOLUTION,"Resolution","","Pixels per eye. Higher costs more GPU time. Default follows the headset. Applies after RESTART APP.",T_RES,{0},0,0,QRESOLUTION_COUNT-1,1,0,"",false},

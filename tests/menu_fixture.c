@@ -105,7 +105,7 @@ int main(void){
     tab_to(QMENU_TAB_GUN);save("gun");
     opt[QOPT_PITCH]=-12;opt[QOPT_GUN_Y]=-200;opt[QOPT_GUN_Z]=200;opt[QOPT_AIM]=1;save("gun-changed");
     tab_to(QMENU_TAB_PLAYER);save("player");
-    opt[QOPT_PLAYER]=1;opt[QOPT_COVER]=1;opt[QOPT_WORLD]=400;opt[QOPT_DISTANCE]=100;save("player-pending");
+    opt[QOPT_PLAYER]=1;opt[QOPT_COVER]=1;opt[QOPT_WORLD]=400;opt[QOPT_DISTANCE]=100;opt[QOPT_SKIP_STARTUP]=1;save("player-pending");
     tab_to(QMENU_TAB_GRAPHICS);save("graphics");
     opt[QOPT_RESOLUTION]=5;host.preset_unsupported=true;host.saved=false;save("graphics-problems");
     host.preset_unsupported=false;host.saved=true;opt[QOPT_PLAYER]=0;opt[QOPT_RESOLUTION]=0;

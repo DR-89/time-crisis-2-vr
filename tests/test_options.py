@@ -26,12 +26,12 @@ P=C.c_void_p;I=C.c_int;U=C.c_uint
 def bind(lib,name,result,*args):
     f=getattr(lib,name);f.restype=result;f.argtypes=args;return f
 class Options(C.Structure):
-    _fields_=[('laser_enabled',C.c_bool),('physical_crouch',C.c_bool),('left_handed',C.c_bool),('gun_pitch',C.c_int),('world_scale',C.c_int),('view_distance',C.c_int),('tracer_enabled',C.c_bool),('gun_offset_y_mm',C.c_int),('gun_offset_z_mm',C.c_int),('player_side',C.c_int),('texture_filtering',C.c_bool),('resolution',C.c_int)]
+    _fields_=[('laser_enabled',C.c_bool),('physical_crouch',C.c_bool),('left_handed',C.c_bool),('gun_pitch',C.c_int),('world_scale',C.c_int),('view_distance',C.c_int),('tracer_enabled',C.c_bool),('gun_offset_y_mm',C.c_int),('gun_offset_z_mm',C.c_int),('player_side',C.c_int),('texture_filtering',C.c_bool),('resolution',C.c_int),('game_volume',C.c_int),('skip_startup',C.c_bool)]
 class Cover(C.Structure):
     _fields_=[('upright_y',C.c_float),('calibrated',C.c_bool),('ducked',C.c_bool)]
 load=bind(lib,'qoptions_load',None,C.c_char_p,C.POINTER(Options));save=bind(lib,'qoptions_save',C.c_bool,C.c_char_p,C.POINTER(Options))
 def read_options(path,full=False):
-    result=Options();load(path,C.byref(result));return tuple(getattr(result,k) for k,_ in (Options._fields_[:-2] if full else Options._fields_[:6]))
+    result=Options();load(path,C.byref(result));return tuple(getattr(result,k) for k,_ in (Options._fields_[:10] if full else Options._fields_[:6]))
 with tempfile.TemporaryDirectory(prefix='tcvr-options-') as tmp:
     config=Path(tmp)/'quest-options.cfg';path=str(config).encode()
     def filtering():
@@ -92,6 +92,17 @@ with tempfile.TemporaryDirectory(prefix='tcvr-options-') as tmp:
             config.write_text(''.join(f'{k}={invalid if k==key else 1}\n' for k in keys))
             expected=[True]*3;expected[index]=index==0
             assert read_options(path)==(*expected,0,100,0)
+    def skip_startup():
+        result=Options();load(path,C.byref(result));return result.skip_startup
+    config.unlink();assert not skip_startup(),'Skipping the start-up is off by default'
+    for old in ('', 'laser_enabled=0\nworld_scale=125\n'):
+        config.write_text(old);assert not skip_startup(),'Old configs keep the start-up'
+    for invalid in ('2','-1','1junk','nan',''):
+        config.write_text('skip_startup='+invalid+'\n');assert not skip_startup(),invalid
+    for on in (True,False,True):
+        config.write_text('skip_startup='+str(int(on))+'  \nworld_scale=150\n')
+        options=Options();load(path,C.byref(options));assert options.skip_startup==on and options.world_scale==150
+        assert save(path,C.byref(options));assert skip_startup()==on
     assert not save(str(Path(tmp)/'missing/options.cfg').encode(),C.byref(Options(True,True))),'Write failure must be reported'
 calibrate=bind(lib,'qcover_calibrate',None,C.POINTER(Cover),C.c_float)
 pedal=bind(lib,'qcover_pedal',C.c_bool,C.POINTER(Cover),C.c_float,C.c_bool)

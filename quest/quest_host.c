@@ -231,8 +231,9 @@ static void reset_menu_input(void){
 /* Opens (on a tab, or -1: the last one) or closes the menu. */
 /* The game's sound: silent while the menu holds an offline game or the headset app is in the background, else the player's
  * volume (AUDIO tab). Voice chat is mixed in after it and keeps its own volume. */
+static bool skipping;
 static void apply_game_volume(void){
-    bool silent=paused&&!tc2_online_session();
+    bool silent=skipping||(paused&&!tc2_online_session());
 #ifdef TCVR_PC
     if(!desktop)
 #endif
@@ -244,6 +245,33 @@ static void set_paused(bool p,int tab){
     if(p&&!paused)menu_placed=false;
     paused=p;reset_fire_input();reset_menu_input();game_deadline=0;
     apply_game_volume();ss22_input_neutral();
+}
+/* SKIPPING THE START-UP (PLAYER tab, off by default): a shot during the arcade's own start-up (tc2_online_startup_left: after power-on the memory test, the link
+ * countdown, the parental advisory and the logo; after a TEST restart the last two) runs the arcade as fast as the device allows to
+ * its end, silent. The arcade runs the same frames with the same inputs, only sooner. The menu or the app losing focus stops it. */
+static bool skip_test;                    /* the test script's "skip": the shot, without a hand on the trigger */
+static int skip_left;static Uint64 skip_started,skip_until;
+static void skip_cpu(bool boost){        /* the runtime's BOOST level is meant for short loads like this one */
+    if(set_performance&&session!=XR_NULL_HANDLE)XR(set_performance(session,XR_PERF_SETTINGS_DOMAIN_CPU_EXT,boost?XR_PERF_SETTINGS_LEVEL_BOOST_EXT:XR_PERF_SETTINGS_LEVEL_SUSTAINED_HIGH_EXT));
+}
+static bool skip_update(void){            /* every host loop iteration: starts or ends the skip; true while it runs */
+    const int left=tc2_online_startup_left();
+    bool held=paused||!focused;
+#ifdef TCVR_PC
+    if(desktop)held=paused;               /* the desktop window runs on without focus */
+#endif
+    if(!skipping&&left>0&&!held&&(trigger>.55f||skip_test)){
+        skipping=true;skip_left=left;skip_started=SDL_GetPerformanceCounter();skip_until=0;apply_game_volume();tc2_online_startup_skipping();skip_cpu(true);
+        fprintf(stderr,"[BOOT] skipping the start-up: %d frames\n",left);
+    }
+    else if(skipping&&(left<=0||held)){
+        skipping=false;apply_game_volume();skip_cpu(false);
+        const double ms=(SDL_GetPerformanceCounter()-skip_started)*1000.0/SDL_GetPerformanceFrequency();
+        fprintf(stderr,"[BOOT] start-up %s: %d frames in %.0f ms (%.1fx)\n",left<=0?"skipped":"skip stopped",skip_left-(left>0?left:0),ms,
+                ms>0?(skip_left-(left>0?left:0))*1000.0/59.906/ms:0);
+    }
+    skip_test=false;
+    return skipping;
 }
 /* The game side opens or closes the ONLINE tab (tc2_online.c): a shot at the arcade's crossed-out SOLO/LINKED opens it, the
  * partner linking closes it again. */
@@ -344,6 +372,12 @@ static void set_game_volume(int value){
     options_saved=qoptions_save(options_path,&options);
     fprintf(stderr,"[OPTIONS] game volume %d%%; saved %d\n",value,options_saved);
 }
+static void set_skip_startup(bool on){
+    if(on==options.skip_startup)return;
+    options.skip_startup=on;tc2_online_set_startup_skip(on);
+    options_saved=qoptions_save(options_path,&options);
+    fprintf(stderr,"[OPTIONS] skip start-up %s; saved %d\n",on?"on":"off",options_saved);
+}
 static int menu_get(int o){
     switch(o){
     case QOPT_HAND:return options.left_handed?0:1;
@@ -358,6 +392,7 @@ static int menu_get(int o){
     case QOPT_RESOLUTION:return options.resolution;
     case QOPT_FILTER:return options.texture_filtering?0:1;
     case QOPT_GAME_VOLUME:return options.game_volume;
+    case QOPT_SKIP_STARTUP:return options.skip_startup;
     case QOPT_VOICE_VOLUME:{tc2_online_view view;tc2_online_get_view(&view);return view.volume;}
     }
     return 0;
@@ -376,6 +411,7 @@ static void menu_set(int o,int v){
     case QOPT_RESOLUTION:set_resolution(v);break;
     case QOPT_FILTER:if((v==0)!=options.texture_filtering)toggle_texture_filter();break;
     case QOPT_GAME_VOLUME:set_game_volume(v);break;
+    case QOPT_SKIP_STARTUP:set_skip_startup(v!=0);break;
     case QOPT_VOICE_VOLUME:tc2_online_set_volume(v);break;
     }
 }
@@ -396,6 +432,7 @@ void qhost_test(const char *action,const char *arg){
     else if(!strcmp(action,"resume"))menu_action(QACT_RESUME);
     else if(!strcmp(action,"restartgame"))menu_action(QACT_RESTART_GAME);
     else if(!strcmp(action,"restartapp"))menu_action(QACT_RESTART_APP);
+    else if(!strcmp(action,"skip"))skip_test=true;
     else fprintf(stderr,"[TEST] unknown action %s\n",action);
 }
 static void menu_host_refresh(void){
@@ -662,7 +699,7 @@ bool tc2_vr_open(void){
     qoptions_load(options_path,&options);tc2_gl_set_filter(options.texture_filtering);
     boot_player_side=options.player_side;boot_resolution=options.resolution;qvr_world_scale=options.world_scale/100.f;active_weapon_hand=options.left_handed?LEFT_HAND:RIGHT_HAND;
     qvr_view_distance=options.view_distance/100.f;
-    tc2_online_init();
+    tc2_online_init();tc2_online_set_startup_skip(options.skip_startup);
     fprintf(stderr,"[VR SCALE] %.6f reconstructed units/metre; world size %d%%; view distance %d cm\n",qvr_units_per_meter,options.world_scale,options.view_distance);
     fprintf(stderr,"[OPTIONS] laser %s; cover %s; default hand %s; trigger handoff enabled (left menu: options)\n",options.laser_enabled?"ON":"OFF",options.physical_crouch?"PHYSICAL":"GRIP",options.left_handed?"LEFT":"RIGHT");
     fprintf(stderr,"[OPTIONS] gun angle %+d deg\n",options.gun_pitch);
@@ -888,7 +925,8 @@ static bool desktop_frame(void){
             if(capture_every){char name[32];snprintf(name,sizeof name,"cap-%06u.ppm",frame_number);remove(name);rename("eye-0.ppm",name);}}
         GLenum error=glGetError();if(error)fprintf(stderr,"[GL] desktop error 0x%x\n",error);
         SDL_GL_SwapWindow(window);
-        if(!fast){Uint64 now=SDL_GetPerformanceCounter(),freq=SDL_GetPerformanceFrequency();if(!deadline||now>deadline+freq/4)deadline=now;deadline+=freq*1000/59906;while((now=SDL_GetPerformanceCounter())<deadline)SDL_Delay(1);}
+        const bool skip=skip_update();   /* skipping the start-up: no pacing */
+        if(!fast&&!skip){Uint64 now=SDL_GetPerformanceCounter(),freq=SDL_GetPerformanceFrequency();if(!deadline||now>deadline+freq/4)deadline=now;deadline+=freq*1000/59906;while((now=SDL_GetPerformanceCounter())<deadline)SDL_Delay(1);}
         if((!paused||tc2_online_session())&&tc2_online_may_advance()){ss22_input_update();return true;}   /* stall-and-wait: render on, hold the arcade */
     }
 }
@@ -912,6 +950,8 @@ bool ss22_host_frame(void){
             }
             wall_deadline=0;SDL_Delay(10);continue;
         }
+        /* skipping the start-up: more arcade frames between headset frames, for most of a display period after each one */
+        if(skip_update()&&!sim_held(last_tracking)&&SDL_GetPerformanceCounter()<skip_until){ss22_input_update();return true;}
         if(game_deadline&&!sim_held(last_tracking)&&last_display_time>=game_deadline){
             if(tc2_online_may_advance()&&qclock_take(&game_deadline,last_display_time)){ss22_input_update();return true;}
         }
@@ -1013,6 +1053,7 @@ bool ss22_host_frame(void){
         if(draw_frame&&focused&&!paused){for(int j=0;j<6;j++)profile_parts[j]+=parts[j];profile_thread+=cpu_ms()-cpu_start;}
         else{memset(profile_parts,0,sizeof profile_parts);profile_thread=0;}
         frame_profile(render_start,frame.predictedDisplayPeriod,draw_frame&&focused&&!paused);
+        if(skipping)skip_until=SDL_GetPerformanceCounter()+(Uint64)(SDL_GetPerformanceFrequency()*(frame.predictedDisplayPeriod*.75e-9));
         if(sim_held(tracking)){ss22_input_neutral();game_deadline=0;continue;}
         if(tc2_online_may_advance()&&qclock_take(&game_deadline,frame.predictedDisplayTime)){ss22_input_update();return true;}
     }

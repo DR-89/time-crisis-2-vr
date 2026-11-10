@@ -89,6 +89,7 @@ New in **v0.3.3**: saved per-eye resolution presets, default-on texture filterin
 - Native arcade MIPS and H8 code translated to C, with the original textured world rendered from tracked stereo viewpoints.
 - Standalone Quest and Windows PCVR builds, plus a normal desktop mode.
 - Shoot with either hand: pressing a trigger moves the weapon to that controller.
+- **Skip start-up** (PLAYER tab, off by default): shoot during the arcade's start-up (memory test, link countdown, parental advisory, logo) to run through it, silent. The arcade runs the same frames, only faster: about 5x on a PC, 2x on Quest 3, whose CPU emulates the memory test only at about its normal speed. Not while linked online.
 - Grip-based cover or physical ducking, with upright-height calibration.
 - Adjustable gun pitch from **-60 to +60 degrees**, plus saved **WORLD SIZE (25â€“400%)** and **VIEW DISTANCE (0â€“100 cm)**.
 - Aim assistance cycles through **LASER / OFF / TRACER**. Tracer Squeeze flashes
@@ -133,7 +134,7 @@ The line above the buttons explains whatever you point at. A setting off its def
 | Tab | Settings |
 | --- | --- |
 | GUN | Gun hand (the default), aim guide (laser / tracer / off), gun angle, gun height, gun depth |
-| PLAYER | Player (P1 Keith / P2 Robert, after RESTART APP), take cover (grip / duck), world size, view distance |
+| PLAYER | Player (P1 Keith / P2 Robert, after RESTART APP), take cover (grip / duck), world size, view distance, skip start-up (off by default) |
 | GRAPHICS | Render resolution (after RESTART APP), texture filtering |
 | AUDIO | Game volume (the arcade's sound; voice chat keeps its own), voice chat volume (also on ONLINE) |
 | ONLINE | Host, join with a code, browse, quick match, local network, rejoin; your name, join with a credit, voice chat (open mic / push to talk / off); while linked, the session |

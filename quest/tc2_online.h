@@ -55,6 +55,9 @@ void tc2_online_leave(void);                           /* also cancels joining a
 void tc2_online_rejoin(void);
 void tc2_online_restart_game(void);                    /* the arcade's TEST restart, coins paid back; leaves first when online */
 void tc2_online_menu_shown(bool online_tab);           /* the menu is open on the ONLINE tab: keep REJOIN honest */
+void tc2_online_set_startup_skip(bool on);            /* the player's setting: a shot may skip the start-up, and a hint says so */
+int  tc2_online_startup_left(void);                    /* frames of the arcade's own start-up still to run that may be skipped, 0 = none */
+void tc2_online_startup_skipping(void);                /* the host skips it: its hint goes */
 
 /* A short message over the game (a partner joined / left, the link is struggling); false = nothing to show. */
 bool tc2_online_toast(char *text,size_t n,unsigned *serial);

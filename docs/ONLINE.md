@@ -285,7 +285,7 @@ Every scenario runs two whole cabinets in real time (the link, the reconnection 
 Test switches, read by `quest/tc2_online.c` and `quest/tc2_voice.c`:
 
 - `TC2_NET_SCRIPT="600:hostroom;2400:mute"`: actions run at those arcade frames, or `t<ms>:` milliseconds after start.
-  - Actions: `host`, `join=<addr>`, `discover`, `quick`, `hostroom`, `joincode=<code>`, `browse`, `pickroom`, `rejoin`, `restart` (RESTART GAME, leaving first when online), `mute`, `talk=1|0` (push to talk's key), `voice=0|1`, `leave`, `freeze=<ms>`, and the menu's `menu=<tab>`, `resume`, `restartgame`, `restartapp`.
+  - Actions: `host`, `join=<addr>`, `discover`, `quick`, `hostroom`, `joincode=<code>`, `browse`, `pickroom`, `rejoin`, `restart` (RESTART GAME, leaving first when online), `mute`, `talk=1|0` (push to talk's key), `voice=0|1`, `leave`, `freeze=<ms>`, and the menu's `menu=<tab>`, `resume`, `restartgame`, `restartapp`, and `skip` (a shot that skips the arcade's start-up).
   - On a headset, `online-test.txt` beside the settings (written with `adb run-as` on this debuggable build) holds `script=...`, `status=1` and `voice_out=<file>`.
 - `TC2_NET_STATUS=1`: a status line every 300 frames.
 - `TC2_NET_ROOM_CODE=KXQ7`: a fixed code for hosted rooms.

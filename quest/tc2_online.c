@@ -58,6 +58,13 @@ static void rejoin_tick(void);
 #define COINS_AFTER_RESTART 40             /* coins 30 frames after a TEST restart counted (measured 2026-11-08) */
 #define MENU_TIMEOUT_LEAD 30               /* frames before SELECT GAME MODE would choose by itself that the restart begins */
 #define LINK_INIT_FRAMES 880               /* the game shakes hands on its link ~920 frames after power-on (measured) */
+/* The arcade's own start-up (measured 2026-11-10): after power-on the memory test (to ~650), the link countdown (~660-930), the
+ * parental advisory and the logo, black from ~1380 and the attract at ~1440; after a TEST restart the test menu, the advisory and
+ * the logo, black from ~+460 and the attract at ~+490. A shot in it runs the arcade faster (quest_host.c, skip_update). */
+#define STARTUP_POWER_ON 1380
+#define STARTUP_TEST 460
+#define STARTUP_HINT "SHOOT TO SKIP THE START-UP"
+static void startup_hint_tick(void);
 static void session_end(void);
 static int  frame_out(uint8_t *buf);
 static void frame_in(int slot,const uint8_t *buf,uint32_t seq);
@@ -600,7 +607,7 @@ static bool holding;                       /* the agreed start (below) */
  * TC2_NET_SCRIPT="<frame>:<action>[=arg];..." (or t<ms>: milliseconds after start, for a headset nobody wears). Actions: host
  * (LAN), join=<addr>, discover, quick, hostroom, joincode=<code>, browse, pickroom, rejoin, restart, mute, voice=0|1, leave,
  * freeze=<ms> (the whole app stalls, as a backgrounded headset does), and the menu's (quest_host.c qhost_test): menu=<tab>,
- * resume, restartgame, restartapp. The menu path runs exactly as a player's selection would.
+ * resume, restartgame, restartapp, and skip (the shot that skips the start-up). The menu path runs exactly as a player's selection would.
  * On a headset there is no environment: online-test.txt beside the settings (adb run-as on this debuggable build) may hold
  * "script=<as TC2_NET_SCRIPT>" and "status=1". */
 static void test_file(int *status,const char **script){
@@ -647,7 +654,7 @@ static void test_switches_at(bool timed){
         else if(!strcmp(action,"voice")&&arg){cfg_voice=atoi(arg)!=0;apply_voice_cfg();}
         else if(!strcmp(action,"leave"))leave();
         else if(!strcmp(action,"freeze")&&arg)SDL_Delay((Uint32)atoi(arg));
-        else{extern void qhost_test(const char *action,const char *arg);qhost_test(action,arg);}   /* menu, resume, restartgame, restartapp */
+        else{extern void qhost_test(const char *action,const char *arg);qhost_test(action,arg);}   /* menu, resume, restartgame, restartapp, skip */
     }
     if(!timed&&test_status&&sim_frames%300==0){
         tc2_link_status s;tc2_link_get_status(&s);char net[96];eng_net_status(net,sizeof net);
@@ -818,6 +825,7 @@ void tc2_online_frame(void){
     browse_tick();
     health_tick();
     side_tick();
+    startup_hint_tick();
     last_poll_ms=SDL_GetTicks();
 }
 void tc2_online_service(void){
@@ -982,6 +990,22 @@ void tc2_online_restart_game(void){
     mode_restart=MODE_RESTART_FRAMES;init_frame=sim_frames;
     fprintf(stderr,"[ONLINE] frame %u: RESTART GAME from the menu (TEST), %d coins paid back after\n",sim_frames,repay);
     say(repay?"THE ARCADE RESTARTS - YOUR COINS ARE KEPT":"THE ARCADE RESTARTS",5000);
+}
+
+/* The arcade's own start-up, which a shot may skip (quest_host.c) when the player turned it on: not while linked (both arcades run in lockstep), and not once
+ * coins are in or a game runs (the arcade is the player's then). Skipping only runs the same frames sooner. */
+static bool startup_skip;
+void tc2_online_set_startup_skip(bool on){startup_skip=on;}
+int tc2_online_startup_left(void){
+    extern uint8_t tc2_ram[];
+    if(!startup_skip||!inited||tc2_online_session()||tc2_ram[0x2CE7B7]||tc2_ram[0x2F3FD3])return 0;
+    uint32_t end=STARTUP_POWER_ON;   /* TEST in the power-on test does not shorten it (measured) */
+    if(init_frame&&init_frame+STARTUP_TEST>end)end=init_frame+STARTUP_TEST;
+    return sim_frames<end?(int)(end-sim_frames):0;
+}
+void tc2_online_startup_skipping(void){if(!strcmp(toast,STARTUP_HINT))toast[0]=0;}
+static void startup_hint_tick(void){   /* after power-on, once the picture is up, unless another message shows */
+    if(sim_frames==60&&tc2_online_startup_left()>0&&!tc2_online_toast(NULL,0,NULL))say(STARTUP_HINT,6000);
 }
 
 bool tc2_online_toast(char *text,size_t n,unsigned *serial){

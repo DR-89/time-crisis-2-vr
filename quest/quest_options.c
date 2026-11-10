@@ -30,6 +30,7 @@ void qoptions_load(const char *path,QOptions *options){
         if(sscanf(line,"physical_crouch=%d %c",&value,&extra)==1&&(value==0||value==1))options->physical_crouch=value==1;
         if(sscanf(line,"left_handed=%d %c",&value,&extra)==1&&(value==0||value==1))options->left_handed=value==1;
         if(sscanf(line,"tracer_enabled=%d %c",&value,&extra)==1&&(value==0||value==1))options->tracer_enabled=value==1;
+        if(sscanf(line,"skip_startup=%d %c",&value,&extra)==1&&(value==0||value==1))options->skip_startup=value==1;
         const char *keys[]={"gun_offset_y_mm=","gun_offset_z_mm=","player_side="};
         int *values[]={&options->gun_offset_y_mm,&options->gun_offset_z_mm,&options->player_side};
         for(int i=0;i<3;i++){
@@ -74,7 +75,7 @@ void qoptions_load(const char *path,QOptions *options){
 }
 bool qoptions_save(const char *path,const QOptions *options){
     FILE *f=fopen(path,"w");if(!f)return false;
-    bool ok=fprintf(f,"resolution=%d\ntexture_filtering=%d\nlaser_enabled=%d\nphysical_crouch=%d\nleft_handed=%d\ngun_pitch=%d\nworld_scale=%d\nview_distance=%d\ntracer_enabled=%d\ngun_offset_y_mm=%d\ngun_offset_z_mm=%d\nplayer_side=%d\ngame_volume=%d\n",options->resolution,options->texture_filtering?1:0,options->laser_enabled?1:0,options->physical_crouch?1:0,options->left_handed?1:0,options->gun_pitch,options->world_scale,options->view_distance,options->tracer_enabled?1:0,options->gun_offset_y_mm,options->gun_offset_z_mm,options->player_side,options->game_volume)>0;
+    bool ok=fprintf(f,"resolution=%d\ntexture_filtering=%d\nlaser_enabled=%d\nphysical_crouch=%d\nleft_handed=%d\ngun_pitch=%d\nworld_scale=%d\nview_distance=%d\ntracer_enabled=%d\ngun_offset_y_mm=%d\ngun_offset_z_mm=%d\nplayer_side=%d\ngame_volume=%d\nskip_startup=%d\n",options->resolution,options->texture_filtering?1:0,options->laser_enabled?1:0,options->physical_crouch?1:0,options->left_handed?1:0,options->gun_pitch,options->world_scale,options->view_distance,options->tracer_enabled?1:0,options->gun_offset_y_mm,options->gun_offset_z_mm,options->player_side,options->game_volume,options->skip_startup?1:0)>0;
     if(fclose(f))ok=false;
     return ok;
 }
