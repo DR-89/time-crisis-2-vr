@@ -661,6 +661,7 @@ static void test_switches_at(bool timed){
     }
 }
 
+static uint32_t hold_start_ms,holds,held_ms,held_max_ms;   /* hitches (tc2_online_may_advance) */
 /* link health warnings over the game, and a line in the log: every 30 s while linked, and at once (at most every 2 s) when link
  * frames go missing or the game counts link errors -- so a game that goes wrong online (two cabinets disagreeing) leaves a trace */
 static void health_tick(void){
@@ -670,9 +671,11 @@ static void health_tick(void){
     {   static uint32_t last_ms,seen;extern uint8_t tc2_ram[];
         const uint32_t now=SDL_GetTicks(),trouble=s.rx_skipped+s.rx_bad+s.tx_bad+s.game_errors;
         if((trouble!=seen&&now-last_ms>=2000)||now-last_ms>=30000){
-            fprintf(stderr,"[LINKHEALTH] frame %u P%d lag %u state %u tx %u rx %u skipped %u dropped %u bad %u/%u game-errors %u ping %d partner-state %d self %d\n",
+            fprintf(stderr,"[LINKHEALTH] frame %u P%d lag %u state %u tx %u rx %u skipped %u dropped %u bad %u/%u game-errors %u ping %d partner-state %d self %d"
+                    " | holds %u held %u ms longest %u ms\n",
                     sim_frames,qtc2_cabinet_side,s.lag,s.state,s.tx,s.rx,s.rx_skipped,s.rx_dropped,s.tx_bad,s.rx_bad,s.game_errors,eng_net_ping_ms(),
-                    tc2_ram[0x2F3502],tc2_link_self_state());
+                    tc2_ram[0x2F3502],tc2_link_self_state(),holds,held_ms,held_max_ms);
+            holds=held_ms=held_max_ms=0;   /* the pauses since the last line */
             last_ms=now;seen=trouble;
         }
     }
@@ -771,11 +774,23 @@ int tc2_link_hold_start(void){return holding;}
 int tc2_link_coin_inject(void){return coin_pulse>0;}
 /* stall-and-wait, as upstream: neither cabinet runs more than a few frames ahead of the other. The VR host asks before each
  * arcade frame and keeps rendering the headset meanwhile (upstream blocks in eng_net_wait; a headset must not). */
+/* hitches: the arcade held waiting for the partner's frames (stall-and-wait), counted for [LINKHEALTH] */
+static void hold_end(void){
+    if(!hold_start_ms)return;
+    const uint32_t d=SDL_GetTicks()-hold_start_ms;hold_start_ms=0;
+    if(d>=20){holds++;held_ms+=d;if(d>held_max_ms)held_max_ms=d;}   /* a frame or more of waiting */
+}
 bool tc2_online_may_advance(void){
-    if(!inited||!eng_net_session_active())return true;
+    if(!inited||!eng_net_session_active()){hold_end();return true;}
     static int lead=-2;if(lead==-2){const char *e=getenv("TC2_NET_LEAD");lead=e?atoi(e):-1;}
     if(lead>=1000)return true;
-    if(eng_net_may_advance(lead<0?eng_net_auto_lead():lead,1000))return true;
+    /* How far ahead of the partner's newest frame the arcade may run. Upstream's auto lead (2 frames + the round trip) holds the
+     * game at every Wi-Fi jitter spike over it: measured with 5% loss and 150 ms jitter (badnet), 26-28 pauses (about 2 s) in a
+     * minute and a half. 6 frames more, up to 12 in all, cut that to 1-9 pauses with the game's own link lag at most 7 frames, no
+     * link loss and no game errors (it declares the link lost near 17). A slow link whose auto lead is already over 12 keeps it. */
+    int ahead=lead;if(ahead<0){const int a=eng_net_auto_lead();ahead=a+6>12?(a>12?a:12):a+6;}
+    if(eng_net_may_advance(ahead,1000)){hold_end();return true;}
+    if(!hold_start_ms)hold_start_ms=SDL_GetTicks()|1;
     eng_net_poll_paused();
     return false;
 }

@@ -424,10 +424,11 @@ def run(name: str, keep: bool, lane: int = 0):
             if problem:
                 failures.append(f'voice to {side}: ' + problem)
     if check == 'ptt':
-        # B's status every 300 frames: nothing before A holds the key at 1500, voice while it is held, nothing new after 2400
-        # (but the 200 ms after it is let go, and what was on the way)
+        # B's status every 300 frames: nothing well before A holds the key at 1500 (B's frame 1200: A may run up to the link's lead
+        # ahead, more under load), voice while it is held, nothing new after 2400 (but the 200 ms after it is let go, and what was
+        # on the way)
         received = [(r[0], r[15]) for r in rows['B'] if r[13] == 'on']
-        before = [c for f, c in received if f <= 1500]
+        before = [c for f, c in received if f <= 1200]
         held = [c for f, c in received if f <= 2400]
         after = [c for f, c in received if f >= 2700]
         if before and before[-1] > 2:
