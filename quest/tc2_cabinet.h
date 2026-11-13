@@ -17,6 +17,9 @@ static inline bool qtc2_route_select(uint8_t *ram,size_t size,int side){
        route[0]||route[1]||route[2]||route[3]>1)return false;
     route[3]=1;return true;
 }
-static inline uint8_t qtc2_cabinet_switch(uint8_t active_low,int side){
-    return side==2?(uint8_t)(active_low&~4u):(uint8_t)(active_low|4u);
-}
+/* The I/O board's Link ID switch (upstream src/tc2_h8.c, bit 2 of 0x6001, active low): 1 = the right/blue cabinet. */
+static inline int qtc2_link_id_of(int side){return side==2;}
+int tc2_link_id(void);                    /* qtc2_link_id_of(qtc2_cabinet_side) */
+/* Online: the agreed start holds the right cabinet's coin / trigger / pedal and pays held coins in (tc2_online.c). */
+int tc2_link_hold_start(void);
+int tc2_link_coin_inject(void);

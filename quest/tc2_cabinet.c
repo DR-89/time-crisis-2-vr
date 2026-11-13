@@ -2,6 +2,7 @@
 #include "quest_options.h"
 #include <stdio.h>
 int qtc2_cabinet_side=1;
+int tc2_link_id(void){return qtc2_link_id_of(qtc2_cabinet_side);}
 void qtc2_cabinet_prepare_player(void){
     extern uint8_t tc2_ram[0x1000000];
     if(qtc2_route_select(tc2_ram,sizeof tc2_ram,qtc2_cabinet_side))

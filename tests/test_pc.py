@@ -8,7 +8,7 @@ import argparse, hashlib, json, os, re, shutil, subprocess, tempfile, zipfile
 
 ROOT=Path(__file__).resolve().parents[1]
 p=argparse.ArgumentParser()
-p.add_argument('--zip',type=Path,default=ROOT/'artifacts/pc/TimeCrisis2VR-v0.3.0-windows-x64.zip')
+p.add_argument('--zip',type=Path,default=max((ROOT/'artifacts/pc').glob('TimeCrisis2VR-v*-windows-x64.zip'),key=lambda z:z.stat().st_mtime,default=None),help='default: the newest built package')
 p.add_argument('--replay',type=Path)
 p.add_argument('--nvram',type=Path)
 p.add_argument('--side',type=int,choices=(1,2),default=1)

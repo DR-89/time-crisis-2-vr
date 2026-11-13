@@ -1,5 +1,14 @@
 package org.timecrisis2.arcadevr;
 import org.libsdl.app.SDLActivity;
+import android.Manifest;
+import android.content.Context;
+import android.content.pm.PackageManager;
+import android.media.AudioFormat;
+import android.media.AudioRecord;
+import android.media.MediaRecorder;
+import android.media.audiofx.AcousticEchoCanceler;
+import android.media.audiofx.NoiseSuppressor;
+import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import java.io.*;
 import java.security.MessageDigest;
@@ -15,7 +24,79 @@ public final class MainActivity extends SDLActivity {
             installAssets("models");
         }
         catch(Exception e) { throw new IllegalStateException("Game asset installation failed", e); }
+        // Online play: a Quest hosting a game must receive the LAN discovery broadcasts of the partner's
+        // "Find LAN games"; Android filters broadcast/multicast on Wi-Fi without this lock.
+        try {
+            WifiManager wifi=(WifiManager)getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if(wifi!=null){multicast=wifi.createMulticastLock("tc2vr-lan-discovery");multicast.setReferenceCounted(false);multicast.acquire();}
+        } catch(Exception e) { multicast=null; }
         super.onCreate(state);
+    }
+    private WifiManager.MulticastLock multicast;
+    // RESTART APP (the pause menu): called by quest_host.c just before this process exits; RestartActivity opens the game again.
+    public void relaunch() {
+        try {
+            startActivity(new android.content.Intent(this, RestartActivity.class)
+                .putExtra("pid", android.os.Process.myPid())
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (Exception e) { android.util.Log.w("TCVR", "restart: " + e); }
+    }
+    @Override protected void onDestroy() {
+        if(multicast!=null&&multicast.isHeld())multicast.release();
+        voiceStop();
+        super.onDestroy();
+    }
+
+    // ---- Online voice chat (quest/tc2_voice.c). The native side calls voiceStart/voiceStop on its own thread. ----
+    // VOICE_COMMUNICATION engages the platform's echo cancellation for the headset's speakers, which plain capture lacks.
+    private static native void nativeVoicePcm(short[] pcm,int samples);
+    private static native void nativeVoiceState(int state);   // 1 on with echo cancellation, 2 on without, -1 refused, -2 failed
+    private static final int VOICE_PERMISSION=7201;
+    private volatile boolean voiceWanted,voiceRunning;
+    private Thread voiceThread;
+    public void voiceStart() {
+        voiceWanted=true;
+        if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED) {
+            runOnUiThread(new Runnable(){public void run(){requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},VOICE_PERMISSION);}});
+            return;
+        }
+        startRecording();
+    }
+    public synchronized void voiceStop() {
+        voiceWanted=false;voiceRunning=false;
+        if(voiceThread!=null){try{voiceThread.join(500);}catch(InterruptedException e){}voiceThread=null;}
+    }
+    @Override public void onRequestPermissionsResult(int code,String[] permissions,int[] results) {
+        if(code==VOICE_PERMISSION) {
+            if(results.length>0&&results[0]==PackageManager.PERMISSION_GRANTED){if(voiceWanted)startRecording();}
+            else nativeVoiceState(-1);
+            return;
+        }
+        super.onRequestPermissionsResult(code,permissions,results);
+    }
+    private synchronized void startRecording() {
+        if(voiceThread!=null)return;
+        voiceRunning=true;
+        voiceThread=new Thread(new Runnable(){public void run(){record();}},"tc2-voice");
+        voiceThread.start();
+    }
+    private void record() {
+        int rate=48000,min=AudioRecord.getMinBufferSize(rate,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT);
+        AudioRecord rec;
+        try{rec=new AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION,rate,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,Math.max(min,rate/5*2));}
+        catch(Exception e){nativeVoiceState(-2);return;}
+        if(rec.getState()!=AudioRecord.STATE_INITIALIZED){rec.release();nativeVoiceState(-2);return;}
+        boolean echo=false;AcousticEchoCanceler aec=null;NoiseSuppressor ns=null;
+        try{
+            if(AcousticEchoCanceler.isAvailable()){aec=AcousticEchoCanceler.create(rec.getAudioSessionId());if(aec!=null){aec.setEnabled(true);echo=aec.getEnabled();}}
+            if(NoiseSuppressor.isAvailable()){ns=NoiseSuppressor.create(rec.getAudioSessionId());if(ns!=null)ns.setEnabled(true);}
+        }catch(Exception e){}
+        rec.startRecording();
+        nativeVoiceState(echo?1:2);
+        short[] buf=new short[960];
+        while(voiceRunning){int n=rec.read(buf,0,buf.length);if(n>0)nativeVoicePcm(buf,n);else if(n<0)break;}
+        try{rec.stop();}catch(Exception e){}
+        rec.release();if(aec!=null)aec.release();if(ns!=null)ns.release();
     }
     private void installAssets(String category) throws Exception {
         File dir=new File(getFilesDir(),category.equals("roms")?"extracted":category);

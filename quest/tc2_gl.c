@@ -144,7 +144,7 @@ static const char *fs_text =
     "  if (u_pass == 0) { frag = vec4(1.0, 0.0, 0.0, 0.0); return; }\n"       /* the priority target starts as 'text here' */
     "  if (u_pass == 2) { vec4 p = texelFetch(t_prio, ivec2(gl_FragCoord.xy), 0); if (!(p.r > 0.5 && p.g > 0.5 && p.a < 0.5)) discard; }\n"
     "  if (u_fade != 0) col = (col * u_ff + u_fcol * (256 - u_ff)) >> 8;\n"
-    "  bool ua = u_alpha != 255 && (int(pen & 15u) == u_amask || (int(pen) >= u_c12 && int(pen) <= u_c13));\n"
+    "  bool ua = u_alpha != 255 && (int(pen & 15u) == u_amask || (int(pen & 255u) >= u_c12 && int(pen & 255u) <= u_c13));\n"
     "  frag = vec4(vec3(col) / 255.0, ua ? float(u_alpha) / 256.0 : 1.0);\n"
     "}\n";
 

@@ -17,5 +17,6 @@ with tempfile.TemporaryDirectory(prefix='tcvr-handedness-') as temp:
                     '-DXR_USE_GRAPHICS_API_OPENGL','-include',str(ROOT/'upstream/tc2/include/win_compat.h'),
                     *['-I'+str(ROOT/p) for p in includes],
                     str(ROOT/'tests/handedness_fixture.c'),str(ROOT/'quest/quest_options.c'),
-                    str(ROOT/'quest/quest_cover.c'),'-o',str(exe)],check=True)
+                    str(ROOT/'quest/quest_cover.c'),
+                    str(ROOT/'quest/quest_menu.c'),str(ROOT/'quest/quest_canvas.c'),'-o',str(exe)],check=True)
     subprocess.run([str(exe)],cwd=temp,check=True,timeout=15)

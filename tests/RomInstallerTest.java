@@ -1,4 +1,4 @@
-import org.timecrisis.quest.RomInstaller;
+import org.timecrisis2.arcadevr.RomInstaller;
 import java.io.*;
 import java.nio.file.*;
 import java.security.*;

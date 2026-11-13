@@ -10,6 +10,26 @@ Built on the native System 23 reconstruction in **[spacestate1/namco22-decompile
 
 *Actual Quest 3 recording. The headset renders a separate tracked view for each eye.*
 
+## Online 2-player
+
+**New in 0.4.0:** play the arcade's real **twin-cabinet mode** online, with voice chat. Each player runs the full game as Keith (P1) or Robert (P2), and the System 23 C422 link chip between the two cabinets is emulated and carried over the network. Quest, PCVR and desktop all play together. It is wire-compatible with the desktop Time Crisis 2 online play of [namco22-decompile](https://github.com/spacestate1/namco22-decompile) (0.9.3+, tested with 0.10.1), so VR and desktop players share rooms.
+
+- **The menu's ONLINE tab** (left menu button):
+  - **HOST A ROOM** shows a four-character room code; your friend picks **JOIN WITH CODE** and types it on the on-screen keyboard.
+  - **BROWSE GAMES** lists the open rooms and local-network games, five to a page.
+  - **LOCAL NETWORK** hosts on your Wi-Fi or VPN and joins by IP; **QUICK MATCH** joins anyone.
+  - The two games link automatically. While linked, the tab shows your partner, the link and voice chat.
+  - **Left the game, restarted out of it or lost the connection?** **REJOIN** takes you back into that room, as the same cabinet, while it is still open, even after closing the app ([details](docs/ONLINE.md#coming-back-rejoin)).
+- **Drop in, drop out:** the host plays at once with the arcade's own **SOLO/LINKED** ("SOLO START, BUT PERMITS 2P JOIN-IN"), and a friend can join that game whenever they arrive. Until then a stand-in answers on the link as an idle second cabinet, so no second game runs. Either player can leave mid-game and the other plays on.
+- **Or straight from the arcade's own screen:** **SOLO/LINKED** is always open on SELECT GAME MODE. Put coins in and shoot it: the game starts at once and a room opens for it, with its code on screen. **SOLO ONLY** keeps the game to yourself. The menu never chooses for you: left alone, the arcade goes back to its intro with your coins kept, and the trigger brings the menu back.
+- **Voice chat:** Opus; open mic with a voice gate (mute on the left stick click) or push to talk (hold a thumbstick click, V on a PC); echo cancellation and noise suppression on every headset and PC; partner volume and level meters.
+- **Join with a credit:** a P2 who joins a game gets one credit to join with (once per session; continues take your own coins). A switch on the ONLINE tab.
+- **Free to run:** the community lobby server relays rooms, so there are no accounts, no port forwarding and nothing to host.
+- **While linked**, the game keeps running behind menus and with the headset off, and dropped partners reconnect by themselves.
+- **Offline**, a stand-in answers on the link as an idle second cabinet, so SOLO/LINKED is open; taking it opens a room. SOLO ONLY plays exactly as before.
+
+See **[docs/ONLINE.md](docs/ONLINE.md)** for setup, how it works and the test suite.
+
 ## Downloads and installation
 
 | Platform | Download | Start playing |
@@ -36,6 +56,7 @@ New in **v0.3.3**: saved per-eye resolution presets, default-on texture filterin
 - Native arcade MIPS and H8 code translated to C, with the original textured world rendered from tracked stereo viewpoints.
 - Standalone Quest and Windows PCVR builds, plus a normal desktop mode.
 - Shoot with either hand: pressing a trigger moves the weapon to that controller.
+- **Skip start-up** (PLAYER tab, off by default): shoot during the arcade's start-up (memory test, link countdown, parental advisory, logo) to run through it, silent. The arcade runs the same frames, only faster: about 5x on a PC, 2x on Quest 3, whose CPU emulates the memory test only at about its normal speed. Not while linked online.
 - Grip-based cover or physical ducking, with upright-height calibration.
 - Adjustable gun pitch from **-60 to +60 degrees**, plus saved **WORLD SIZE (25â€“400%)** and **VIEW DISTANCE (0â€“100 cm)**.
 - Aim assistance cycles through **LASER / OFF / TRACER**. Tracer Squeeze flashes
@@ -50,12 +71,6 @@ New in **v0.3.3**: saved per-eye resolution presets, default-on texture filterin
 
 ## Controls
 
-**Render resolution:** open options with the **left menu button**, then use **left stick up/down** to find **GRAPHICS**. Move the **right stick left/right** to choose **Default**, **1280 x 1344**, **1680 x 1760**, **2550 x 2640**, **2940 x 3080** or **3360 x 3520** pixels per eye, matching the NFSU VR ports. Click the **left stick** to restore Default. Each change saves automatically; **fully close and restart the app** to apply it. The panel shows the active size and a restart reminder. Default preserves the previous resolution (runtime recommendation capped at 1440 pixels on the longer side on Quest, 2160 on PCVR). Unsupported presets fall back to Default. Higher resolutions require more GPU time and memory; the highest setting is not a performance recommendation. Texture filtering stays enabled by default and still switches immediately.
-
-**Texture filtering:** open the VR options with the **left menu button**, then squeeze and release the **left grip** to switch **TEXTURE FILTERING: ON / OFF**. It defaults to **ON**, including when upgrading an older settings file, and saves automatically. Changes apply immediately; no restart is needed. This control uses the physical left controller in either handedness layout. During gameplay, grips still operate cover. Filtering smooths world textures; HUD and text retain their existing sampling.
-
-The default hand determines the face-button layout. Trigger handoffs do not change that saved layout.
-
 | Action | Default hand: right | Default hand: left |
 | --- | --- | --- |
 | Select weapon hand / shoot | Either trigger | Either trigger |
@@ -64,52 +79,64 @@ The default hand determines the face-button layout. Trigger handoffs do not chan
 | Insert credits | A, right controller | X, left controller |
 | Cycle LASER / OFF / TRACER | B, right controller | Y, left controller |
 | Recenter / calibrate upright height | X, left controller | A, right controller |
-| Open / close options | Left menu button | Left menu button |
-| Change default hand, in options | Right stick click | Right stick click |
-| Switch physical ducking / grip cover, in options | Y, left controller | B, right controller |
-| Adjust world size, in options | Right stick left / right | Right stick left / right |
-| Adjust gun angle, in options | Right stick up / down | Right stick up / down |
-| Reset gun angle, in options | Left stick click | Left stick click |
-| Switch options page | Left stick up / down | Left stick up / down |
-| Gun fit page: move gun up / down | Right stick up / down | Right stick up / down |
-| Gun fit page: move gun back / forward | Right stick right / left | Right stick right / left |
-| Gun fit page: reset both offsets | Left stick click | Left stick click |
-| Gun fit page: select P1 / P2 for next launch | Left stick left / right | Left stick left / right |
+| Mute the microphone, while linked (open mic) | Left stick click | Left stick click |
+| Talk, while linked (push to talk) | Hold either stick click | Hold either stick click |
+| Open / close the menu | Left menu button | Left menu button |
 
-**World size:** open the left menu and move the **right stick left/right** to
-adjust **WORLD SIZE** from **25% to 400%** in 5-point steps. Hold to repeat.
-Higher values make the world larger. The new **100%** starting value is calibrated
+The default hand determines the face-button layout. Trigger handoffs do not change that saved layout.
+
+### The menu
+
+The **left menu button** opens the menu. It appears in front of you and stays where it is while you look around it. Tabs across the top hold the settings; the buttons along the bottom are there on every tab:
+
+- **RESUME** goes back to the game (so does the menu button).
+- **RESTART GAME** restarts the arcade with its own TEST switch: about 10 seconds back to the intro, with your coins paid back in. While you are online it is **RESTART & LEAVE**, and REJOIN on the ONLINE tab brings you back.
+- **RECENTER** sets where the cabinet is (stand upright: it calibrates physical ducking too).
+- **RESTART APP** closes and reopens the app. Player and resolution changes need it; the button lights up when one is waiting.
+
+**Point and shoot:** the gun's laser points at the menu and the trigger presses. Hold the trigger on a slider to drag it, or on its arrows to repeat. Pulling the other hand's trigger moves the gun to that hand.
+**Or the sticks:** either stick moves the highlight and changes the highlighted setting; **A / X** selects, **B / Y** goes back, and the **grips** switch tabs (left: previous, right: next). The menu opens with **RESUME** highlighted, so menu then A resumes.
+The line above the buttons explains whatever you point at. A setting off its default shows a reset button.
+
+| Tab | Settings |
+| --- | --- |
+| GUN | Gun hand (the default), aim guide (laser / tracer / off), gun angle, gun height, gun depth |
+| PLAYER | Player (P1 Keith / P2 Robert, after RESTART APP), take cover (grip / duck), world size, view distance, skip start-up (off by default) |
+| GRAPHICS | Render resolution (after RESTART APP), texture filtering |
+| AUDIO | Game volume (the arcade's sound; voice chat keeps its own), voice chat volume (also on ONLINE) |
+| ONLINE | Host, join with a code, browse, quick match, local network, rejoin; your name, join with a credit, voice chat (open mic / push to talk / off); while linked, the session |
+
+**Render resolution:** on **GRAPHICS**, choose **Default**, **1280 x 1344**, **1680 x 1760**, **2550 x 2640**, **2940 x 3080** or **3360 x 3520** pixels per eye, matching the NFSU VR ports. It saves at once and applies after **RESTART APP**; the running size is underlined. Default preserves the previous resolution (runtime recommendation capped at 1440 pixels on the longer side on Quest, 2160 on PCVR). Unsupported presets fall back to Default, and the tab says so. Higher resolutions require more GPU time and memory; the highest setting is not a performance recommendation.
+
+**Texture filtering** defaults to **ON**, including when upgrading an older settings file, and switches at once. Filtering smooths world textures; HUD and text retain their existing sampling.
+
+**World size** goes from **25% to 400%** in 5-point steps. Higher values make the world larger. The **100%** starting value is calibrated
 against complete figures: Robert is about 1.70 m tall and two standing guards are
-about 1.89 m in the measured opening scene. This replaces the provisional 200%
-default. Existing saved percentages are retained; select 100% to try the new
-calibration. The setting is saved automatically. Windows also accepts Left/Right;
-End restores 100%.
+about 1.89 m in the measured opening scene. Existing saved percentages are retained; select 100% to try the calibration.
 
-**View distance:** move the **left stick left/right** in options to adjust
-**VIEW DISTANCE** from 0 to 100 cm in 5 cm steps (default **0 cm**). This adds
+**View distance** goes from 0 to 100 cm in 5 cm steps (default **0 cm**). This adds
 space between the camera and the world; it makes nearby cover appear smaller
-without changing figure height. Windows also accepts Page Up/Page Down.
-Head movement, controller/weapon size, HUD/menu size and physical ducking
+without changing figure height.
+Head movement, controller/weapon size, menu size and physical ducking
 distances stay in real metres. Target rays follow the rendered surfaces after
-either setting changes, including while paused. The calibration and settings
-need a Quest playtest to confirm the perceived size and comfort.
+either setting changes, including while paused.
 
-For physical ducking, select that cover mode, stand or sit upright and use the recenter button. Duck to hide/reload, then return upright to leave cover. If the gun points too high, reduce **GUN ANGLE** in options.
+For physical ducking, choose **DUCK** under **Take cover**, stand or sit upright and press **RECENTER**. Duck to hide/reload, then return upright to leave cover. If the gun points too high, lower **Gun angle**.
 
 **New in v0.3.3:** Tracer Squeeze, the Namco gun, grip-fit controls and experimental Robert-route selection accompany the calibrated world-size fix.
-On **GUN FIT / PLAYER**, positive **GUN UP** raises the gun and positive
-**GUN BACK** pulls it towards your hand, in 5 mm steps up to 200 mm each way.
+On the **GUN** tab, positive **Gun height** raises the gun and positive
+**Gun depth** pulls it towards your hand, in 5 mm steps up to 200 mm each way.
 The offsets follow the controller and affect both the visible model and muzzle;
 world size does not change them. Their zero point uses the new model's upper
 grip; fine alignment with your controller or shell needs a headset check.
-**PLAYER: P2 ROBERT BAXTER** selects the original Robert route on the next app
-launch. Completely close and reopen the app after changing it. This is standalone
+**Player: P2 ROBERT** (PLAYER tab) selects the original Robert route after
+**RESTART APP**. This is standalone
 play; the core still uses its local input/HUD slot and does not emulate a linked
 second cabinet. See [implementation and validation details](docs/FEEDBACK-TEST.md).
 
 The machine gun is equipped automatically during scripted sections, including Stage 1, Area 2. **Hold the trigger for automatic fire** while out of cover. There is no separate weapon-selection button. See [weapon details](docs/WEAPONS.md).
 
-Desktop controls: mouse to aim, left mouse to shoot, right mouse or Space for cover/pedal, **5** for credits, and **Escape** for options.
+Desktop controls: mouse to aim, left mouse to shoot, right mouse or Space for cover/pedal, **5** for credits, and **Escape** for the menu. Online, **M** mutes an open mic and **V** held talks with push to talk. In the menu the mouse points and clicks; the arrows move and change, **Enter** selects, **Backspace** goes back and **Tab** / **Shift+Tab** switch tabs.
 
 ## Tested status and limitations
 
@@ -152,7 +179,7 @@ If you enjoy this project and would like to support further development of my VR
 
 ## Credits and licensing
 
-- **[spacestate1/namco22-decompile](https://github.com/spacestate1/namco22-decompile):** the System 23 reconstruction and shared engine that make this port possible. This release pins its `tc2/` core at [`0837a397`](https://github.com/spacestate1/namco22-decompile/tree/0837a397ebe554dbf5341d95629aa1e29fc58a52/tc2).
+- **[spacestate1/namco22-decompile](https://github.com/spacestate1/namco22-decompile):** the System 23 reconstruction and shared engine that make this port possible. This release pins its `tc2/` core at [`8f2ed7f4`](https://github.com/spacestate1/namco22-decompile/tree/8f2ed7f4ed5c3fb5fecbbd29bbf6a6bf13876b2c/tc2) (0.10.1+).
 - **[DR-89/time-crisis-vr](https://github.com/DR-89/time-crisis-vr/tree/v0.8.4):** the original port's OpenXR host, controller options and weapon rendering.
 - **FireWarden:** CC0 [Lowpoly Pistol](https://opengameart.org/content/lowpoly-pistol), imported with separate animated parts.
 - **Martoscar:** [Namco Arcade Gun](https://sketchfab.com/3d-models/namco-arcade-gun-15fbd5b9add94a34b5c21746e3dd32be),

@@ -11,10 +11,11 @@ def main():
     parser.add_argument('--rom',type=Path,default=Path.home()/'Downloads/timecrs2.zip')
     parser.add_argument('--jobs',type=int,default=2)
     parser.add_argument('--skip-prepare',action='store_true')
+    parser.add_argument('--no-roms',action='store_true',help='Leave the game files out: the player puts their own timecrs2.zip in roms/')
     parser.add_argument('--output',type=Path,default=ROOT/'artifacts/pc/TimeCrisis2VR-PC',help='Portable folder (also determines the ZIP destination)')
     args=parser.parse_args()
     if not args.skip_prepare and not args.rom.is_file():parser.error('ROM ZIP not found')
-    for package in [bootstrap.PACKAGES[3],bootstrap.PACKAGES[5],*bootstrap_pc.PACKAGES]:bootstrap.fetch(package)
+    for package in [bootstrap.PACKAGES[3],bootstrap.PACKAGES[5],*bootstrap.VOICE,*bootstrap_pc.PACKAGES]:bootstrap.fetch(package)
     assets=ROOT/'build/assets' if args.skip_prepare else build.prepare(args.rom)
     build.prepare_sound()
     toolchain=ROOT/'.tools/llvm-mingw/llvm-mingw-20260922-ucrt-x86_64/bin'
@@ -30,12 +31,19 @@ def main():
     package=args.output.resolve();package.mkdir(parents=True,exist_ok=True)
     shutil.copy2(out/'TimeCrisis2VR.exe',package/'TimeCrisis2VR.exe')
     shutil.copy2(ROOT/'.tools/openxr-pc/native/x64/release/bin/openxr_loader.dll',package/'openxr_loader.dll')
-    shutil.copytree(assets/'roms',package/'extracted',dirs_exist_ok=True)
+    if args.no_roms:
+        # The game unpacks the player's own zip into extracted/ on its first start (upstream tc2_rom_setup: here, roms/, beside the exe)
+        shutil.rmtree(package/'extracted',ignore_errors=True);(package/'roms').mkdir(exist_ok=True)
+        (package/'roms/README.txt').write_bytes(b'Put your own Time Crisis II (US TSS3 Ver. B) MAME ROM set here, named timecrs2.zip.\r\n'
+            b'The first start checks every chip by size and CRC and unpacks it into the extracted folder. No game files are included or downloaded.\r\n')
+    else:shutil.copytree(assets/'roms',package/'extracted',dirs_exist_ok=True)
     shutil.copytree(ROOT/'quest/assets/models',package/'models',dirs_exist_ok=True)
     for name in ('LICENSE','NOTICE.md'):shutil.copy2(ROOT/name,package/name)
     licenses=package/'licenses';licenses.mkdir(exist_ok=True)
-    for source,name in [(ROOT/'upstream/LICENSE','namco22.txt'),(ROOT/'.tools/sdl/SDL2-2.30.11/LICENSE.txt','SDL2.txt'),(ROOT/'.tools/zlib/zlib-1.3.1/LICENSE','zlib.txt')]:shutil.copy2(source,licenses/name)
-    for source,name in [(ROOT/'pc/licenses/OpenXR.txt','OpenXR.txt'),(ROOT/'pc/vendor/glad/LICENSE','glad.txt'),(toolchain.parent/'LICENSE.TXT','LLVM.txt')]:shutil.copy2(source,licenses/name)
+    for source,name in [(ROOT/'upstream/LICENSE','namco22.txt'),(ROOT/'.tools/sdl/SDL2-2.30.11/LICENSE.txt','SDL2.txt'),(ROOT/'.tools/zlib/zlib-1.3.1/LICENSE','zlib.txt'),
+                        (ROOT/'.tools/opus/opus-1.5.2/COPYING','Opus-COPYING.txt'),(ROOT/'.tools/rnnoise/rnnoise-0.2/COPYING','RNNoise-COPYING.txt'),
+                        (ROOT/'.tools/speexdsp/speexdsp-SpeexDSP-1.2.1/COPYING','SpeexDSP-COPYING.txt')]:shutil.copy2(source,licenses/name)
+    for source,name in [(ROOT/'pc/licenses/OpenXR.txt','OpenXR.txt'),(ROOT/'pc/vendor/glad/LICENSE','glad.txt'),(ROOT/'tools/fonts/OFL.txt','ChakraPetch-OFL.txt'),(toolchain.parent/'LICENSE.TXT','LLVM.txt')]:shutil.copy2(source,licenses/name)
     runtime_licenses=toolchain.parent/'x86_64-w64-mingw32/share/mingw32'
     for source in runtime_licenses.glob('COPYING*'):shutil.copy2(source,licenses/source.name)
     (package/'Play VR.cmd').write_text('@echo off\ncd /d "%~dp0"\nstart "" TimeCrisis2VR.exe\n')
@@ -47,14 +55,15 @@ def main():
     version=manifest.get('{http://schemas.android.com/apk/res/android}versionName')
     info={'version':version,'platform':'Windows x64','renderer':'OpenGL 4.3 / OpenXR',
           'upstream':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT/'upstream',text=True).strip(),
-          'roms_bundled':True,'validation_notes':'README.md',
+          'roms_bundled':not args.no_roms,'validation_notes':'README.md',
           'exe_sha256':hashlib.sha256((package/'TimeCrisis2VR.exe').read_bytes()).hexdigest()}
     (package/'build-info.json').write_text(json.dumps(info,indent=2)+'\n')
     # Whitelist release files: local playtests may leave inputs, EEPROMs and logs
     # in the portable folder, but those must never enter a public download.
     files=[package/name for name in ('TimeCrisis2VR.exe','openxr_loader.dll','Play VR.cmd','Play Desktop.cmd','Play SteamVR.cmd','Start-SteamVR.ps1','README.md','LICENSE','NOTICE.md','build-info.json')]
     files+=list((package/'licenses').glob('*'))
-    files+=[package/'extracted'/p.name for p in (assets/'roms').iterdir() if p.is_file()]
+    if args.no_roms:files.append(package/'roms/README.txt')
+    else:files+=[package/'extracted'/p.name for p in (assets/'roms').iterdir() if p.is_file()]
     files+=[package/'models'/p.name for p in (ROOT/'quest/assets/models').iterdir() if p.is_file()]
     sums=''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.relative_to(package).as_posix()+'\n' for p in sorted(files))
     (package/'SHA256SUMS.txt').write_text(sums,encoding='ascii');files.append(package/'SHA256SUMS.txt')
