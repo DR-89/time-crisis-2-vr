@@ -122,7 +122,8 @@ Beside the settings file (Quest: the app's files folder; Windows: next to the ex
 
 To change the lobby server in the game, open **ONLINE**, then **CHANGE** beside **Server** in the **YOU** box.
 Enter a hostname or IPv4 address, optionally followed by `:port` (for example `play.example.org:27750`), and choose **SAVE**.
-The screen keyboard includes letters, digits, dots, hyphens and a colon; addresses can be up to 63 characters.
+The screen keyboard starts with lowercase letters; **ABC** / **abc** switches between uppercase and lowercase.
+It also includes digits, dots, hyphens and a colon; addresses can be up to 63 characters.
 Use **CLEAR** to replace the address or **DEFAULT** to fill in `zonesync.net`, then **SAVE** to apply it.
 Do not enter `https://` or a URL path. Both players must use the same server.
 The change is saved in `online.cfg` and takes effect immediately, without restarting the game. **CANCEL** or **B** keeps the old address.

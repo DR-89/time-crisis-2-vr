@@ -151,9 +151,9 @@ int main(void){
     shoot(ID(K_KEY,11));shoot(ID(K_KEY,0));shoot(ID(K_MBTN,1));assert(calls[C_SETIP]==1&&!strcmp(last_text,"192.168.1.1"));
     shoot(ID(K_ON,ON_BACK));
     /* Server editor: cancel, enter host:port with the laser, retry an error, restore the default, and long addresses. */
-    shoot(ID(K_ON,ON_SERVER));save("keyboard-server");
+    shoot(ID(K_ON,ON_SERVER));assert(klower);save("keyboard-server");
     shoot(ID(K_MBTN,3));assert(!kbuf[0]);
-    const char *server_chars="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-.:",*custom="LAN-1.EXAMPLE:30000";
+    const char *server_chars="abcdefghijklmnopqrstuvwxyz0123456789-.:",*custom="lan-1.example:30000";
     for(const char *c=custom;*c;c++)shoot(ID(K_KEY,(int)(strchr(server_chars,*c)-server_chars)));
     shoot(ID(K_MBTN,0));assert(!calls[C_SERVER]&&!strcmp(sv.server,"zonesync.net"));
     shoot(ID(K_ON,ON_SERVER));shoot(ID(K_MBTN,3));
@@ -168,6 +168,11 @@ int main(void){
     save("keyboard-server-long");shoot(ID(K_KEY,0));assert(strlen(kbuf)==63);
     shoot(ID(K_KEY,(int)strlen(server_chars)));assert(strlen(kbuf)==62);
     shoot(ID(K_MBTN,1));assert(strlen(last_text)==62);
+    /* Changing case leaves the text intact and redraws every key; new dialogs start in lowercase. */
+    shoot(ID(K_ON,ON_SERVER));assert(klower);shoot(ID(K_MBTN,3));shoot(ID(K_KEY,0));
+    shoot(ID(K_MBTN,4));assert(!klower&&!strcmp(kbuf,"a"));save("keyboard-server-uppercase");
+    shoot(ID(K_KEY,1));shoot(ID(K_MBTN,4));assert(klower&&!strcmp(kbuf,"aB"));
+    shoot(ID(K_KEY,2));shoot(ID(K_MBTN,1));assert(!strcmp(last_text,"aBc"));
     for(int state=TC2V_JOINING;state<=TC2V_RECONNECTING;state++){
         session(state);tab_to(QMENU_TAB_ONLINE);float x,y;assert(!find(ID(K_ON,ON_SERVER),&x,&y));
     }

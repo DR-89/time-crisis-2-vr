@@ -73,6 +73,7 @@ static const RowDef *row_def(int opt){
 static int tab,screen,page,modal;
 static char kbuf[64];
 static const char *kerror;
+static bool klower;
 static int hover,pressed,focus;
 static bool stick_mode;
 static bool have_pointer;static float ptr_x,ptr_y;   /* the laser on the panel, smoothed */
@@ -525,7 +526,7 @@ static void online_offline(void){
     {const int id=ID(K_ON,ON_SERVER);const float bx=COL2+COLW-20-96;
      text_fit(UI_M17,COL2+100,mid(UI_M17,cy+38,38),COLW-226,V.server,TEXT,2);
      if(button(id,bx,cy+42,96,30,"CHANGE",UI_B16,2,"Choose the lobby server. Both players must use the same server. Changes apply immediately.")){
-         modal=M_SERVER;snprintf(kbuf,sizeof kbuf,"%s",V.server);kerror=NULL;focus=ID(K_KEY,0);
+         modal=M_SERVER;snprintf(kbuf,sizeof kbuf,"%s",V.server);kerror=NULL;klower=true;focus=ID(K_KEY,0);
      }
      focusable(id,F_BUTTON,(int)bx+48);next_row();}
     {static const char *const onoff[]={"ON","OFF"};
@@ -719,9 +720,9 @@ static void confirm(void){
 }
 static void keyboard(void){
     static const char code_keys[]="ACDEFGHJKLMNPQRTUVWXY34679",name_keys[]="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_",ip_keys[]="123456789.0",
-        server_keys[]="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-.:";
+        server_keys[]="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-.:",server_lower_keys[]="abcdefghijklmnopqrstuvwxyz0123456789-.:";
     const bool server_edit=modal==M_SERVER;
-    const char *keys=modal==M_CODE?code_keys:modal==M_NAME?name_keys:server_edit?server_keys:ip_keys;
+    const char *keys=modal==M_CODE?code_keys:modal==M_NAME?name_keys:server_edit?(klower?server_lower_keys:server_keys):ip_keys;
     const int nkeys=(int)strlen(keys),cols=modal==M_IP?3:9,len=modal==M_CODE?4:modal==M_NAME?12:server_edit?63:15;
     const int cells=nkeys+(modal==M_IP?1:2),rows=(cells+cols-1)/cols;
     const float w=modal==M_CODE?720:modal==M_NAME||server_edit?860:560,keyw=modal==M_IP?132:(w-64-(cols-1)*8)/cols;
@@ -764,6 +765,11 @@ static void keyboard(void){
             if(del){if(n>0)kbuf[n-1]=0;}
             else if(n<len){kbuf[n]=keys[i];kbuf[n+1]=0;}
         }
+    }
+    if(server_edit){
+        const float bx=kx+5*(keyw+8),by=ky+(rows-1)*62,bw=keyw*2+8;
+        if(button(ID(K_MBTN,4),bx,by,bw,54,klower?"ABC":"abc",UI_B24,0,"Switch between lowercase and uppercase letters."))klower=!klower;
+        focusable(ID(K_MBTN,4),F_BUTTON,(int)(bx+bw/2));
     }
     next_row();
     if(server_edit){
@@ -946,9 +952,10 @@ static void dirty_add(int id,int *x0,int *y0,int *x1,int *y1){
 bool qmenu_render(const QMenuHost *host,uint8_t *pixels,double now,int dirty[4]){
     H=host;
     /* what is shown, minus the live readings (voice levels, ping, a dropped partner's clock) and the pointer / highlight */
-    struct { int tab,screen,page,modal,stick;char kbuf[64];int opt[QOPT_COUNT];int boot_p,boot_r;unsigned aw,ah;bool unsup,saved; } s;
+    struct { int tab,screen,page,modal,stick;char kbuf[64];int opt[QOPT_COUNT];int boot_p,boot_r;unsigned aw,ah;bool unsup,saved,lower; } s;
     memset(&s,0,sizeof s);
     s.tab=tab;s.screen=screen;s.page=page;s.modal=modal;s.stick=stick_mode;
+    s.lower=modal==M_SERVER&&klower;
     memcpy(s.kbuf,kbuf,sizeof s.kbuf);for(int i=0;i<QOPT_COUNT;i++)s.opt[i]=H->get(i);
     s.boot_p=H->boot_player;s.boot_r=H->boot_resolution;s.aw=H->active_w;s.ah=H->active_h;s.unsup=H->preset_unsupported;s.saved=H->saved;
     tc2_online_view v=V;const int live[]={v.level,v.partner_level,v.ping_ms/10,v.gone_s,v.link_alive,v.link_lagging,v.talking};
