@@ -197,6 +197,8 @@ The lobby and relay are upstream's NMN2 protocol (`upstream/docs/NETPLAY.md`): t
 
 Our C422 model differs inside (its interrupt bookkeeping), but the words a cabinet puts on the cable are the game's own, so the two models interoperate. The cross-play test below checks this from both sides.
 
+**Temporary game-thread stalls (v0.4.1).** The lobby expires a client after five seconds without traffic. Previously, a long render/game-thread stall also stopped its PINGs; an upstream desktop partner kept the room running, so the evicted client could not rejoin it. A timer now sends a copied PING once per second when normal traffic stops, for at most 30 seconds after the last main-thread send. It never advances emulation, sends game frames or receives packets. A mutex protects the socket snapshot, and disconnect/server changes clear it before the socket closes. This covers transient stalls while the process is running; it does not prevent network outages or an OS suspension of the entire process. The log records background keepalives when the main thread resumes.
+
 **Rooms.** A hosted room is created with the name `<NAME> <CODE>`. The code uses 26 characters that cannot be misread: no 0/O, 1/I, 2/Z, 5/S or 8/B. **JOIN ROOM CODE** and **BROWSE GAMES** ask the server for this game's rooms without joining any (`quest/tc2_rooms.c`): DISCOVER returns ANNOUNCE, and a ROOMS request padded to 400 bytes returns ROOMLIST, exactly as the server answers any stranger. They then join that room by id. Upstream players' rooms appear in the same list, without a code, and are joined from the browser. Once inside, every later reconnect asks for the same room.
 
 `quest/tc2_online.c` runs the session. Joining counts as Ready, and the lower slot starts as soon as both are in. Once linked, the episode keeps the link enabled through session gaps and reconnects as described above. `quest/quest_host.c` keeps the arcade running behind menus and focus loss while linked, and polls the lobby every display frame.
@@ -246,6 +248,8 @@ gh release download 0.10.1 -R spacestate1/namco22-decompile -p "windows-release-
 python -X utf8 tests/test_online.py            # 25 scenarios + crossplay on four lanes, about 12 minutes in real time
 python -X utf8 tests/test_online.py --quick    # one of each kind (LAN, room and voice, drop-in, coming back, newcomer, crossplay), about 4 minutes
 python -X utf8 tests/test_online.py dropin p1return   # just these; --serial runs one at a time, --keep keeps screenshots
+python -X utf8 tests/test_online.py crossplay crossplay_stall --serial  # upstream 0.10.1, including a 6.5-second main-thread stall
+python -X utf8 tests/test_net_keepalive.py    # packet identity, cadence, grace expiry, server changes and disconnect
 python -X utf8 tests/test_handedness.py        # the host's input: menu laser, sticks, grips, A / B, the ONLINE tab's open / close
 python -X utf8 tests/test_menu.py             # every menu tab and online state fits; its controls work
 ```

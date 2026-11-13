@@ -491,17 +491,18 @@ def run(name: str, keep: bool, lane: int = 0):
 
 
 UPSTREAM_GAME = BUILD / 'upstream-release/windows-release/TimeCrisis2.exe'
+CROSSPLAY = {'crossplay': 0, 'crossplay_stall': 6500}
 
 
-def crossplay(keep: bool, lane: int = 0):
+def crossplay(keep: bool, lane: int = 0, name: str = 'crossplay'):
     """Our cabinet (P1, hosting a room) against upstream namco22-decompile's own released Time Crisis 2 (P2, headless), through
     upstream's server. Needs build/upstream-release (docs/ONLINE.md, Testing). Checks the link from both sides and upstream's own
     agreed start (it holds its start until our game has run 25 s, reading our trailer)."""
     if not UPSTREAM_GAME.exists():
-        report('[crossplay] SKIPPED: no upstream release in build/upstream-release', flush=True)
-        return True
+        report(f'[{name}] FAIL: no upstream release in build/upstream-release', flush=True)
+        return False
     frames = 6600
-    base = WORK / 'crossplay'
+    base = WORK / name
     base.mkdir(parents=True, exist_ok=True)
     run_dir = WORK / 'cabinets'
     cab, port = lane_cabinets(run_dir, lane)
@@ -509,19 +510,54 @@ def crossplay(keep: bool, lane: int = 0):
     rec = base / 'inputs.rec'
     recording(rec, frames)
     microphone(cab['A'] / 'mic.wav', frames // 60 + 30, 'near')
-    lobby = subprocess.Popen([str(SERVER_EXE), '--port', str(port), '--bind', '127.0.0.1', '--quiet'], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
-    time.sleep(0.5)
-    env = dict(os.environ, SDL_AUDIODRIVER='dummy', TCVR_TEST_HIDDEN='1', TC2_REPLAY=str(rec), TC2_NET_STATUS='1', TC2_NET_SCRIPT='600:hostroom', TC2_NET_ROOM_CODE='KXQ7',
+    # Upstream changes to its executable's directory. Each scenario needs its own
+    # copy, otherwise parallel tests overwrite each other's logs and recordings.
+    upstream_dir = base / 'upstream'
+    upstream_dir.mkdir(exist_ok=True)
+    upstream_exe = upstream_dir / UPSTREAM_GAME.name
+    shutil.copy2(UPSTREAM_GAME, upstream_exe)
+    shutil.copytree(UPSTREAM_GAME.parent / 'roms', upstream_dir / 'roms', dirs_exist_ok=True)
+    script = '600:hostroom'
+    if CROSSPLAY[name]:
+        script += f';2400:freeze={CROSSPLAY[name]}'
+    env = dict(os.environ, SDL_AUDIODRIVER='dummy', TCVR_TEST_HIDDEN='1', TC2_REPLAY=str(rec), TC2_NET_STATUS='1', TC2_NET_SCRIPT=script, TC2_NET_ROOM_CODE='KXQ7',
                TC2_VOICE_IN=str(cab['A'] / 'mic.wav'))
-    ours = subprocess.Popen([str(cab['A'] / 'TimeCrisis2VR.exe'), '--desktop', '--no-dialog', '--frames', str(frames)], cwd=cab['A'], env=env)
-    time.sleep(16)                                   # upstream joins the server's fullest open room: ours, once it exists
     uenv = dict(os.environ, SDL_AUDIODRIVER='dummy', TC2_NET_SERVER=f'127.0.0.1:{port}', TC2_NET_NAME='UPSTREAM', TC2_NET_AUTOSTART='2', TC2_LINKLOG='1', TC2_REPLAY=str(rec))
-    theirs = subprocess.Popen([str(UPSTREAM_GAME), 'reset', str(frames * 2_900_000)], cwd=UPSTREAM_GAME.parent, env=uenv)
-    ours.wait(timeout=frames / 50 + 120)
-    theirs.wait(timeout=frames / 50 + 120)
-    lobby.terminate(); lobby.wait(timeout=10)
+    processes = []
+    with (base / 'server.log').open('w') as server_log:
+        try:
+            lobby = subprocess.Popen([str(SERVER_EXE), '--port', str(port), '--bind', '127.0.0.1'], stdout=server_log, stderr=subprocess.STDOUT)
+            processes.append(lobby)
+            time.sleep(0.5)
+            assert lobby.poll() is None, 'local lobby failed to start'
+            ours = subprocess.Popen([str(cab['A'] / 'TimeCrisis2VR.exe'), '--desktop', '--no-dialog', '--frames', str(frames)], cwd=cab['A'], env=env)
+            processes.append(ours)
+            # Wait for the actual room, not a fixed sleep: a slow boot previously
+            # let upstream create a different room and produced a false failure.
+            deadline = time.monotonic() + 60
+            while True:
+                log = cab['A'] / 'tc2.log'
+                if log.exists() and re.search(r'\[ONLINE\] in room \d+ \(code KXQ7\)', log.read_text(errors='replace')):
+                    break
+                if ours.poll() is not None or time.monotonic() >= deadline:
+                    raise RuntimeError('our cabinet did not open the room')
+                time.sleep(0.1)
+            # Headless upstream can advance while ours stalls. A matching
+            # instruction budget made it exit normally before our test ended,
+            # falsely reporting that a healthy partner had disappeared.
+            theirs = subprocess.Popen([str(upstream_exe), 'reset', str(frames * 2 * 2_900_000)], cwd=upstream_dir, env=uenv)
+            processes.append(theirs)
+            assert ours.wait(timeout=frames / 30 + 180) == 0, 'our cabinet crashed'
+            assert theirs.wait(timeout=frames * 2 / 30 + 180) == 0, 'upstream cabinet crashed'
+        finally:
+            # A failed scenario must not leave clients behind to steal the next
+            # room or keep writing to a log used by the following test.
+            for process in reversed(processes):
+                if process.poll() is None:
+                    process.terminate()
+                process.wait(timeout=10)
     shutil.copy2(cab['A'] / 'tc2.log', base / 'ours.log')
-    shutil.copy2(UPSTREAM_GAME.parent / 'tc2.log', base / 'upstream.log')
+    shutil.copy2(upstream_dir / 'tc2.log', base / 'upstream.log')
     a = (base / 'ours.log').read_text(errors='replace')
     u = (base / 'upstream.log').read_text(errors='replace')
     rows = [tuple(int(v) if v.lstrip('-').isdigit() else v for v in m.groups()) for m in STATUS.finditer(a)]
@@ -530,6 +566,12 @@ def crossplay(keep: bool, lane: int = 0):
     failures = []
     if 'GO: session' not in a or 'online: cabinet Right/Blue' not in u:
         failures.append('the two never linked')
+    if 'server dropped us' in a or 'CONNECTION LOST' in a:
+        failures.append('the lobby evicted our cabinet')
+    if CROSSPLAY[name] and f'freeze {CROSSPLAY[name]}' not in a:
+        failures.append('the main-thread stall was not exercised')
+    if CROSSPLAY[name] and not re.search(r'sent [1-9]\d* background keepalive', a):
+        failures.append('no background keepalive was sent during the stall')
     linked = [r for r in rows if r[2] == 'on' and r[0] >= 2400]
     if not linked or not all(r[3] for r in linked):
         failures.append('our cabinet lost its upstream partner')
@@ -543,7 +585,7 @@ def crossplay(keep: bool, lane: int = 0):
         failures.append('CPU traps or FP exceptions')
     if not re.search(r'partner-voice 0', a):
         failures.append('an upstream partner was taken for a voice-chat partner')
-    report('[crossplay] ' + ('PASS' if not failures else 'FAIL'), flush=True)
+    report(f'[{name}] ' + ('PASS' if not failures else 'FAIL'), flush=True)
     if rows:
         r = rows[-1]
         report(f'    ours (P1): link {r[2]} alive {r[3]} lag {r[4]} game-errors {r[11]}; partner states seen {sorted(set(states))}; upstream sees us as {sorted(set(selfs))}', flush=True)
@@ -562,10 +604,10 @@ def main():
     keep = '--keep' in sys.argv
     if not (PACKAGE / 'TimeCrisis2VR.exe').exists():
         sys.exit('Build first: python -X utf8 tools/build_pc.py --rom <timecrs2.zip>')
-    names = args or (QUICK if '--quick' in sys.argv else [*SCENARIOS, 'crossplay'])
+    names = args or (QUICK if '--quick' in sys.argv else [*SCENARIOS, *CROSSPLAY])
     lanes = 1 if '--serial' in sys.argv else LANES
     # LAN scenarios share lane 0 in turn; room scenarios (and crossplay) take the other lanes, the longest first
-    lan = [n for n in names if n != 'crossplay' and n not in ROOM_SCENARIOS]
+    lan = [n for n in names if n not in CROSSPLAY and n not in ROOM_SCENARIOS]
     rooms = sorted([n for n in names if n not in lan], key=lambda n: -(SCENARIOS[n][0] if n in SCENARIOS else 9000))
     queues = [lan] + [[] for _ in range(max(lanes - 1, 0))]
     if lanes == 1:
@@ -582,7 +624,7 @@ def main():
         results = []
         for n in queue:
             try:
-                results.append(crossplay(keep, lane) if n == 'crossplay' else run(n, keep, lane))
+                results.append(crossplay(keep, lane, n) if n in CROSSPLAY else run(n, keep, lane))
             except Exception as e:                         # one scenario's crash fails it, not the other lanes
                 report(f'[{n}] FAIL\n    - {type(e).__name__}: {e}')
                 results.append(False)

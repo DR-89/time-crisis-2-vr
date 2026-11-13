@@ -4,7 +4,7 @@ Play the **arcade version of Time Crisis II** in VR on **Meta Quest 3** or a **W
 
 Built on the native System 23 reconstruction in **[spacestate1/namco22-decompile](https://github.com/spacestate1/namco22-decompile)**, with the OpenXR host and controller features adapted from [Time Crisis VR](https://github.com/DR-89/time-crisis-vr). This port uses the arcade US TSS3 Ver. B game, not the PlayStation 2 version.
 
-**[Download v0.4.0](https://github.com/DR-89/time-crisis-2-vr/releases/tag/v0.4.0)** | [Quickstart](docs/QUICKSTART.md) | [PCVR setup](docs/PCVR.md) | [Development](docs/DEVELOPMENT.md)
+**[Download v0.4.1](https://github.com/DR-89/time-crisis-2-vr/releases/tag/v0.4.1)** | [Quickstart](docs/QUICKSTART.md) | [PCVR setup](docs/PCVR.md) | [Development](docs/DEVELOPMENT.md)
 
 ![Time Crisis II VR captured on Quest 3](docs/images/tc2-gameplay.jpg)
 
@@ -35,15 +35,15 @@ See **[docs/ONLINE.md](docs/ONLINE.md)** for setup, how it works and the test su
 
 | Platform | Download | Start playing |
 | --- | --- | --- |
-| Quest 3 standalone | [TimeCrisis2VR-v0.4.0-quest3.apk](https://github.com/DR-89/time-crisis-2-vr/releases/download/v0.4.0/TimeCrisis2VR-v0.4.0-quest3.apk) | Sideload with SideQuest or ADB, then open **Time Crisis II VR (Test)** under Unknown sources. |
-| Windows x64 PCVR / desktop | [TimeCrisis2VR-v0.4.0-windows-x64.zip](https://github.com/DR-89/time-crisis-2-vr/releases/download/v0.4.0/TimeCrisis2VR-v0.4.0-windows-x64.zip) | Extract the entire ZIP. Connect your headset, then run **Play VR.cmd**. |
+| Quest 3 standalone | [TimeCrisis2VR-v0.4.1-quest3.apk](https://github.com/DR-89/time-crisis-2-vr/releases/download/v0.4.1/TimeCrisis2VR-v0.4.1-quest3.apk) | Sideload with SideQuest or ADB, then open **Time Crisis II VR (Test)** under Unknown sources. |
+| Windows x64 PCVR / desktop | [TimeCrisis2VR-v0.4.1-windows-x64.zip](https://github.com/DR-89/time-crisis-2-vr/releases/download/v0.4.1/TimeCrisis2VR-v0.4.1-windows-x64.zip) | Extract the entire ZIP. Connect your headset, then run **Play VR.cmd**. |
 
 The release packages include the game files, Namco pistol, fallback pistol and machine-gun models, so no separate ZIP import is needed. The APK uses package `org.timecrisis2.arcadevr` and installs alongside the original Time Crisis VR. Updating an existing test build preserves local settings and cabinet data.
 
 For ADB installation, enable Quest developer mode and accept USB debugging:
 
 ```powershell
-adb install -r TimeCrisis2VR-v0.4.0-quest3.apk
+adb install -r TimeCrisis2VR-v0.4.1-quest3.apk
 ```
 
 For PCVR, connect the headset through **Virtual Desktop**, Quest Link, or another OpenXR setup **before** launching. An ADB cable connection alone is not a PCVR connection. The active runtime must support OpenGL. Virtual Desktop was tested with Quest 3; other runtimes remain unverified for this port. **Play SteamVR.cmd** selects a standard SteamVR installation for this app. **Play Desktop.cmd** runs without a headset.
@@ -51,6 +51,8 @@ For PCVR, connect the headset through **Virtual Desktop**, Quest Link, or anothe
 After the arcade startup, press **A** for credits and then either **trigger** to start. Hold either **grip** to leave cover; release both to hide and reload.
 
 ## Features
+
+**v0.4.1** protects Crossplay sessions from server timeouts during temporary game-thread stalls. See the [release notes](docs/RELEASE_NOTES_0.4.1.md) for the fix and validation.
 
 **v0.4.0** adds online two-player, voice chat, the tabbed pause menu and an in-game server editor. The saved resolution presets, texture filtering and launcher artwork from [v0.3.3](docs/RELEASE_NOTES_0.3.3.md) remain available.
 
@@ -141,7 +143,7 @@ Desktop controls: mouse to aim, left mouse to shoot, right mouse or Space for co
 
 ## Tested status and limitations
 
-**v0.4.0 is experimental.** See the [release notes](https://github.com/DR-89/time-crisis-2-vr/releases/tag/v0.4.0) for checks on these exact packages and the remaining online-play limitations. A new headset playthrough has not been performed for this release.
+**v0.4.1 is experimental.** See the [release notes](docs/RELEASE_NOTES_0.4.1.md) for checks on these exact packages and the remaining online-play limitations. A new headset playthrough has not been performed for this release.
 
 Earlier-release validation: the Namco model and options were exercised on Quest 3; the runtime confirmed 120 Hz during the test startup. Both P1 and Robert-route replays completed 28,201 frames with zero CPU traps, floating-point exceptions or unknown C435 commands. Neither a full Robert-route playthrough nor sustained 120 FPS is established. The hardware and replay results below describe those earlier tests.
 

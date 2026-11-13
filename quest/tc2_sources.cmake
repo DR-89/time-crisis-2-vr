@@ -65,8 +65,21 @@ tc2_online_adapter("${TC}/src/tc2_audio.c" tc2_audio_voice
   "        tc2_voice_played(st, n, SDL_GetQueuedAudioSize(dev) / 4);   /* the echo canceller's reference, as it will play */\n        SDL_QueueAudio(dev, st, (uint32_t)n * 4);\n")
 # Online play: upstream's NMN2 client and built-in host, Time Crisis 2's own copy (tc2/src/eng/net.c, net_host.c). The client gains a room request
 # for the next connect (tc2_online.c: room codes and the lobby browser join a chosen room, hosting creates a named one) and
-# an accessor for the room it is in. Everything else in the library is unchanged.
+# an accessor for the room it is in. A timer keeps the current connection alive
+# through temporary main-thread stalls; it only sends a copied PING packet.
 tc2_online_adapter("${TC}/src/eng/net.c" net_rooms
+  "#include \"net_host.h\"\n"
+  "#include \"net_host.h\"\n#include \"tc2_net_keepalive.h\"\n"
+  "    sendto(sock, (const char *)b, h + len, 0, (struct sockaddr *)&srv, srv_len);\n"
+  "    if (type == T_LEAVE) tc2_net_keepalive_clear();
+    else if (st == ST_LOBBY || st == ST_SESSION) {
+        uint8_t ping[20] = {0};
+        int ph = put_hdr(ping, p, T_PING, 0, room, 4);
+        tc2_net_keepalive_update(sock, &srv, srv_len, ping, ph + 4);
+    }
+    sendto(sock, (const char *)b, h + len, 0, (struct sockaddr *)&srv, srv_len);\n"
+  "closesocket(sock);"
+  "tc2_net_keepalive_clear(); closesocket(sock);"
   "static char hello_room_name[32];\n"
   "static char hello_room_name[32];\nint eng_net_room_request; char eng_net_room_request_name[32];   /* tc2_online.c: the room every connect asks for */\n"
   "    hello_room_sel = 0; hello_room_name[0] = 0; switching = 0; rooms_n = 0;\n"
@@ -118,7 +131,7 @@ set(TC2_SOURCES
   "${TC}/src/tc2_chips.c" "${TC}/src/tc2_screen.c" "${TC}/src/tc2_text.c" "${TC}/src/tc2_game.c"
   "${CMAKE_BINARY_DIR}/tc2_main_link.c" "${TC}/src/tc2_input.c" "${TC}/src/tc2_c435.c"
   "${ROOT}/quest/tc2_link.c" "${ROOT}/quest/tc2_online.c" "${ROOT}/quest/tc2_rooms.c" "${ROOT}/quest/tc2_voice.c" "${ROOT}/quest/tc2_voice_dsp.c"
-  "${CMAKE_BINARY_DIR}/net_rooms.c" "${TC}/src/eng/net_host.c"
+  "${CMAKE_BINARY_DIR}/net_rooms.c" "${ROOT}/quest/tc2_net_keepalive.c" "${TC}/src/eng/net_host.c"
   "${TC}/src/tc2_render.c" "${TC}/src/h8_periph.c" "${TC}/src/tc2_h8.c"
   "${CMAKE_BINARY_DIR}/tc2_audio_voice.c" "${TC}/src/tc2_rom.c" "${TC}/src/eng/romzip.c"
   "${TC}/src/eng/c352.c" "${TC}/gen/tc2_sub.c" "${TC}/gen/tc2_io.c" ${LIFTED}
