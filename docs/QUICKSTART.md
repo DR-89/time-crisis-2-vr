@@ -2,12 +2,12 @@
 
 **The menu:** the left menu button opens it. Point the gun at it and pull the trigger, or use either stick with **A** to select and **B** to go back; the grips switch tabs. **GRAPHICS** has the per-eye resolution (it applies after **RESTART APP**) and texture filtering (default ON).
 
-Download **v0.3.3** from the [release page](https://github.com/DR-89/time-crisis-2-vr/releases/tag/v0.3.3). Both packages include the game files and animated weapons.
+Download **v0.4.0** from the [release page](https://github.com/DR-89/time-crisis-2-vr/releases/tag/v0.4.0). Both packages include the game files and animated weapons.
 
 ## Quest 3
 
 1. Enable developer mode and accept USB debugging in the headset.
-2. Sideload `TimeCrisis2VR-v0.3.3-quest3.apk` with SideQuest or `adb install -r TimeCrisis2VR-v0.3.3-quest3.apk`.
+2. Sideload `TimeCrisis2VR-v0.4.0-quest3.apk` with SideQuest or `adb install -r TimeCrisis2VR-v0.4.0-quest3.apk`.
 3. Open **Time Crisis II VR (Test)** from **Unknown sources**.
 4. Wait for the arcade startup. Press **A** for credits, then either trigger to start.
 

@@ -4,7 +4,7 @@ Play the **arcade version of Time Crisis II** in VR on **Meta Quest 3** or a **W
 
 Built on the native System 23 reconstruction in **[spacestate1/namco22-decompile](https://github.com/spacestate1/namco22-decompile)**, with the OpenXR host and controller features adapted from [Time Crisis VR](https://github.com/DR-89/time-crisis-vr). This port uses the arcade US TSS3 Ver. B game, not the PlayStation 2 version.
 
-**[Download v0.3.3](https://github.com/DR-89/time-crisis-2-vr/releases/tag/v0.3.3)** | [Quickstart](docs/QUICKSTART.md) | [PCVR setup](docs/PCVR.md) | [Development](docs/DEVELOPMENT.md)
+**[Download v0.4.0](https://github.com/DR-89/time-crisis-2-vr/releases/tag/v0.4.0)** | [Quickstart](docs/QUICKSTART.md) | [PCVR setup](docs/PCVR.md) | [Development](docs/DEVELOPMENT.md)
 
 ![Time Crisis II VR captured on Quest 3](docs/images/tc2-gameplay.jpg)
 
@@ -18,6 +18,7 @@ Built on the native System 23 reconstruction in **[spacestate1/namco22-decompile
   - **HOST A ROOM** shows a four-character room code; your friend picks **JOIN WITH CODE** and types it on the on-screen keyboard.
   - **BROWSE GAMES** lists the open rooms and local-network games, five to a page.
   - **LOCAL NETWORK** hosts on your Wi-Fi or VPN and joins by IP; **QUICK MATCH** joins anyone.
+  - **Server → CHANGE** edits the lobby hostname/IP and optional port directly in the game. The keyboard starts in lowercase; **ABC / abc** switches case. **SAVE** applies and persists the address immediately; **DEFAULT** restores `zonesync.net`. Leave your room before changing servers.
   - The two games link automatically. While linked, the tab shows your partner, the link and voice chat.
   - **Left the game, restarted out of it or lost the connection?** **REJOIN** takes you back into that room, as the same cabinet, while it is still open, even after closing the app ([details](docs/ONLINE.md#coming-back-rejoin)).
 - **Drop in, drop out:** the host plays at once with the arcade's own **SOLO/LINKED** ("SOLO START, BUT PERMITS 2P JOIN-IN"), and a friend can join that game whenever they arrive. Until then a stand-in answers on the link as an idle second cabinet, so no second game runs. Either player can leave mid-game and the other plays on.
@@ -34,15 +35,15 @@ See **[docs/ONLINE.md](docs/ONLINE.md)** for setup, how it works and the test su
 
 | Platform | Download | Start playing |
 | --- | --- | --- |
-| Quest 3 standalone | [TimeCrisis2VR-v0.3.3-quest3.apk](https://github.com/DR-89/time-crisis-2-vr/releases/download/v0.3.3/TimeCrisis2VR-v0.3.3-quest3.apk) | Sideload with SideQuest or ADB, then open **Time Crisis II VR (Test)** under Unknown sources. |
-| Windows x64 PCVR / desktop | [TimeCrisis2VR-v0.3.3-windows-x64.zip](https://github.com/DR-89/time-crisis-2-vr/releases/download/v0.3.3/TimeCrisis2VR-v0.3.3-windows-x64.zip) | Extract the entire ZIP. Connect your headset, then run **Play VR.cmd**. |
+| Quest 3 standalone | [TimeCrisis2VR-v0.4.0-quest3.apk](https://github.com/DR-89/time-crisis-2-vr/releases/download/v0.4.0/TimeCrisis2VR-v0.4.0-quest3.apk) | Sideload with SideQuest or ADB, then open **Time Crisis II VR (Test)** under Unknown sources. |
+| Windows x64 PCVR / desktop | [TimeCrisis2VR-v0.4.0-windows-x64.zip](https://github.com/DR-89/time-crisis-2-vr/releases/download/v0.4.0/TimeCrisis2VR-v0.4.0-windows-x64.zip) | Extract the entire ZIP. Connect your headset, then run **Play VR.cmd**. |
 
 The release packages include the game files, Namco pistol, fallback pistol and machine-gun models, so no separate ZIP import is needed. The APK uses package `org.timecrisis2.arcadevr` and installs alongside the original Time Crisis VR. Updating an existing test build preserves local settings and cabinet data.
 
 For ADB installation, enable Quest developer mode and accept USB debugging:
 
 ```powershell
-adb install -r TimeCrisis2VR-v0.3.3-quest3.apk
+adb install -r TimeCrisis2VR-v0.4.0-quest3.apk
 ```
 
 For PCVR, connect the headset through **Virtual Desktop**, Quest Link, or another OpenXR setup **before** launching. An ADB cable connection alone is not a PCVR connection. The active runtime must support OpenGL. Virtual Desktop was tested with Quest 3; other runtimes remain unverified for this port. **Play SteamVR.cmd** selects a standard SteamVR installation for this app. **Play Desktop.cmd** runs without a headset.
@@ -51,7 +52,7 @@ After the arcade startup, press **A** for credits and then either **trigger** to
 
 ## Features
 
-New in **v0.3.3**: saved per-eye resolution presets, default-on texture filtering with an immediate toggle, and Quest launcher icons/banners. See the [release notes](docs/RELEASE_NOTES_0.3.3.md).
+**v0.4.0** adds online two-player, voice chat, the tabbed pause menu and an in-game server editor. The saved resolution presets, texture filtering and launcher artwork from [v0.3.3](docs/RELEASE_NOTES_0.3.3.md) remain available.
 
 - Native arcade MIPS and H8 code translated to C, with the original textured world rendered from tracked stereo viewpoints.
 - Standalone Quest and Windows PCVR builds, plus a normal desktop mode.
@@ -140,7 +141,9 @@ Desktop controls: mouse to aim, left mouse to shoot, right mouse or Space for co
 
 ## Tested status and limitations
 
-**v0.3.3 is experimental.** It adds resolution presets, optional texture filtering and Quest launcher artwork. The earlier v0.3.0 release introduced the calibrated world-scale and `0.2.0-feedback-test.1` changes. The Namco model and options were exercised on Quest 3; the runtime confirmed 120 Hz during the test startup. Both P1 and Robert-route replays completed 28,201 frames with zero CPU traps, floating-point exceptions or unknown C435 commands. Neither a full Robert-route playthrough nor sustained 120 FPS is established.
+**v0.4.0 is experimental.** See the [release notes](https://github.com/DR-89/time-crisis-2-vr/releases/tag/v0.4.0) for checks on these exact packages and the remaining online-play limitations. A new headset playthrough has not been performed for this release.
+
+Earlier-release validation: the Namco model and options were exercised on Quest 3; the runtime confirmed 120 Hz during the test startup. Both P1 and Robert-route replays completed 28,201 frames with zero CPU traps, floating-point exceptions or unknown C435 commands. Neither a full Robert-route playthrough nor sustained 120 FPS is established. The hardware and replay results below describe those earlier tests.
 
 - **Quest 3:** immersive VR and gameplay tested. Health/ammunition alignment and automatic machine-gun switching were confirmed in headset. The runtime has confirmed 120 Hz in standalone sessions; short samples do not establish uninterrupted 120 FPS throughout the game or thermal stability.
 - **Windows PCVR:** the earlier v0.2.0 was tested on Quest 3 through Virtual Desktop on 2026-10-10. The user confirmed VR and controls work and reported a successful playtest. The runtime confirmed **90 Hz**, **1980 x 2160 per eye**, on an **NVIDIA RTX 3050 Laptop GPU**. This is a short gameplay check, not a full-game performance benchmark.
