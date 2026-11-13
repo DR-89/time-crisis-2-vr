@@ -96,6 +96,9 @@ const tc2_room *tc2_rooms_get(int i){return i>=0&&i<room_count?&rooms[i]:NULL;}
 const char *tc2_rooms_server_name(void){return server_name;}
 int tc2_rooms_server_players(void){return server_players;}
 void tc2_rooms_close(void){if(sock!=ENG_SOCK_BAD){closesocket(sock);sock=ENG_SOCK_BAD;}answered=false;}
+void tc2_rooms_reset(void){
+    tc2_rooms_close();resolved_for[0]=0;room_count=0;server_name[0]=0;server_players=0;sent_ms=last_send_ms=0;
+}
 
 void tc2_room_code_make(char out[5]){
     unsigned n=(unsigned)strlen(tc2_room_code_chars);

@@ -108,12 +108,12 @@ static bool last_seen;                     /* the server listed the room since i
 
 /* ---- config ---- */
 static bool cfg_voice=true,cfg_muted=false,cfg_ptt=false,cfg_join_credit=true;static int cfg_volume=100;
-static void save_cfg(void){
-    FILE *f=fopen(CFG_PATH,"w");if(!f)return;
+static bool save_cfg(void){
+    FILE *f=fopen(CFG_PATH,"w");if(!f)return false;
     fprintf(f,"name=%s\nserver=%s\njoin=%u.%u.%u.%u:%d\nvoice=%d\nmic_muted=%d\nvoice_volume=%d\npush_to_talk=%d\njoin_credit=%d\n",name,server,
             join_ip[0],join_ip[1],join_ip[2],join_ip[3],join_port,cfg_voice?1:0,cfg_muted?1:0,cfg_volume,cfg_ptt?1:0,cfg_join_credit?1:0);
     if(last_room_id>0)fprintf(f,"rejoin=%d %s %d %lld %s\n",last_room_id,last_code,last_side,last_time,last_partner);
-    fclose(f);
+    const bool ok=!ferror(f);return fclose(f)==0&&ok;
 }
 static void clean_name(char *s){
     char out[NAME_MAX_LEN+1];int n=0;
@@ -974,6 +974,72 @@ void tc2_online_set_volume(int percent){if(inited)set_volume(percent);}
 void tc2_online_set_name(const char *n){
     if(!inited)return;
     char tmp[32];snprintf(tmp,sizeof tmp,"%s",n);clean_name(tmp);save_cfg();eng_net_set_name(name);
+}
+const char *tc2_online_default_server(void){return DEFAULT_SERVER;}
+const char *tc2_online_set_server(const char *address){
+    if(!inited)return "Online settings are not ready yet.";
+    if(connected_any()||pending_code[0])return "Leave the online game or cancel joining first.";
+    if(!address||!address[0])return "Enter a hostname or IPv4 address.";
+    if(strlen(address)>=sizeof server)return "The server address must be at most 63 characters.";
+    char next[sizeof server];snprintf(next,sizeof next,"%s",address);
+    char *colon=strchr(next,':');unsigned port=0;
+    if(colon){
+        const char *p=colon+1;
+        if(!*p)return "Enter a port from 1 to 65535 after the colon.";
+        for(;*p;p++){
+            if(*p<'0'||*p>'9')return "Use host:port, without https:// or a path.";
+            port=port*10+(unsigned)(*p-'0');
+            if(port>65535)return "The port must be from 1 to 65535.";
+        }
+        if(!port)return "The port must be from 1 to 65535.";
+        *colon=0;
+    }
+    const size_t hostlen=strlen(next);
+    if(!hostlen)return "Enter a hostname or IPv4 address.";
+    bool numeric=true;int label=0;
+    for(size_t i=0;i<hostlen;i++){
+        char c=next[i];if(c>='A'&&c<='Z')c=next[i]=(char)(c-'A'+'a');
+        if(c=='.'){
+            if(!label||next[i-1]=='-')return "Use a valid hostname or IPv4 address.";
+            label=0;continue;
+        }
+        if(!((c>='a'&&c<='z')||(c>='0'&&c<='9')||c=='-')||(!label&&c=='-'))
+            return "Use letters, digits, dots and hyphens for the host.";
+        if(c<'0'||c>'9')numeric=false;
+        label++;
+    }
+    if(next[hostlen-1]=='-')return "A hostname cannot end with a hyphen.";
+    if(numeric){
+        unsigned octets[4];int parts=0;const char *p=next;
+        while(*p){
+            unsigned value=0;int digits=0;
+            while(*p>='0'&&*p<='9'){
+                value=value*10+(unsigned)(*p++-'0');digits++;
+                if(value>255||digits>3)return "IPv4 addresses need four numbers from 0 to 255.";
+            }
+            if(!digits||parts>=4||(*p&&(*p!='.'||!p[1])))return "Enter a complete IPv4 address, such as 192.168.1.20.";
+            octets[parts++]=value;
+            if(*p)p++;
+        }
+        if(parts!=4)return "Enter a complete IPv4 address, such as 192.168.1.20.";
+        snprintf(next,sizeof next,"%u.%u.%u.%u",octets[0],octets[1],octets[2],octets[3]);
+    }
+    if(colon){const size_t n=strlen(next);snprintf(next+n,sizeof next-n,":%u",port);}
+    if(!strcmp(next,server))return NULL;
+    char previous[sizeof server];memcpy(previous,server,sizeof server);
+    const int previous_room=last_room_id;
+    snprintf(server,sizeof server,"%s",next);last_room_id=0;
+    if(!save_cfg()){
+        memcpy(server,previous,sizeof server);last_room_id=previous_room;
+        return "Could not save online.cfg. Check that it is writable.";
+    }
+    /* Room ids and cached replies belong to the old server; never rejoin one on the new server. */
+    last_seen=false;last_code[0]=last_partner[0]=0;last_side=0;last_time=0;rejoin_pref=0;last_check_ms=0;
+    browsing=false;browse_ms=0;game_n=0;pending_code[0]=0;room_id=0;room_code[0]=0;room_owner=false;
+    eng_net_room_request=0;eng_net_room_request_name[0]=0;target[0]=0;
+    tc2_rooms_reset();eng_net_preset_server(server);
+    say("SERVER SAVED",2000);
+    return NULL;
 }
 void tc2_online_leave(void){if(inited&&connected_any()){remember_room();leave();}}
 void tc2_online_rejoin(void){

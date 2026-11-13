@@ -51,6 +51,9 @@ void tc2_online_set_push_to_talk(bool on);
 void tc2_online_set_join_credit(bool on);
 void tc2_online_set_volume(int percent);
 void tc2_online_set_name(const char *name);
+const char *tc2_online_default_server(void);
+/* Save and use a host[:port] while offline. NULL on success, a user-facing error otherwise. */
+const char *tc2_online_set_server(const char *address);
 void tc2_online_leave(void);                           /* also cancels joining and closes an open room */
 void tc2_online_rejoin(void);
 void tc2_online_restart_game(void);                    /* the arcade's TEST restart, coins paid back; leaves first when online */

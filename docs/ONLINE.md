@@ -120,6 +120,15 @@ While linked, a `[LINKHEALTH]` line comes every 30 s, and at once when link fram
 
 Beside the settings file (Quest: the app's files folder; Windows: next to the executable). It is created on first start.
 
+To change the lobby server in the game, open **ONLINE**, then **CHANGE** beside **Server** in the **YOU** box.
+Enter a hostname or IPv4 address, optionally followed by `:port` (for example `play.example.org:27750`), and choose **SAVE**.
+The screen keyboard includes letters, digits, dots, hyphens and a colon; addresses can be up to 63 characters.
+Use **CLEAR** to replace the address or **DEFAULT** to fill in `zonesync.net`, then **SAVE** to apply it.
+Do not enter `https://` or a URL path. Both players must use the same server.
+The change is saved in `online.cfg` and takes effect immediately, without restarting the game. **CANCEL** or **B** keeps the old address.
+Leave your room or cancel joining first: the editor is only available while offline. Changing servers clears the old server's
+room list and saved **REJOIN** entry. Saving checks the address format, not whether the server is reachable.
+
 ```
 name=PLAYER             # shown to your partner
 server=zonesync.net     # room codes, the browser and QUICK MATCH: host or host:port

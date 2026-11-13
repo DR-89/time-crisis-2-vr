@@ -30,8 +30,8 @@ enum { K_TAB=1,K_FOOT,K_ROW,K_SEG,K_STEP,K_TRACK,K_RESET,K_RES,K_ON,K_GAME,K_KEY
 #define ID(k,a) ((k)<<8|(a))
 #define KIND(id) ((id)>>8)
 #define ARG(id) ((id)&255)
-enum { ON_HOST,ON_CODE,ON_BROWSE,ON_QUICK,ON_LAN,ON_REJOIN,ON_NAME,ON_MUTE,ON_LEAVE,ON_BACK,ON_REFRESH,ON_HOSTLAN,ON_IPEDIT,ON_JOINIP,ON_PREV,ON_NEXT };
-enum { M_NONE,M_RESTART,M_RESTART_LEAVE,M_APP,M_CODE,M_NAME,M_IP };
+enum { ON_HOST,ON_CODE,ON_BROWSE,ON_QUICK,ON_LAN,ON_REJOIN,ON_NAME,ON_MUTE,ON_LEAVE,ON_BACK,ON_REFRESH,ON_HOSTLAN,ON_IPEDIT,ON_JOINIP,ON_PREV,ON_NEXT,ON_SERVER };
+enum { M_NONE,M_RESTART,M_RESTART_LEAVE,M_APP,M_CODE,M_NAME,M_IP,M_SERVER };
 enum { S_MAIN,S_BROWSE,S_LAN };
 enum { F_BUTTON,F_SEG,F_SLIDER,F_TABS };   /* what left / right does on a focused row */
 enum { PASS_ACT,PASS_LAYOUT,PASS_DRAW };
@@ -71,7 +71,8 @@ static const RowDef *row_def(int opt){
 
 /* ---- state ---- */
 static int tab,screen,page,modal;
-static char kbuf[24];
+static char kbuf[64];
+static const char *kerror;
 static int hover,pressed,focus;
 static bool stick_mode;
 static bool have_pointer;static float ptr_x,ptr_y;   /* the laser on the panel, smoothed */
@@ -514,13 +515,19 @@ static void online_offline(void){
     frow=1;   /* the right column's rows sit beside the left's: up / down walks each column */
     float ry=CY0;const bool p2=V.home_side==2;
     const float h=52+3*38+(p2?23:0);
-    float cy=box(COL2,ry,COLW,h,"YOU",MUTED,LINE);
+    float cy=box(COL2,ry,COLW,h,p2?"YOU / SOLO P2 ROBERT":"YOU / SOLO P1 KEITH",MUTED,LINE);
     text(UI_M20,COL2+20,mid(UI_M20,cy,38),"Name",MUTED);
     {const int id=ID(K_ON,ON_NAME);const float bx=COL2+COLW-20-96;
      if(drawing())qc_text_fit(&cv,UI_B20,bx-260,mid(UI_B20,cy,38),250,V.name,TEXT,2);
      if(button(id,bx,cy+4,96,30,"CHANGE",UI_B16,2,"Your name in the lobby and on your partner's menu.")){modal=M_NAME;snprintf(kbuf,sizeof kbuf,"%s",V.name);focus=ID(K_KEY,0);}
      focusable(id,F_BUTTON,(int)bx+48);next_row();}
-    kv(COL2+20,cy+38,COLW-40,"Solo cabinet",p2?"P2 \xC2\xB7 ROBERT":"P1 \xC2\xB7 KEITH",TEXT);
+    text(UI_M20,COL2+20,mid(UI_M20,cy+38,38),"Server",MUTED);
+    {const int id=ID(K_ON,ON_SERVER);const float bx=COL2+COLW-20-96;
+     text_fit(UI_M17,COL2+100,mid(UI_M17,cy+38,38),COLW-226,V.server,TEXT,2);
+     if(button(id,bx,cy+42,96,30,"CHANGE",UI_B16,2,"Choose the lobby server. Both players must use the same server. Changes apply immediately.")){
+         modal=M_SERVER;snprintf(kbuf,sizeof kbuf,"%s",V.server);kerror=NULL;focus=ID(K_KEY,0);
+     }
+     focusable(id,F_BUTTON,(int)bx+48);next_row();}
     {static const char *const onoff[]={"ON","OFF"};
      const int c=box_choice(K_CREDIT,COL2,cy+76,"Join with a credit",onoff,2,V.join_credit?0:1,
                             "Joining a game as P2, one credit goes in for you. Continues still take your own coins.");
@@ -686,6 +693,7 @@ static void modal_buttons(float x,float y,float w,const char *ok){
         else if(m==M_CODE){if(strlen(kbuf)==4)tc2_online_join_code(kbuf);}
         else if(m==M_NAME)tc2_online_set_name(kbuf);
         else if(m==M_IP)tc2_online_set_join_ip(kbuf);
+        else if(m==M_SERVER){kerror=tc2_online_set_server(kbuf);if(kerror)modal=M_SERVER;}
     }
     focusable(ID(K_MBTN,1),F_BUTTON,(int)(x+w-32-bw/2));
     next_row();
@@ -710,17 +718,24 @@ static void confirm(void){
     modal_buttons(x,y+h-26-52,w,modal==M_RESTART?"RESTART":modal==M_RESTART_LEAVE?"RESTART & LEAVE":"RESTART APP");
 }
 static void keyboard(void){
-    static const char code_keys[]="ACDEFGHJKLMNPQRTUVWXY34679",name_keys[]="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_",ip_keys[]="123456789.0";
-    const char *keys=modal==M_CODE?code_keys:modal==M_NAME?name_keys:ip_keys;
-    const int nkeys=(int)strlen(keys),cols=modal==M_IP?3:9,len=modal==M_CODE?4:modal==M_NAME?12:15;
+    static const char code_keys[]="ACDEFGHJKLMNPQRTUVWXY34679",name_keys[]="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_",ip_keys[]="123456789.0",
+        server_keys[]="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-.:";
+    const bool server_edit=modal==M_SERVER;
+    const char *keys=modal==M_CODE?code_keys:modal==M_NAME?name_keys:server_edit?server_keys:ip_keys;
+    const int nkeys=(int)strlen(keys),cols=modal==M_IP?3:9,len=modal==M_CODE?4:modal==M_NAME?12:server_edit?63:15;
     const int cells=nkeys+(modal==M_IP?1:2),rows=(cells+cols-1)/cols;
-    const float w=modal==M_CODE?720:modal==M_NAME?860:560,keyw=modal==M_IP?132:(w-64-(cols-1)*8)/cols;
+    const float w=modal==M_CODE?720:modal==M_NAME||server_edit?860:560,keyw=modal==M_IP?132:(w-64-(cols-1)*8)/cols;
     const float slot_h=modal==M_CODE?86:modal==M_NAME?62:72;
-    const float h=26+40+10+slot_h+16+rows*62+18+52+26;
+    const float h=26+40+10+slot_h+16+rows*62+18+52+26+(server_edit?24:0);
     float x,y;modal_frame(w,h,&x,&y);
-    text(UI_B32,x+32,y+26+30,modal==M_CODE?"JOIN WITH CODE":modal==M_NAME?"YOUR NAME":"JOIN BY IP",ACCENT);
+    text(UI_B32,x+32,y+26+30,modal==M_CODE?"JOIN WITH CODE":modal==M_NAME?"YOUR NAME":server_edit?"LOBBY SERVER":"JOIN BY IP",ACCENT);
     const float sy=y+26+40+10;const int n=(int)strlen(kbuf);
-    if(modal==M_IP){
+    if(server_edit){
+        rrect(x+32,sy,w-64,slot_h,14,WELL);rline(x+32,sy,w-64,slot_h,14,3,ACCENT);
+        char first[33];snprintf(first,sizeof first,"%.32s",kbuf);
+        text(UI_B24,x+48,sy+29,first,TEXT);
+        text(UI_B24,x+48,sy+59,n>32?kbuf+32:"",TEXT);
+    }else if(modal==M_IP){
         rrect(x+32,sy,w-64,slot_h,14,WELL);rline(x+32,sy,w-64,slot_h,14,3,ACCENT);
         const int aw=width(UI_B44,kbuf),pw=width(UI_M20,":27750");
         text(UI_B44,x+(w-aw-pw-8)/2,sy+52,kbuf,TEXT);text(UI_M20,x+(w-aw-pw-8)/2+aw+8,sy+52,":27750",MUTED);
@@ -745,11 +760,21 @@ static void keyboard(void){
         char label[8];if(del)snprintf(label,sizeof label,"DEL");else{label[0]=keys[i];label[1]=0;}
         text_fit(del?UI_B20:UI_B24,bx,mid(del?UI_B20:UI_B24,by,54),bw,label,hot?ACCENT:TEXT,1);
         if(clicked(id)){
+            kerror=NULL;
             if(del){if(n>0)kbuf[n-1]=0;}
             else if(n<len){kbuf[n]=keys[i];kbuf[n+1]=0;}
         }
     }
     next_row();
+    if(server_edit){
+        text_fit(UI_M17,x+32,y+h-26-52-10,w-64,kerror?kerror:"Hostname or IPv4, optional :port. Both players use the same server.",kerror?WARN:MUTED,0);
+        if(button(ID(K_MBTN,2),x+32,y+h-26-52,180,52,"DEFAULT",UI_B22,0,"Restore the community server address, then SAVE to apply it.")){
+            snprintf(kbuf,sizeof kbuf,"%s",tc2_online_default_server());kerror=NULL;
+        }
+        focusable(ID(K_MBTN,2),F_BUTTON,(int)x+122);
+        if(button(ID(K_MBTN,3),x+32+194,y+h-26-52,160,52,"CLEAR",UI_B22,0,"Clear the address so you can enter a new one.")){kbuf[0]=0;kerror=NULL;}
+        focusable(ID(K_MBTN,3),F_BUTTON,(int)x+306);
+    }
     modal_buttons(x,y+h-26-52,w,modal==M_CODE?"JOIN":"SAVE");
 }
 
@@ -921,7 +946,7 @@ static void dirty_add(int id,int *x0,int *y0,int *x1,int *y1){
 bool qmenu_render(const QMenuHost *host,uint8_t *pixels,double now,int dirty[4]){
     H=host;
     /* what is shown, minus the live readings (voice levels, ping, a dropped partner's clock) and the pointer / highlight */
-    struct { int tab,screen,page,modal,stick;char kbuf[24];int opt[QOPT_COUNT];int boot_p,boot_r;unsigned aw,ah;bool unsup,saved; } s;
+    struct { int tab,screen,page,modal,stick;char kbuf[64];int opt[QOPT_COUNT];int boot_p,boot_r;unsigned aw,ah;bool unsup,saved; } s;
     memset(&s,0,sizeof s);
     s.tab=tab;s.screen=screen;s.page=page;s.modal=modal;s.stick=stick_mode;
     memcpy(s.kbuf,kbuf,sizeof s.kbuf);for(int i=0;i<QOPT_COUNT;i++)s.opt[i]=H->get(i);
@@ -929,6 +954,7 @@ bool qmenu_render(const QMenuHost *host,uint8_t *pixels,double now,int dirty[4])
     tc2_online_view v=V;const int live[]={v.level,v.partner_level,v.ping_ms/10,v.gone_s,v.link_alive,v.link_lagging,v.talking};
     v.level=v.partner_level=v.ping_ms=v.gone_s=0;v.link_alive=v.link_lagging=v.talking=false;
     uint32_t h=mix(2166136261u,&s,sizeof s);h=mix(h,&v,sizeof v);h=mix(h,games,sizeof games[0]*game_count);h=mix(h,&game_count,sizeof game_count);
+    if(modal==M_SERVER&&kerror)h=mix(h,kerror,strlen(kerror));
     const int point[3]={stick_mode?0:hover,pressed,stick_mode?focus:0};
     uint32_t p=mix(2166136261u,point,sizeof point);p=mix(p,help,strlen(help));
     const uint32_t l=mix(2166136261u,live,sizeof live);

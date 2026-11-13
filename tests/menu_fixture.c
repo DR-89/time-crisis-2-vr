@@ -9,8 +9,9 @@
 /* ---- a scripted online module ---- */
 static tc2_online_view sv;static tc2_online_game sg[16];static int sgn;
 static int calls[32];   /* which actions ran */
-enum { C_HOST,C_CODE,C_QUICK,C_HOSTLAN,C_JOINIP,C_SETIP,C_VOICE,C_VOLUME,C_NAME,C_LEAVE,C_REJOIN,C_RESTART,C_JOINGAME,C_BROWSE,C_MUTE,C_PTT,C_CREDIT };
-static char last_text[32];
+enum { C_HOST,C_CODE,C_QUICK,C_HOSTLAN,C_JOINIP,C_SETIP,C_VOICE,C_VOLUME,C_NAME,C_LEAVE,C_REJOIN,C_RESTART,C_JOINGAME,C_BROWSE,C_MUTE,C_PTT,C_CREDIT,C_SERVER };
+static char last_text[64];
+static const char *server_error;
 void tc2_online_get_view(tc2_online_view *v){*v=sv;}
 int tc2_online_games(tc2_online_game *out,int max){int n=sgn<max?sgn:max;memcpy(out,sg,sizeof *sg*n);return n;}
 void tc2_online_browse(bool open){calls[C_BROWSE]+=open;}
@@ -27,6 +28,12 @@ void tc2_online_set_volume(int p){calls[C_VOLUME]++;sv.volume=p<0?0:p>200?200:p;
 void tc2_online_set_push_to_talk(bool on){calls[C_PTT]++;sv.push_to_talk=on;}
 void tc2_online_set_join_credit(bool on){calls[C_CREDIT]++;sv.join_credit=on;}
 void tc2_online_set_name(const char *n){calls[C_NAME]++;snprintf(last_text,sizeof last_text,"%s",n);}
+const char *tc2_online_default_server(void){return "zonesync.net";}
+const char *tc2_online_set_server(const char *a){
+    calls[C_SERVER]++;snprintf(last_text,sizeof last_text,"%s",a);
+    if(server_error)return server_error;
+    snprintf(sv.server,sizeof sv.server,"%s",a);return NULL;
+}
 void tc2_online_leave(void){calls[C_LEAVE]++;}
 void tc2_online_rejoin(void){calls[C_REJOIN]++;}
 void tc2_online_restart_game(void){calls[C_RESTART]++;}
@@ -143,6 +150,27 @@ int main(void){
     shoot(ID(K_ON,ON_LAN));shoot(ID(K_ON,ON_IPEDIT));save("keyboard-ip");
     shoot(ID(K_KEY,11));shoot(ID(K_KEY,0));shoot(ID(K_MBTN,1));assert(calls[C_SETIP]==1&&!strcmp(last_text,"192.168.1.1"));
     shoot(ID(K_ON,ON_BACK));
+    /* Server editor: cancel, enter host:port with the laser, retry an error, restore the default, and long addresses. */
+    shoot(ID(K_ON,ON_SERVER));save("keyboard-server");
+    shoot(ID(K_MBTN,3));assert(!kbuf[0]);
+    const char *server_chars="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-.:",*custom="LAN-1.EXAMPLE:30000";
+    for(const char *c=custom;*c;c++)shoot(ID(K_KEY,(int)(strchr(server_chars,*c)-server_chars)));
+    shoot(ID(K_MBTN,0));assert(!calls[C_SERVER]&&!strcmp(sv.server,"zonesync.net"));
+    shoot(ID(K_ON,ON_SERVER));shoot(ID(K_MBTN,3));
+    for(const char *c=custom;*c;c++)shoot(ID(K_KEY,(int)(strchr(server_chars,*c)-server_chars)));
+    server_error="Could not save online.cfg. Check that it is writable.";
+    shoot(ID(K_MBTN,1));assert(modal==M_SERVER&&!strcmp(kbuf,custom));save("keyboard-server-error");
+    server_error=NULL;shoot(ID(K_MBTN,1));assert(!modal&&!strcmp(sv.server,custom));
+    shoot(ID(K_ON,ON_SERVER));shoot(ID(K_MBTN,2));assert(!strcmp(kbuf,"zonesync.net"));
+    shoot(ID(K_MBTN,1));assert(!strcmp(sv.server,"zonesync.net"));
+    shoot(ID(K_ON,ON_SERVER));shoot(ID(K_MBTN,3));
+    for(int i=0;i<63;i++)shoot(ID(K_KEY,i%26));
+    save("keyboard-server-long");shoot(ID(K_KEY,0));assert(strlen(kbuf)==63);
+    shoot(ID(K_KEY,(int)strlen(server_chars)));assert(strlen(kbuf)==62);
+    shoot(ID(K_MBTN,1));assert(strlen(last_text)==62);
+    for(int state=TC2V_JOINING;state<=TC2V_RECONNECTING;state++){
+        session(state);tab_to(QMENU_TAB_ONLINE);float x,y;assert(!find(ID(K_ON,ON_SERVER),&x,&y));
+    }
     /* voice: open mic, push to talk, off; a credit to join with */
     base_view();tab_to(QMENU_TAB_ONLINE);
     shoot(ID(K_VOICE,1));assert(sv.voice&&sv.push_to_talk);

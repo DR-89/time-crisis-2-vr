@@ -21,6 +21,8 @@ void tc2_online_join_ip(void){}
 void tc2_online_set_voice(bool on){(void)on;}
 void tc2_online_set_volume(int p){(void)p;}
 void tc2_online_set_name(const char *n){(void)n;}
+const char *tc2_online_default_server(void){return "zonesync.net";}
+const char *tc2_online_set_server(const char *a){(void)a;return NULL;}
 void tc2_online_leave(void){}
 void tc2_online_rejoin(void){}
 void tc2_online_restart_game(void){}
